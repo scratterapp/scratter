@@ -1,0 +1,182 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 25,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "linux-debug",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/linux-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            }
+        },
+        {
+            "name": "linux-asan",
+            "inherits": "linux-debug",
+            "binaryDir": "${sourceDir}/build/linux-asan",
+            "cacheVariables": {
+                "AM_ENABLE_ASAN": "ON"
+            }
+        },
+        {
+            "name": "linux-tsan",
+            "inherits": "linux-debug",
+            "binaryDir": "${sourceDir}/build/linux-tsan",
+            "cacheVariables": {
+                "AM_ENABLE_TSAN": "ON"
+            }
+        },
+        {
+            "name": "linux-fuzz",
+            "inherits": "linux-asan",
+            "binaryDir": "${sourceDir}/build/linux-fuzz",
+            "cacheVariables": {
+                "CMAKE_CXX_COMPILER": "clang++",
+                "AM_BUILD_FUZZERS": "ON"
+            }
+        },
+        {
+            "name": "linux-release",
+            "inherits": "linux-debug",
+            "binaryDir": "${sourceDir}/build/linux-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "linux-cef",
+            "inherits": "linux-debug",
+            "binaryDir": "${sourceDir}/build/linux-cef",
+            "cacheVariables": {
+                "AM_WITH_CEF": "ON"
+            }
+        },
+        {
+            "name": "windows-msvc-debug",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/windows-msvc-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "windows-msvc-release",
+            "inherits": "windows-msvc-debug",
+            "binaryDir": "${sourceDir}/build/windows-msvc-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "linux-debug",
+            "configurePreset": "linux-debug"
+        },
+        {
+            "name": "linux-asan",
+            "configurePreset": "linux-asan"
+        },
+        {
+            "name": "linux-tsan",
+            "configurePreset": "linux-tsan"
+        },
+        {
+            "name": "linux-fuzz",
+            "configurePreset": "linux-fuzz"
+        },
+        {
+            "name": "linux-release",
+            "configurePreset": "linux-release"
+        },
+        {
+            "name": "linux-cef",
+            "configurePreset": "linux-cef"
+        },
+        {
+            "name": "windows-msvc-debug",
+            "configurePreset": "windows-msvc-debug"
+        },
+        {
+            "name": "windows-msvc-release",
+            "configurePreset": "windows-msvc-release"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "linux-debug",
+            "configurePreset": "linux-debug",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "linux-asan",
+            "configurePreset": "linux-asan",
+            "output": {
+                "outputOnFailure": true
+            },
+            "environment": {
+                "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1",
+                "UBSAN_OPTIONS": "print_stacktrace=1:halt_on_error=1"
+            }
+        },
+        {
+            "name": "linux-tsan",
+            "configurePreset": "linux-tsan",
+            "output": {
+                "outputOnFailure": true
+            },
+            "environment": {
+                "TSAN_OPTIONS": "halt_on_error=1:second_deadlock_stack=1:suppressions=${sourceDir}/tests/tsan.supp"
+            }
+        },
+        {
+            "name": "linux-fuzz",
+            "inherits": "linux-asan",
+            "configurePreset": "linux-fuzz"
+        },
+        {
+            "name": "linux-release",
+            "configurePreset": "linux-release",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "linux-cef",
+            "configurePreset": "linux-cef",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "windows-msvc-debug",
+            "configurePreset": "windows-msvc-debug",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "windows-msvc-release",
+            "configurePreset": "windows-msvc-release",
+            "output": {
+                "outputOnFailure": true
+            }
+        }
+    ]
+}

@@ -1,0 +1,89 @@
+# Development setup
+
+Today the build needs a compiler, CMake, Ninja and git, plus the PipeWire and
+libsecret development files on Linux. The first configure downloads Catch2 (the test framework), so it needs
+internet. The libraries listed under
+"Later" aren't wired into CMake yet; they're what the spec calls for, so install them
+when you start on the matching module. How third-party dependencies get pulled in
+(system packages, vcpkg, `FetchContent`) is still an open decision.
+
+## Arch Linux
+
+Needed now:
+
+```sh
+sudo pacman -S --needed base-devel git cmake ninja clang pipewire libsecret systemd-libs
+```
+
+`pipewire` ships the headers and the `libpipewire-0.3` pkg-config file the audio sink
+builds against, `libsecret` does the same for the login-keyring vault, and
+`systemd-libs` (already installed on any systemd Arch) for sd-bus, which the
+media keys use (`pkgconf` comes with `base-devel`). On Ubuntu, which CI uses, the
+equivalent is `pkg-config libpipewire-0.3-dev libsecret-1-dev libsystemd-dev`. The
+vault tests also need a keyring daemon running (GNOME Keyring or KWallet, which
+your desktop normally starts); without one they skip. The media keys tests need a
+D-Bus session bus, which every desktop login has; without one they skip.
+
+Later, by module:
+
+| Module | Packages |
+| --- | --- |
+| ALSA fallback sink | `alsa-lib` |
+| Real-time thread priority | `rtkit` |
+| Network and catalog (`src/net/`) | `curl simdjson` |
+| UI (Vulkan + GLFW or SDL3) | `vulkan-headers vulkan-icd-loader glfw` or `sdl3` |
+| Tooling | `lldb` (debugger), `playerctl` (testing MPRIS) |
+
+Dear ImGui and CEF aren't installed from pacman: ImGui will likely be vendored or
+fetched by CMake. CEF is built from source with AAC turned on (the prebuilt
+downloads can't decode Apple Music's audio) and unpacked into `third_party/cef/`
+(git-ignored). See spec section 3.1.1; the build script lives on the
+`experiment/cef-widevine` branch for now. Once it's there, the `linux-cef` preset
+builds the daemon with it, and CEF needs a Widevine CDM that a browser installed
+(`chromium` plus `chromium-widevine` from the AUR, or `google-chrome`). See
+[`learning/cef-host.md`](learning/cef-host.md).
+
+Build:
+
+```sh
+cmake --preset linux-debug
+cmake --build --preset linux-debug
+ctest --preset linux-debug
+```
+
+Swap `linux-debug` for `linux-asan` (AddressSanitizer + UBSan) or `linux-tsan`
+(ThreadSanitizer) to run the same tests under a sanitizer. `linux-fuzz` also
+builds the libFuzzer targets; it needs `clang` and its sanitizer runtimes
+(`compiler-rt` on Arch). The preset uses plain `clang++`. On Ubuntu 24.04 that's
+clang 18, which can't compile `std::expected`, so add
+`-DCMAKE_CXX_COMPILER=clang++-20` to the configure step there (CI does).
+
+## Windows 10/11
+
+The spec targets Windows 10 build 19041 or later, x86_64.
+
+Needed now, from an admin PowerShell:
+
+```powershell
+winget install --id Git.Git
+winget install --id Kitware.CMake
+winget install --id Ninja-build.Ninja
+winget install --id Microsoft.VisualStudio.2022.Community --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended"
+```
+
+The "Desktop development with C++" workload brings MSVC and a Windows 10/11 SDK
+(10.0.19041 or newer). The VS Build Tools edition works too
+(`Microsoft.VisualStudio.2022.BuildTools`, workload `Microsoft.VisualStudio.Workload.VCTools`).
+
+WASAPI, DPAPI, Named Pipes, IOCP, DirectX 11 and C++/WinRT (SMTC) all ship with the
+Windows SDK. libcurl, simdjson and ImGui will come from vcpkg or `FetchContent` once
+that's decided. CEF needs its own Windows build with AAC turned on, unpacked into
+`third_party/cef/` (spec section 3.1.1).
+
+Build, from **Developer PowerShell for VS 2022** (so `cl.exe` is on the path):
+
+```powershell
+cmake --preset windows-msvc-debug
+cmake --build --preset windows-msvc-debug
+ctest --preset windows-msvc-debug
+```

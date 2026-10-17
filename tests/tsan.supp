@@ -1,0 +1,11 @@
+# ThreadSanitizer suppressions, used by the linux-tsan test preset.
+#
+# GLib (which libsecret runs on) isn't built with TSan, and its locks are made
+# from raw futex calls TSan can't see. So when GLib's own "gdbus" thread and our
+# thread both touch memory GLib guards with those locks, TSan reports a race
+# that isn't one. These lines tell TSan to ignore memory operations made from
+# inside GLib; races in our code are still reported.
+called_from_lib:libglib-2.0.so
+called_from_lib:libgio-2.0.so
+called_from_lib:libgobject-2.0.so
+called_from_lib:libsecret-1.so

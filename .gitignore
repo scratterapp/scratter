@@ -1,0 +1,58 @@
+# Build and IDE output
+build/
+out/
+.cache/
+compile_commands.json
+.vs/
+.vscode/
+*.user
+
+# Bundled/proprietary runtime assets
+third_party/cef/*
+*widevine*
+
+# Credentials
+*.token
+*.key
+*.p8
+*.pem
+.env*
+
+# Compiler and linker output
+# Prerequisites
+*.d
+*.slo
+*.lo
+*.o
+*.obj
+*.gch
+*.pch
+*.ilk
+*.pdb
+*.so
+*.dylib
+*.dll
+*.so.*
+*.mod
+*.smod
+*.lai
+*.la
+*.a
+*.lib
+*.exe
+*.out
+*.app
+Build/
+build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+install_manifest.txt
+*.tmp
+*.log
+*.bak
+*.swp
+vcpkg_installed/
+*.dwo
+Testing/

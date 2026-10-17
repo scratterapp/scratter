@@ -1,0 +1,173 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read # dorny/paths-filter lists PR files through the API
+
+jobs:
+  changes:
+    name: Detect platform changes
+    runs-on: ubuntu-latest
+    outputs:
+      linux: ${{ steps.filter.outputs.linux }}
+      windows: ${{ steps.filter.outputs.windows }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            linux:
+              - '**'
+              - '!src/pal/win32/**'
+            windows:
+              - '**'
+              - '!src/pal/linux/**'
+
+  linux-build:
+    name: Linux build (${{ matrix.preset }})
+    needs: changes
+    if: needs.changes.outputs.linux == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [linux-debug, linux-asan, linux-tsan]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          # Ubuntu 24.04's default clang is 18, which can't use libstdc++'s
+          # std::expected (it reports C++20 concepts as incomplete). 20 can.
+          # Sanitizer runtimes ship separately from clang on Ubuntu.
+          # dbus gives the tests a session bus (see Test below).
+          sudo apt-get install --no-install-recommends -y clang-20 libclang-rt-20-dev ninja-build pkg-config libpipewire-0.3-dev libsecret-1-dev libsystemd-dev dbus
+      - name: Allow ThreadSanitizer's memory layout
+        if: matrix.preset == 'linux-tsan'
+        # TSan aborts on Ubuntu's default ASLR entropy ("unexpected memory mapping").
+        run: sudo sysctl vm.mmap_rnd_bits=28
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }} -DCMAKE_CXX_COMPILER=clang++-20
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+      - name: Test
+        # dbus-run-session starts a private D-Bus session bus for the run, so
+        # the media keys (MPRIS) tests have one to talk over.
+        run: dbus-run-session -- ctest --preset ${{ matrix.preset }}
+
+  # Phase 1 gate (spec section 6): the IPC frame parser survives 10 million
+  # fuzzed inputs under ASan and UBSan. The TSan and ASan test runs in the job
+  # above cover the rest of the gate.
+  ipc-fuzz:
+    name: Fuzz IPC frame parser
+    needs: changes
+    if: needs.changes.outputs.linux == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          # pkg-config, PipeWire, libsecret and libsystemd headers because
+          # configuring the project looks for them (the PipeWire sink, the
+          # keyring vault and the media keys).
+          sudo apt-get install --no-install-recommends -y clang-20 libclang-rt-20-dev ninja-build pkg-config libpipewire-0.3-dev libsecret-1-dev libsystemd-dev
+      - name: Configure
+        run: cmake --preset linux-fuzz -DCMAKE_CXX_COMPILER=clang++-20
+      - name: Build
+        run: cmake --build --preset linux-fuzz --target fuzz_ipc_framing
+      - name: Fuzz
+        # On a crash libFuzzer writes the input that caused it to crash-<hash>
+        # in the working directory; the next step uploads it.
+        working-directory: build/linux-fuzz
+        run: ./tests/fuzz_ipc_framing -runs=10000000 -print_final_stats=1
+      - name: Upload crashing input
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash
+          path: |
+            build/linux-fuzz/crash-*
+            build/linux-fuzz/leak-*
+            build/linux-fuzz/timeout-*
+          if-no-files-found: ignore
+
+  # Builds the daemon with CEF (the linux-cef preset) so the CEF host keeps
+  # compiling. It uses Google's prebuilt CEF of the same version as ours: that
+  # one can't decode AAC, but it builds and links the same. Nothing here plays
+  # anything; the hand test on a machine with our AAC build does that.
+  linux-cef-build:
+    name: Linux build (linux-cef)
+    needs: changes
+    if: needs.changes.outputs.linux == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CEF_VERSION: 150.0.22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          # libx11-dev because CEF's Linux build links X11.
+          sudo apt-get install --no-install-recommends -y clang-20 ninja-build pkg-config libpipewire-0.3-dev libsecret-1-dev libsystemd-dev libx11-dev dbus
+      - name: Cache CEF
+        id: cache-cef
+        uses: actions/cache@v4
+        with:
+          path: third_party/cef
+          key: cef-${{ env.CEF_VERSION }}-linux64-minimal
+      - name: Download CEF
+        if: steps.cache-cef.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p third_party/cef
+          cd third_party/cef
+          curl -fsSL https://cef-builds.spotifycdn.com/index.json -o index.json
+          # The "minimal" download of CEF_VERSION: release libraries only.
+          read -r name sha1 < <(python3 -I - <<'PY'
+          import json, os
+          wanted = os.environ["CEF_VERSION"] + "+"
+          for build in json.load(open("index.json"))["linux64"]["versions"]:
+              if build["cef_version"].startswith(wanted):
+                  for f in build["files"]:
+                      if f["type"] == "minimal":
+                          print(f["name"], f["sha1"])
+                          raise SystemExit
+          raise SystemExit("CEF " + wanted + " isn't in index.json")
+          PY
+          )
+          curl -fsSL "https://cef-builds.spotifycdn.com/${name//+/%2B}" -o "$name"
+          echo "$sha1  $name" | sha1sum -c -
+          mkdir linux64
+          tar -xjf "$name" -C linux64 --strip-components=1
+          rm "$name" index.json
+      - name: Configure
+        run: cmake --preset linux-cef -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_C_COMPILER=clang-20
+      - name: Build
+        run: cmake --build --preset linux-cef
+      - name: Test
+        # The usual tests, with a daemon that links CEF but plays the tone.
+        run: dbus-run-session -- ctest --preset linux-cef
+
+  windows-build:
+    name: Windows build
+    needs: changes
+    if: needs.changes.outputs.windows == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Install Ninja
+        run: choco install ninja --no-progress -y
+      - name: Configure
+        run: cmake --preset windows-msvc-debug
+      - name: Build
+        run: cmake --build --preset windows-msvc-debug
+      - name: Test
+        run: ctest --preset windows-msvc-debug

@@ -1,0 +1,10 @@
+# Who GitHub asks to review a PR. The last matching line wins.
+#
+# kero is only asked when a PR touches Windows-only files. Shared code
+# (src/common/, src/pal/interfaces/, CMake) still needs his eyes before
+# Windows builds on it, but that's handled by tagging him by hand, not by
+# requesting him on every PR.
+* @cocoa55
+
+/src/pal/win32/ @cocoa55 @kerelosgayed
+/docs/windows/ @cocoa55 @kerelosgayed
