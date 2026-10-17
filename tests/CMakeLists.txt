@@ -44,7 +44,7 @@ set(AM_TESTS
 )
 
 # These need a platform implementation, and only Linux has one so far.
-# Move test_realtime into the list above once the Windows side of #18 (#20)
+# Move test_realtime into the list above once the Windows side of #18 (#14)
 # lands; it tests behavior the platforms share. test_epoll_reactor,
 # test_pipewire_sink and test_unix_seqpacket_ipc stay Linux-only, and so does
 # test_mpris_controls, which talks D-Bus to the MPRIS code.

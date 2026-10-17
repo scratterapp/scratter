@@ -1,7 +1,7 @@
 // Tests for CredentialVault (src/pal/interfaces/credential_vault.hpp).
 //
 // These are the contract both platforms have to meet: Linux's keyring vault
-// (#53) and Windows' Credential Manager vault (#54). Each test uses its own
+// (#53) and Windows' Credential Manager vault (#10). Each test uses its own
 // throwaway service name, "<product>-test-<test>", so it never touches the real
 // saved logins.
 //

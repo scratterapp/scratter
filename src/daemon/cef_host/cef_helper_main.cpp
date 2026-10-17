@@ -10,7 +10,7 @@
 // stack protector checks when a function returns. main() was already running
 // before the fork, so it still holds the zygote's old canary; when the child
 // finishes and main() returns, the check fails and glibc kills the process
-// with "*** stack smashing detected ***". The #49 experiment hit exactly this
+// with "*** stack smashing detected ***". The #5 experiment hit exactly this
 // when playback stopped. CEF's own samples mark main() this way for the same
 // reason.
 

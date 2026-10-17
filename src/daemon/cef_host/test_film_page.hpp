@@ -1,11 +1,11 @@
 #pragma once
 
-// The page the daemon plays until Apple Music arrives (issue #77): Google's
+// The page the daemon plays until Apple Music arrives (issue #4): Google's
 // public Widevine test film "Angel One", audio only, through Shaka Player.
 // Google encrypts it with Widevine and runs a test license server that gives
 // the key to anyone, so it exercises the same path as an Apple Music track
 // (AAC audio, a Widevine license, protected audio reaching CefAudioHandler)
-// without an Apple account. The #49 experiment used the same film.
+// without an Apple account. The #5 experiment used the same film.
 //
 // CEF serves this from memory at kTestFilmUrl. It has to be an https address:
 // Chromium refuses DRM on file:// pages ("EME use is not allowed on unique

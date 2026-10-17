@@ -2,7 +2,7 @@
 //
 // Until then this is a stub so the daemon links on Windows: open() fails with "not
 // supported", so nothing can call the other functions. Replace the whole file
-// with the real vault (src/pal/interfaces/credential_vault.hpp, issue #54).
+// with the real vault (src/pal/interfaces/credential_vault.hpp, issue #10).
 
 #include "credential_vault.hpp"
 

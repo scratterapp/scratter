@@ -15,7 +15,7 @@
 // saying how to turn it on. With it on, cef_host.cpp is the real thing.
 //
 // For now the only page is a built-in one that plays Google's public
-// Widevine test film (test_film_page.hpp). Apple Music comes with issue #77.
+// Widevine test film (test_film_page.hpp). Apple Music comes with issue #4.
 //
 // Call everything here from one thread, the daemon's reactor thread. CEF runs
 // on threads of its own (CefSettings::multi_threaded_message_loop), so the

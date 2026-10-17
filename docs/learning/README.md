@@ -8,6 +8,11 @@ It assumes you know some C++ but haven't done much systems, lock-free or audio
 work. Each section is short on purpose: read it, read the spec section it points
 at, then open the issue.
 
+> **About issue numbers:** the project moved to a fresh repository on 2026-10-17. Open
+> issues came along with new numbers (#1 to #14), and this guide uses those. Finished
+> issues and PRs (like #4, #53 or #81) keep their old numbers from the first tracker,
+> which is archived and private, so they won't open on GitHub.
+
 - [How to work an issue](#how-to-work-an-issue)
 - [Phase 1: primitives, shared memory and IPC](#phase-1-primitives-shared-memory-and-ipc)
 - [Phase 2: real-time audio](#phase-2-real-time-audio)
@@ -242,7 +247,7 @@ Spec: section 3.1.3, 3.2 and the Phase 1 gate in section 6.
   peer with `SO_PEERCRED`, and how to benchmark honestly.
 - **Read:** `man 7 unix`.
 
-### #16 Windows: message-mode named pipe (kero)
+### #12 Windows: message-mode named pipe (kero)
 
 - **How:** `CreateNamedPipeW(L"\\\\.\\pipe\\scratterd_v2", ...)` with
   `PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE`, `FILE_FLAG_OVERLAPPED` and
@@ -299,7 +304,7 @@ slow. Spec: 3.1.4, section 4 and the Phase 2 gate.
 - **Read:** the PipeWire tutorial (`tutorial4.c`, "playing a tone"), and Ross
   Bencina's "Real-time audio programming 101: time waits for nothing".
 
-### #20 Windows: WASAPI shared low-latency sink (kero)
+### #14 Windows: WASAPI shared low-latency sink (kero)
 
 - **How:** `IAudioClient3::InitializeSharedAudioStream` at the minimum period,
   event-driven callback, MMCSS "Pro Audio" priority, `VirtualLock` on the buffer.
@@ -323,23 +328,23 @@ slow. Spec: 3.1.4, section 4 and the Phase 2 gate.
   zita-ajbridge), and Julius O. Smith's online "Digital Audio Resampling Home Page".
 - **Done:** [drift-controller.md](drift-controller.md) walks through both headers and the test.
 
-### #22 Linux: ALSA fallback and bit-perfect `hw:` sink (robbie, parked until after phase 3)
+### #7 Linux: ALSA fallback and bit-perfect `hw:` sink (robbie, parked until after phase 3)
 
 - **How:** `snd_pcm_open` on `hw:X,Y`, negotiate the exact format the device
   supports, no software mixing.
 - **You learn:** what "bit-perfect" means and why it rules out mixing, resampling
   and volume in software.
 
-### #23 Windows: WASAPI exclusive mode (kero, later)
+### #13 Windows: WASAPI exclusive mode (kero, later)
 
 - **How:** `AUDCLNT_SHAREMODE_EXCLUSIVE` with event callbacks.
-- **You learn:** the Windows counterpart of #22.
+- **You learn:** the Windows counterpart of #7.
 
 ---
 
 ## Phases 3 to 5: CEF, metadata, media keys and the UI
 
-Phase 3 now has issues (#47 to #57, listed on the roadmap issue). The ones
+Phase 3 now has issues (listed on the roadmap issue). The ones
 started so far get a section here; the rest are summarized after them.
 
 ### #48 IPC message bodies (shared)
@@ -388,7 +393,7 @@ started so far get a section here; the rest are summarized after them.
   with `open()`, `store()`, `load()` and `remove()`, filed under a service named
   after the product. `load()` returns an empty `optional` for "nothing saved",
   so that case isn't an error. Both platform files are "not supported" stubs;
-  `tests/test_credential_vault.cpp` is the contract #53 and #54 must pass. The
+  `tests/test_credential_vault.cpp` is the contract #53 and #10 must pass. The
   same PR made the daemon republish telemetry the moment a command changes
   something, before it sends the ack.
 - **You learn:** designing a small platform interface: picking the verbs, saying
@@ -419,7 +424,7 @@ started so far get a section here; the rest are summarized after them.
   (`set_track`, `set_playback_state`, `set_position`, `seeked`, `set_volume`)
   tell the desktop what's playing. Both platform files are "not supported"
   stubs; `tests/test_media_controls.cpp` is the daemon-side contract #56 and
-  #57 must pass.
+  #9 must pass.
 - **You learn:** designing an interface with traffic in both directions, why
   every event gets delivered on one thread, and why "how often may I call
   this?" belongs in the header.
@@ -472,9 +477,9 @@ started so far get a section here; the rest are summarized after them.
 
 ### Still to come in phase 3
 
-- **#77 Apple Music through MusicKit JS** (waits on the MusicKit key), **#78 the
-  login popup** that stores the user token in the vault, **#79 a 4-hour soak
-  test**, and **#80** the Windows build of CEF. You learn: EME/Widevine against
+- **#4 Apple Music through MusicKit JS** (waits on the MusicKit key), **#3 the
+  login popup** that stores the user token in the vault, **#2 a 4-hour soak
+  test**, and **#8** the Windows build of CEF. You learn: EME/Widevine against
   a real service, and OS secret storage in use. Spec 3.1.1, 3.1.2, 3.3.3.
 - **Phase 4, metadata and media keys.** libcurl's multi interface driven by our
   reactor, `simdjson` On-Demand parsing into an arena allocator, MPRIS over sd-bus
@@ -502,15 +507,15 @@ Where each idea first shows up, so you can jump to the issue that teaches it.
 | Checksums, intrinsics, CPU feature detection | #9 |
 | Alignment, padding, endianness, `std::bit_cast` | #10 |
 | Fuzzing | #10, #17 |
-| Message vs stream transports | #11, #15, #16 |
+| Message vs stream transports | #11, #15, #12 |
 | Readiness (epoll) vs completion (IOCP) I/O | #12, #13, #14 |
 | Honest latency benchmarks | #15 |
-| Real-time threads, `mlock`, zero-syscall audio | #18, #19, #20 |
+| Real-time threads, `mlock`, zero-syscall audio | #18, #19, #14 |
 | Clock drift, PI control, resampling | #21 |
 | Message bodies, wire-format versioning | #48 |
 | Event loops, signal handling, startup/shutdown order | #50 |
 | Request/answer over IPC, testable command-line parsing | #51 |
-| Designing a small interface, OS secret storage | #52, #53, #54 |
+| Designing a small interface, OS secret storage | #52, #53, #10 |
 | D-Bus, the Secret Service, wrapping a C library's errors | #53 |
-| Two-way interfaces, events on one thread, desktop media keys | #55, #56, #57 |
+| Two-way interfaces, events on one thread, desktop media keys | #55, #56, #9 |
 | Browser processes, stack canaries, sandboxes, optional dependencies | #76 |

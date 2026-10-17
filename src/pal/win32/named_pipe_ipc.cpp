@@ -2,7 +2,7 @@
 //
 // Until then this is a stub so the daemon links on Windows: connect() and
 // listen() fail with "not supported". Replace the whole file with the real
-// pipe (src/pal/interfaces/ipc_channel.hpp, issue #16).
+// pipe (src/pal/interfaces/ipc_channel.hpp, issue #12).
 
 #include "ipc_channel.hpp"
 

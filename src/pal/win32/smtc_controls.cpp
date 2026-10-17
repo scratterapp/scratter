@@ -2,7 +2,7 @@
 //
 // Until then this is a stub so the daemon links: open() fails with "not
 // supported", so nothing can call the other functions. Replace the whole file
-// with the real thing (src/pal/interfaces/media_controls.hpp, issue #57).
+// with the real thing (src/pal/interfaces/media_controls.hpp, issue #9).
 
 #include "media_controls.hpp"
 
