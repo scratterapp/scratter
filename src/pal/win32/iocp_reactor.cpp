@@ -10,6 +10,12 @@
 //     something else.
 //   - A wakeup, posted by wake() from any thread under a reserved key.
 //
+// post() never touches the port. Some operations finish without the OS queuing
+// anything (ConnectNamedPipe returning ERROR_PIPE_CONNECTED, a ReadFile that fails
+// at once), so the reactor keeps its own queue of events and delivers them after
+// each batch of packets, through the same watch lookup, so a stale one is dropped
+// the same way.
+//
 // The timer is not a packet. There is only one timer, so the reactor thread
 // keeps its deadline and folds the time left into the timeout it gives
 // GetQueuedCompletionStatusEx, then runs the callback itself once the wait ends
@@ -34,6 +40,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <expected>
 #include <memory>
 #include <optional>
@@ -129,6 +136,14 @@ struct Reactor::Impl {
 
     Callback wake_callback;
 
+    // Events from post(), waiting for the next pass. They name the watch by key,
+    // so one for an unwatched handle is dropped when it comes up.
+    struct Posted {
+        ULONG_PTR key = 0;
+        IoEvent event;
+    };
+    std::deque<Posted> posted;
+
     struct Timer {
         bool armed = false;
         Clock::time_point deadline{};
@@ -161,7 +176,11 @@ struct Reactor::Impl {
             if (timer.armed && (!wake_at || timer.deadline < *wake_at)) {
                 wake_at = timer.deadline;
             }
-            const DWORD wait_ms = wake_at ? ms_until(*wake_at, now) : INFINITE;
+            // Posted events are ready now, so don't wait for the OS to report anything.
+            DWORD wait_ms = wake_at ? ms_until(*wake_at, now) : INFINITE;
+            if (!posted.empty()) {
+                wait_ms = 0;
+            }
 
             ULONG count = 0;
             if (::GetQueuedCompletionStatusEx(port, entries.data(), kBatchSize, &count, wait_ms,
@@ -169,6 +188,7 @@ struct Reactor::Impl {
                 for (ULONG i = 0; i < count; ++i) {
                     dispatch(entries[i]);
                 }
+                deliver_posted();
                 fire_timer_if_due();
                 return {};
             }
@@ -180,6 +200,10 @@ struct Reactor::Impl {
 
             // The wait ran out, but it can end a little early, so look at the clock
             // rather than trusting it.
+            if (deliver_posted()) {
+                fire_timer_if_due();
+                return {};
+            }
             if (fire_timer_if_due()) {
                 return {};
             }
@@ -230,6 +254,28 @@ struct Reactor::Impl {
         if (*callback) {
             (*callback)(event);
         }
+    }
+
+    // Delivers the events post() queued before this call. One that a callback
+    // posts meanwhile waits for the next pass, so a callback that keeps posting
+    // can't keep the loop from ever returning. Returns whether there were any.
+    bool deliver_posted() {
+        if (posted.empty()) {
+            return false;
+        }
+        std::deque<Posted> batch;
+        batch.swap(posted);
+        for (const Posted& entry : batch) {
+            const auto it = watch_by_key.find(entry.key);
+            if (it == watch_by_key.end()) {
+                continue; // unwatched since it was posted
+            }
+            const std::shared_ptr<IoCallback> callback = it->second.callback;
+            if (*callback) {
+                (*callback)(entry.event);
+            }
+        }
+        return true;
     }
 
     // Runs the timer's callback if it is armed and due. Returns whether it ran.
@@ -355,6 +401,15 @@ std::expected<void, std::error_code> Reactor::unwatch(NativeHandle handle) {
     impl_->watch_by_key.erase(it->second);
     impl_->key_by_handle.erase(it);
     impl_->detach(handle.value);
+    return {};
+}
+
+std::expected<void, std::error_code> Reactor::post(NativeHandle handle, const IoEvent& event) {
+    const auto it = impl_->key_by_handle.find(handle.value);
+    if (it == impl_->key_by_handle.end()) {
+        return generic_error(std::errc::no_such_file_or_directory);
+    }
+    impl_->posted.push_back(Impl::Posted{it->second, event});
     return {};
 }
 

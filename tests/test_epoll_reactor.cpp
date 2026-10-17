@@ -11,8 +11,10 @@
 
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <system_error>
+#include <vector>
 
 namespace {
 
@@ -250,4 +252,128 @@ TEST_CASE("watching an fd twice or unwatching an unknown fd fails", "[reactor][e
     const auto again = reactor->unwatch(fd);
     REQUIRE_FALSE(again);
     CHECK(again.error() == std::errc::no_such_file_or_directory);
+}
+
+TEST_CASE("a posted event reaches the callback from the loop, not from post()",
+          "[reactor][epoll][post]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    Pipe pipe;
+
+    int calls = 0;
+    IoEvent seen;
+    REQUIRE(reactor->watch(NativeHandle{pipe.read_fd}, Interest{.readable = true},
+                           [&](const IoEvent& event) {
+                               ++calls;
+                               seen = event;
+                           }));
+
+    IoEvent posted;
+    posted.bytes = 7;
+    posted.error = 42;
+    REQUIRE(reactor->post(NativeHandle{pipe.read_fd}, posted));
+    CHECK(calls == 0); // not inside post()
+
+    REQUIRE(reactor->run_once(0ms));
+    CHECK(calls == 1);
+    CHECK(seen.bytes == 7u);
+    CHECK(seen.error == 42u);
+}
+
+TEST_CASE("posted events keep their order and run_once doesn't wait for them",
+          "[reactor][epoll][post]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    Pipe pipe;
+
+    std::vector<std::uint32_t> order;
+    REQUIRE(reactor->watch(NativeHandle{pipe.read_fd}, Interest{.readable = true},
+                           [&](const IoEvent& event) { order.push_back(event.bytes); }));
+    for (std::uint32_t i = 1; i <= 3; ++i) {
+        IoEvent posted;
+        posted.bytes = i;
+        REQUIRE(reactor->post(NativeHandle{pipe.read_fd}, posted));
+    }
+
+    const auto start = std::chrono::steady_clock::now();
+    REQUIRE(reactor->run_once(10s));
+    CHECK(std::chrono::steady_clock::now() - start < 5s);
+    CHECK(order == std::vector<std::uint32_t>{1u, 2u, 3u});
+}
+
+TEST_CASE("an event posted from a callback waits for the next dispatch", "[reactor][epoll][post]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    Pipe pipe;
+
+    int calls = 0;
+    REQUIRE(reactor->watch(NativeHandle{pipe.read_fd}, Interest{.readable = true},
+                           [&](const IoEvent& event) {
+                               ++calls;
+                               if (event.bytes == 1) {
+                                   IoEvent next;
+                                   next.bytes = 2;
+                                   CHECK(reactor->post(NativeHandle{pipe.read_fd}, next));
+                               }
+                           }));
+    IoEvent first;
+    first.bytes = 1;
+    REQUIRE(reactor->post(NativeHandle{pipe.read_fd}, first));
+
+    REQUIRE(reactor->run_once(0ms));
+    CHECK(calls == 1);
+    REQUIRE(reactor->run_once(0ms));
+    CHECK(calls == 2);
+}
+
+TEST_CASE("post fails for an fd that isn't watched", "[reactor][epoll][post]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    Pipe pipe;
+
+    const auto result = reactor->post(NativeHandle{pipe.read_fd}, IoEvent{});
+    REQUIRE_FALSE(result);
+    CHECK(result.error() == std::errc::no_such_file_or_directory);
+}
+
+TEST_CASE("a posted event for an fd unwatched before delivery is dropped",
+          "[reactor][epoll][post]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    Pipe pipe;
+
+    int calls = 0;
+    REQUIRE(reactor->watch(NativeHandle{pipe.read_fd}, Interest{.readable = true},
+                           [&](const IoEvent&) { ++calls; }));
+    REQUIRE(reactor->post(NativeHandle{pipe.read_fd}, IoEvent{}));
+    REQUIRE(reactor->unwatch(NativeHandle{pipe.read_fd}));
+
+    REQUIRE(reactor->run_once(10ms));
+    CHECK(calls == 0);
+}
+
+TEST_CASE("a posted event for a reused fd number is not delivered to the new watcher",
+          "[reactor][epoll][post]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    auto old_pipe = std::make_unique<Pipe>();
+    const int old_fd = old_pipe->read_fd;
+
+    int old_calls = 0;
+    int new_calls = 0;
+    REQUIRE(reactor->watch(NativeHandle{old_fd}, Interest{.readable = true},
+                           [&](const IoEvent&) { ++old_calls; }));
+    REQUIRE(reactor->post(NativeHandle{old_fd}, IoEvent{}));
+    REQUIRE(reactor->unwatch(NativeHandle{old_fd}));
+    old_pipe.reset();
+
+    // The kernel hands out the lowest free number, so this is the one just closed.
+    Pipe replacement;
+    CHECK(replacement.read_fd == old_fd);
+    REQUIRE(reactor->watch(NativeHandle{replacement.read_fd}, Interest{.readable = true},
+                           [&](const IoEvent&) { ++new_calls; }));
+
+    REQUIRE(reactor->run_once(10ms));
+    CHECK(old_calls == 0);
+    CHECK(new_calls == 0);
 }
