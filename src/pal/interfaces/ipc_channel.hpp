@@ -63,10 +63,24 @@
 //
 // Security
 // --------
-// Only processes running as the same user may connect. Linux creates the
-// socket file with mode 0600 in $XDG_RUNTIME_DIR; Windows gives the pipe a
-// DACL for the current user and FILE_FLAG_FIRST_PIPE_INSTANCE, so another
-// program can't create the pipe first and pretend to be the daemon.
+// Only processes running as the same user may connect, and the UI only talks
+// to a daemon running as the same user.
+//
+// Linux creates the socket file with mode 0600 in $XDG_RUNTIME_DIR, a
+// directory only that user can enter.
+//
+// Windows has one pipe namespace for the whole machine, so it needs more:
+//
+//   - The pipe's name ends in the user's SID, so two users on one machine each
+//     get a pipe of their own instead of fighting over one name.
+//   - The pipe has an owner and a DACL for the current user only, and refuses
+//     remote clients. That keeps other users out of the daemon.
+//   - FILE_FLAG_FIRST_PIPE_INSTANCE makes listen() fail with address_in_use,
+//     rather than quietly sharing a pipe that someone else created first.
+//   - connect() checks that the process serving the pipe runs as the current
+//     user, and fails with permission_denied if it doesn't. This check, not
+//     the DACL, is what stops another user from creating the name first and
+//     posing as the daemon: the DACL protects the daemon, not the UI.
 //
 // Each platform defines these classes once: src/pal/linux/unix_seqpacket_ipc.cpp
 // and src/pal/win32/named_pipe_ipc.cpp. Like the Reactor, there's no virtual
@@ -116,13 +130,18 @@ class IpcChannel {
     //   daemon too busy to take us now   resource_unavailable_try_again (Linux: the
     //                                    listen backlog is full; Windows: ERROR_PIPE_BUSY)
     //   bad endpoint name                invalid_argument
+    //   endpoint too long                filename_too_long
+    //
+    // Windows has one more: permission_denied, when the process serving the pipe
+    // runs as another user (see "Security").
     //
     // Linux also fails with no_such_file_or_directory when $XDG_RUNTIME_DIR is
     // unset (listen() too), rather than falling back to a shared directory.
     //
     // `endpoint` is a short name such as kDaemonEndpoint, made of letters, digits,
     // '-', '_' and '.'. Each platform turns it into a real address: Linux uses
-    // $XDG_RUNTIME_DIR/<endpoint>.sock, Windows uses \\.\pipe\<endpoint>.
+    // $XDG_RUNTIME_DIR/<endpoint>.sock, Windows uses \\.\pipe\<endpoint>.<SID>,
+    // where <SID> is the current user's security identifier.
     [[nodiscard]] static std::expected<IpcChannel, std::error_code>
     connect(Reactor& reactor, std::string_view endpoint);
 
@@ -168,7 +187,8 @@ class IpcListener {
     // Starts listening on `endpoint` (same naming rules as IpcChannel::connect).
     // Fails with errc::address_in_use if something is already listening there,
     // which is how a second daemon finds out it isn't needed. A leftover socket
-    // file from a daemon that crashed is not "in use" and gets replaced.
+    // file from a daemon that crashed is not "in use" and gets replaced. (Windows
+    // has nothing to clean up: a pipe disappears with its last handle.)
     [[nodiscard]] static std::expected<IpcListener, std::error_code>
     listen(Reactor& reactor, std::string_view endpoint);
 
