@@ -5,7 +5,7 @@
 // every start.
 //
 //   Linux:    the login keyring over libsecret (GNOME Keyring, KWallet), #53
-//   Windows:  Credential Manager, with the secret encrypted by DPAPI, #54
+//   Windows:  Credential Manager, with the secret encrypted by DPAPI, #10
 //
 // The daemon keeps two secrets, named below: the developer token that lets it
 // talk to Apple Music's API, and the Music-User-Token Apple hands out when the

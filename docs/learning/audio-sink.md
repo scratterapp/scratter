@@ -1,7 +1,7 @@
 # The audio sink, explained
 
 This covers `src/pal/interfaces/audio_sink.hpp` and `realtime.hpp` (#18). The
-Linux sink is #19 and the Windows sink is #20.
+Linux sink is #19 and the Windows sink is #14.
 
 ## Push vs pull
 

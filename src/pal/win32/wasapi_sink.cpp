@@ -2,7 +2,7 @@
 //
 // Until then this is a stub so the daemon links on Windows: open() fails with
 // "not supported". Replace the whole file with the real sink
-// (src/pal/interfaces/audio_sink.hpp, issue #20).
+// (src/pal/interfaces/audio_sink.hpp, issue #14).
 
 #include "audio_sink.hpp"
 

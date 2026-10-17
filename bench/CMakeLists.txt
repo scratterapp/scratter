@@ -3,7 +3,7 @@
 # linux-release build.
 
 # The IPC channel only has a Linux implementation so far (#15). Drop the
-# if(LINUX) once the named pipe one (#16) lands; the benchmark itself has no
+# if(LINUX) once the named pipe one (#12) lands; the benchmark itself has no
 # platform code.
 if(LINUX)
     add_executable(ipc_ping_pong ipc_ping_pong.cpp)

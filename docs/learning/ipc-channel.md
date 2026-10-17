@@ -1,7 +1,7 @@
 # The IPC channel, explained
 
 This covers `src/pal/interfaces/ipc_channel.hpp` (#11). The Linux version is #15
-(`unix_seqpacket_ipc.cpp`) and the Windows version is #16 (`named_pipe_ipc.cpp`).
+(`unix_seqpacket_ipc.cpp`) and the Windows version is #12 (`named_pipe_ipc.cpp`).
 Read [ipc-frame.md](ipc-frame.md) and [reactor.md](reactor.md) first: a channel
 carries frames, and it's driven by the reactor.
 

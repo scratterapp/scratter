@@ -2,7 +2,7 @@
 //
 // Until then lock_memory() is a stub that fails with "not supported" (the
 // daemon only warns about that), so the daemon links on Windows. Replace with
-// VirtualLock (src/pal/interfaces/realtime.hpp, issue #20).
+// VirtualLock (src/pal/interfaces/realtime.hpp, issue #14).
 
 #include "realtime.hpp"
 

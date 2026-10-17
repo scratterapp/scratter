@@ -1,10 +1,10 @@
 // Tests for MediaControls (src/pal/interfaces/media_controls.hpp).
 //
 // These are the contract both platforms have to meet: Linux's MPRIS version
-// (#56) and Windows' SMTC version (#57). They can only check the daemon's side:
+// (#56) and Windows' SMTC version (#9). They can only check the daemon's side:
 // that open() and the setters behave, and that nothing arrives at the callback
 // unasked. Pressing a media key needs something outside the process (playerctl
-// on Linux), so #56 and #57 add their own tests for that direction.
+// on Linux), so #56 and #9 add their own tests for that direction.
 //
 // Each test registers under a throwaway name, "<product>_test_<test>", so it
 // never clashes with a daemon that's running on the same machine.

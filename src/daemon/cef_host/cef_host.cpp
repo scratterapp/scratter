@@ -378,7 +378,7 @@ std::expected<CefHost, std::string> CefHost::start(const CefHostOptions& options
 
     // CEF reads Chromium switches from the program's arguments. The daemon's
     // own aren't for it, so it only gets the program's path.
-    // TODO(#80): Windows builds CefMainArgs from the HINSTANCE instead
+    // TODO(#8): Windows builds CefMainArgs from the HINSTANCE instead
     // (GetModuleHandle(nullptr)), which needs a small pal helper. Owner: @kerelosgayed
     static std::string program = (*exe_dir / common::kDaemonName).string();
     static char* argv[] = {program.data(), nullptr};

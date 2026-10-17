@@ -1,7 +1,7 @@
 # The MediaControls interface, explained
 
 This covers `src/pal/interfaces/media_controls.hpp` (issue #55). It is the
-contract that `mpris_controls.cpp` (#56, Linux) and `smtc_controls.cpp` (#57,
+contract that `mpris_controls.cpp` (#56, Linux) and `smtc_controls.cpp` (#9,
 Windows) fill in. The Linux one is done ([mpris.md](mpris.md)); the Windows one
 is still a stub that says "not supported".
 
@@ -119,7 +119,7 @@ the next `open()`.
 
 It can't press a media key. That needs something outside the process
 (`playerctl` on Linux, or a D-Bus call made by the test itself), which is
-platform-specific, so #56 and #57 add those tests next to their code. On a CI
+platform-specific, so #56 and #9 add those tests next to their code. On a CI
 machine with no D-Bus session bus, `open()` fails with "not supported" and the
 tests skip, the same way the vault tests skip with no keyring.
 

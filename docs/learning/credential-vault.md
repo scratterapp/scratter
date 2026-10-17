@@ -1,7 +1,7 @@
 # The CredentialVault interface, explained
 
 This covers `src/pal/interfaces/credential_vault.hpp` (issue #52). It is the
-contract that `secret_vault.cpp` (#53, Linux) and `dpapi_vault.cpp` (#54,
+contract that `secret_vault.cpp` (#53, Linux) and `dpapi_vault.cpp` (#10,
 Windows) fill in. The Linux one is written (see
 [keyring-vault.md](keyring-vault.md)); the Windows one is still a stub that
 says "not supported".
@@ -96,7 +96,7 @@ both look secrets up by name on every call, so there's no connection or handle
 to keep open. `ShmMapping` needed move-only RAII because it owned a mapping
 that had to be unmapped; the vault owns nothing like that, so it doesn't need
 any of it. Adding a pimpl or a handle "just in case" would be an abstraction
-with nothing behind it. If #53 or #54 finds it needs one, the header has a
+with nothing behind it. If #53 or #10 finds it needs one, the header has a
 comment marking where it goes.
 
 ## Blocking is fine here, but not everywhere
@@ -122,7 +122,7 @@ The test file is written against the interface, not either implementation:
 Right now both platforms' `open()` says `function_not_supported`, so each test
 prints a warning and stops early. That's also what will happen on a CI machine
 with no keyring daemon. On robbie's desktop, once #53 lands, the same tests run
-for real against the real keyring. #53 and #54 are done when these pass on
+for real against the real keyring. #53 and #10 are done when these pass on
 their platform; nobody has to invent the test.
 
 ## What's deliberately left out

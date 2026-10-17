@@ -1,6 +1,6 @@
 # The CEF host: a hidden browser inside the daemon (#76)
 
-The #49 experiment proved that a CEF we build with AAC turned on can play
+The #5 experiment proved that a CEF we build with AAC turned on can play
 Widevine-protected AAC audio and hand us the decoded sound. This is the real
 version of that experiment, inside the daemon:
 
@@ -13,7 +13,7 @@ scratterd --test-film
 ```
 
 `amctl pause`, the media keys and `playerctl` pause the film the same way they
-pause the tone. Apple Music itself comes in #77, once there's a MusicKit key.
+pause the tone. Apple Music itself comes in #4, once there's a MusicKit key.
 
 Files:
 
@@ -74,7 +74,7 @@ a CEF subprocess?" before reading its own arguments. Instead we point
 
 ## The "stack smashing detected" crash, and why the helper fixes it
 
-In the #49 experiment two helper processes printed
+In the #5 experiment two helper processes printed
 `*** stack smashing detected ***` when playback stopped. It wasn't our code
 writing past an array. It was this:
 

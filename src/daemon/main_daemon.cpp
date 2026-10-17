@@ -23,7 +23,7 @@
 // Exit codes: 0 after a clean shutdown (Ctrl-C or SIGTERM), 1 if setting
 // something up failed, 2 for bad arguments, 3 if a daemon is already running.
 //
-// Until Apple Music arrives (issue #77) the "music" is a 440 Hz tone, or with
+// Until Apple Music arrives (issue #4) the "music" is a 440 Hz tone, or with
 // --test-film a test film played by CEF, and it starts playing as soon as the
 // daemon does. amctl, the media keys and the desktop's media widget (MPRIS on
 // Linux) can pause it and change its volume; it has no next track and can't

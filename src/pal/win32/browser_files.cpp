@@ -1,5 +1,5 @@
 // TODO: Find the executable's folder, the browser profile folder and the
-// installed Widevine CDM on Windows. Owner: @kerelosgayed (issue #80)
+// installed Widevine CDM on Windows. Owner: @kerelosgayed (issue #8)
 //
 // Until then these are stubs that fail with "not supported", so am_pal links.
 // Only a daemon built with AM_WITH_CEF calls them.
