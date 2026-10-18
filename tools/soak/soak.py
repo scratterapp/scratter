@@ -15,6 +15,11 @@ once a minute writes one line to memory.csv:
   - how many seconds of audio the daemon played since the last line, read
     with `amctl status --json`. While playing that should be about a minute
     each time; much less means the sound stopped or kept cutting out.
+  - how many times the test page reloaded the film since the last line.
+    Google's test license server sometimes refuses a license and the film
+    stops; the page then reloads it (src/daemon/cef_host/test_film_page.hpp).
+    A gap in the sound in the same minute is the server's doing, not ours,
+    so the summary counts those apart and doesn't fail the run for them.
 
 At the end it stops the daemon the way Ctrl-C would, reads the "N late audio
 buffers, M frames dropped" line the daemon prints when it quits, and writes
@@ -281,7 +286,19 @@ def summarize(rows: list[dict], args, shutdown: dict) -> tuple[str, bool]:
     # Playback. A daemon with no audio output doesn't move its play position,
     # so there's nothing to check then.
     with_sound = [r for r in rows if r["sample_rate_hz"] not in ("", 0)]
-    stalls = [r for r in with_sound if r["stalled"]]
+    # A reload near the end of one line's minute can leave its gap in the next
+    # line, so a reload excuses both.
+    excused = set()
+    for i, r in enumerate(rows):
+        if r["reloads"]:
+            excused.update({i, i + 1})
+    stalls = [r for i, r in enumerate(rows) if r["stalled"] and i not in excused]
+    reloads = sum(r["reloads"] for r in rows)
+    if reloads:
+        lines.append(
+            f"note: the test license server cut the film off {reloads} times and the page "
+            "reloaded it; gaps in those minutes and the next don't count"
+        )
     if not with_sound:
         lines.append("playback: not checked (no audio output)")
     elif stalls:
@@ -321,6 +338,9 @@ def summarize(rows: list[dict], args, shutdown: dict) -> tuple[str, bool]:
 
 # ---- The run -----------------------------------------------------------------
 
+# What the test page prints when the license server cut the film off.
+RELOAD_LINE = "page: reloading the film"
+
 STOPPED_LINE = re.compile(r"stopped cleanly, (\d+) late audio buffers, (\d+) frames dropped")
 
 
@@ -357,6 +377,7 @@ def main() -> int:
     columns = ["time", "elapsed_s"] + [f"{k}_mb" for k in KINDS]
     columns += ["total_mb", "total_anon_mb", "total_shmem_mb", "processes"]
     columns += ["state", "position_s", "played_s", "ring_fill", "sample_rate_hz", "stalled"]
+    columns += ["reloads"]
 
     rows = []
     # Ctrl-C here should end the run early, not kill the script before it
@@ -380,6 +401,7 @@ def main() -> int:
         start = time.monotonic()
         end = start + args.hours * 3600
         last = None  # the previous row, to see how far playback moved since
+        log_read = 0  # how much of daemon.log the reload count has looked at
         next_line = start + args.interval
         while not interrupted and daemon.poll() is None:
             now = time.monotonic()
@@ -409,6 +431,12 @@ def main() -> int:
                 and played is not None
                 and 0 <= played < MIN_PLAYED_SHARE * span
             )
+            # Reloads since the last line: the new part of daemon.log.
+            with open(log_path, errors="replace") as daemon_log:
+                daemon_log.seek(log_read)
+                new_output = daemon_log.read()
+                log_read = daemon_log.tell()
+            row["reloads"] = new_output.count(RELOAD_LINE)
             writer.writerow(row)
             csv_file.flush()
             rows.append(row)

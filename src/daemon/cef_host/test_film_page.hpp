@@ -12,6 +12,12 @@
 // origins"), and https counts as a secure origin even though nothing is
 // fetched over the network for it.
 //
+// Google's test license server sometimes refuses a license request a few
+// seconds into the film (Shaka error 6007), and the film stops. The page then
+// loads the film again from where it was, which starts with a fresh license,
+// and logs "reloading the film" so the soak test (tools/soak/soak.py) can
+// tell a refused license from a fault of ours.
+//
 // The daemon drives the page through three functions, amPlay(), amPause() and
 // amStop(). The page prints what it's doing to its console, and the daemon
 // copies those lines to its own output with a "page:" in front.
@@ -63,8 +69,34 @@ async function main() {
     preferredAudioCodecs: ['mp4a.40.2'],
     drm: { servers: { 'com.widevine.alpha': license } },
   });
-  player.addEventListener('error', (e) =>
-    console.log(`Shaka error ${e.detail.code} (see shaka.util.Error in Shaka's docs)`));
+  // A critical error stops the film. Load it again from the same place: a
+  // fresh load asks for a fresh license, which the server gives.
+  let reloading = false;
+  async function reload(code) {
+    if (reloading) return; // errors during the reload itself land here too
+    reloading = true;
+    const at = film.currentTime;
+    console.log(`reloading the film at ${at.toFixed(1)} s after Shaka error ${code}`);
+    for (;;) {
+      try {
+        await player.load(manifest, at);
+        break;
+      } catch (e) {
+        console.log(`couldn't reload the film (Shaka error ${e.code}), trying again in 10 s`);
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+      }
+    }
+    reloading = false;
+    if (wanted === 'play') film.play();
+  }
+  player.addEventListener('error', (e) => {
+    const error = e.detail;
+    // error.data says more, such as the HTTP status the license server sent.
+    let data = '';
+    try { data = JSON.stringify(error.data).slice(0, 300); } catch { /* not plain data */ }
+    console.log(`Shaka error ${error.code} (see shaka.util.Error in Shaka's docs): ${data}`);
+    if (error.severity === shaka.util.Error.Severity.CRITICAL) reload(error.code);
+  });
   film.addEventListener('playing', () => {
     const track = player.getVariantTracks().find((t) => t.active);
     console.log(`playing the Widevine test film, audio ${track ? track.audioCodec : 'unknown'}`);

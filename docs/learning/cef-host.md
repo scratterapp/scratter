@@ -242,8 +242,10 @@ Back in the first window, Ctrl-C should end with "stopped cleanly" and no
 "stack smashing detected" anywhere above it.
 
 Known: Google's test license server sometimes refuses a second license request
-("ACCESS_DENIED") after a few seconds of play, and the film stops. That's
-Google's test server, not us; it happened in the experiment too.
+("ACCESS_DENIED", Shaka error 6007) after a few seconds of play, and the film
+stops. That's Google's test server, not us; it happened in the experiment too.
+The page then loads the film again from the same spot, which asks for a fresh
+license, and prints "page: reloading the film". You hear a short gap.
 
 ## What you learn
 

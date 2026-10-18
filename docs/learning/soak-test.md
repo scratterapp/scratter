@@ -117,10 +117,14 @@ python3 tools/soak/soak.py --build build/linux-debug -- --no-audio
 Anything after `--` goes to the daemon in place of `--test-film`, so the
 second line soaks the plain tone without a sound card.
 
-Known: Google's test license server sometimes refuses a renewal ("Shaka
-error 6007" in `daemon.log`), and the film stops. The summary will say the
-sound stopped at minute N. That's Google's test server, not a leak; run it
-again.
+Known: Google's test license server sometimes refuses a license ("Shaka
+error 6007" in `daemon.log`), and the film stops. The page then loads the film
+again from the same spot with a fresh license and prints `page: reloading the
+film`. The script counts those lines each minute (column `reloads`), and a
+minute where the sound stopped but the page reloaded the film doesn't fail the
+run: that's Google's test server, not us. The summary says how often it
+happened. A reload is also a decent extra test, since it builds and tears down
+the player and a Widevine session every time.
 
 A few seconds of the same script run in ctest (`soak_smoke`, against the
 tone with `--no-audio`) so it can't quietly break when the daemon changes.
