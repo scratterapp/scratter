@@ -249,11 +249,14 @@ Spec: section 3.1.3, 3.2 and the Phase 1 gate in section 6.
 
 ### #12 Windows: message-mode named pipe (kero)
 
-- **How:** `CreateNamedPipeW(L"\\\\.\\pipe\\scratterd_v2", ...)` with
+- **How:** `CreateNamedPipeW(L"\\\\.\\pipe\\scratterd.<SID>", ...)` with
   `PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE`, `FILE_FLAG_OVERLAPPED` and
-  `FILE_FLAG_FIRST_PIPE_INSTANCE`, wired into the IOCP reactor.
-- **You learn:** why `FIRST_PIPE_INSTANCE` stops another program from squatting
-  on the pipe name, and pipe security descriptors.
+  `FILE_FLAG_FIRST_PIPE_INSTANCE`, wired into the IOCP reactor. `<SID>` is the
+  current user's security identifier. Use `Reactor::post()` for the completions
+  Windows doesn't queue, like `ConnectNamedPipe` returning `ERROR_PIPE_CONNECTED`.
+- **You learn:** pipe security descriptors, and why neither the DACL nor
+  `FIRST_PIPE_INSTANCE` stops another user from squatting on the pipe name, so
+  the UI has to check who is serving the pipe.
 
 ### #17 Phase 1 gate in CI (shared, in review)
 
