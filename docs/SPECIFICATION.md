@@ -338,7 +338,7 @@ The other opcodes get bodies when the code that needs them is written. Until the
     
     - **Linux:** Uses `socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)` bound to `$XDG_RUNTIME_DIR/scratterd.sock` (permissions `0600`). `SOCK_SEQPACKET` enforces atomic record boundaries in the kernel—each `recvmsg()` returns exactly one complete frame, eliminating userspace stream-reassembly state machines.
         
-    - **Windows:** Uses `CreateNamedPipeW(L"\\\\.\\pipe\\scratterd_v2", PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, ...)`. `PIPE_TYPE_MESSAGE` provides the exact Windows equivalent of `SOCK_SEQPACKET`.
+    - **Windows:** Uses `CreateNamedPipeW(L"\\\\.\\pipe\\scratterd.<SID>", PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, ...)`, where `<SID>` is the current user's security identifier: Windows has one pipe namespace for the whole machine, so each user gets a pipe of their own. `PIPE_TYPE_MESSAGE` provides the exact Windows equivalent of `SOCK_SEQPACKET`. The pipe's DACL keeps other users out of the daemon, but any user can create the name first, so the UI checks that the process serving the pipe runs as the current user (see "Security" in `src/pal/interfaces/ipc_channel.hpp`).
         
 
 #### 3.2.2 Shared Memory Telemetry Plane (`SeqLock`)
@@ -453,7 +453,7 @@ Where both platforms can store the same members, there is a simpler form of the 
 |**Subsystem Capability**|**Linux Implementation (src/pal/linux/)**|**Windows Implementation (src/pal/win32/)**|
 |---|---|---|
 |**Event Reactor**|`epoll_create1(EPOLL_CLOEXEC)` + `eventfd` (cross-thread wakeup) + `timerfd_create(CLOCK_MONOTONIC)`|`CreateIoCompletionPort` (IOCP) + `PostQueuedCompletionStatus` (cross-thread wakeup) + the timer deadline folded into the `GetQueuedCompletionStatusEx` timeout|
-|**Control IPC Transport**|`AF_UNIX` with `SOCK_SEQPACKET \| SOCK_NONBLOCK` in `$XDG_RUNTIME_DIR`|Named Pipes (`\\.\pipe\scratterd_v2`) with `PIPE_TYPE_MESSAGE \| FILE_FLAG_OVERLAPPED`|
+|**Control IPC Transport**|`AF_UNIX` with `SOCK_SEQPACKET \| SOCK_NONBLOCK` in `$XDG_RUNTIME_DIR`|Named Pipes (`\\.\pipe\scratterd.<SID>`) with `PIPE_TYPE_MESSAGE \| FILE_FLAG_OVERLAPPED`|
 |**Shared Memory Telemetry**|`shm_open()` + `ftruncate()` + `mmap(PROT_READ, MAP_SHARED)`|`CreateFileMappingW(INVALID_HANDLE_VALUE, ...)` + `MapViewOfFile(FILE_MAP_READ)`|
 |**Primary Audio Sink**|`PipeWire` (`pw_stream` native graph node) with dynamic quantum negotiation; `ALSA` (`snd_pcm_open`) fallback, parked until after phase 3 (issue #7)|`WASAPI Shared Low-Latency` (`IAudioClient3::InitializeSharedAudioStream` at minimum periodicity, typically 2–10 ms)|
 |**Bit-Perfect Bypass Sink**|Direct hardware `ALSA` (`hw:X,Y`) bypassing user-space mixing, parked with the fallback (issue #7)|`WASAPI Exclusive Mode` (`AUDCLNT_SHAREMODE_EXCLUSIVE` + event-driven `AUDCLNT_STREAMFLAGS_EVENTCALLBACK`)|

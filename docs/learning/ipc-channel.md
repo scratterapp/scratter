@@ -38,7 +38,7 @@ A **message** transport keeps the boundaries. One `send()` of 72 bytes is one
 | | Linux | Windows |
 |---|---|---|
 | What | `AF_UNIX` socket, `SOCK_SEQPACKET` | named pipe, `PIPE_TYPE_MESSAGE` |
-| Address | `$XDG_RUNTIME_DIR/scratterd.sock` | `\\.\pipe\scratterd` |
+| Address | `$XDG_RUNTIME_DIR/scratterd.sock` | `\\.\pipe\scratterd.<SID>` |
 | Who can connect | file mode `0600` | the pipe's DACL |
 
 So in our code, one message is one frame, and the receiver hands each one
@@ -116,9 +116,16 @@ handle closes, so they don't have this problem.
 Anyone who can connect can tell the daemon what to play, and later, the daemon
 holds your Apple Music login. So only the same user may connect. On Linux the
 socket file is mode `0600` inside `$XDG_RUNTIME_DIR`, which is already private
-to you. On Windows the pipe gets a security descriptor for the current user,
-and `FILE_FLAG_FIRST_PIPE_INSTANCE` makes creating the pipe fail if some other
-program got there first and is pretending to be the daemon.
+to you.
+
+Windows has one pipe namespace for the whole machine, so the pipe's name ends
+in your SID (your user's security identifier) and the pipe gets a security
+descriptor that lets only you in. That protects the daemon, but not the UI: any
+user can create a pipe name first and pretend to be the daemon.
+`FILE_FLAG_FIRST_PIPE_INSTANCE` only makes the real daemon's `listen()` fail
+with `address_in_use` instead of sharing that pipe. So `connect()` checks that
+the process serving the pipe runs as you, and fails with `permission_denied` if
+it doesn't.
 
 ## The Linux version, line by line
 

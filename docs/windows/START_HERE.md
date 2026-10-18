@@ -86,10 +86,11 @@ From the PR bodies. Answer on the PR, even after it's merged.
 
 ## Open Windows-side decisions
 
-- **Pipe name.** The spec says `\\.\pipe\scratterd_v2`, Linux uses
-  `scratterd.sock`. #37 proposes one name on both platforms from
-  `kDaemonEndpoint`, without `_v2` (the frame header already carries the version).
-  With #43 that name comes from the product name too.
+- **Pipe name (settled in [#16](https://github.com/scratterapp/scratter/pull/16)).**
+  One name on both platforms from `kDaemonEndpoint`, without `_v2` (the frame
+  header already carries the version): Linux uses `scratterd.sock`, Windows
+  `\\.\pipe\scratterd.<SID>`, so each user on the machine gets their own pipe.
+  "Security" in `ipc_channel.hpp` has the rest.
 - **Windows sanitizer preset.** Linux has `linux-asan` and `linux-tsan`; Windows
   only has `windows-msvc-debug` and `windows-msvc-release`. Do we add a preset with
   MSVC's `/fsanitize=address`, and does it run in CI? MSVC has no ThreadSanitizer,
