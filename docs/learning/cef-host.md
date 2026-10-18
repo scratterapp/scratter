@@ -61,8 +61,8 @@ can't take the rest down. CEF keeps that:
 | --- | --- |
 | browser | The daemon itself. Runs CEF's UI thread and our `PageClient`. |
 | renderer | Runs the page: HTML, JavaScript, Shaka Player. |
-| GPU | Drawing. We turn the GPU off, but Chromium still keeps a small one. |
-| utility: audio | Decodes and mixes the page's sound, and sends it back to the browser process. |
+| GPU | Drawing. We turn the GPU off, and `--in-process-gpu` runs what's left on a thread of the daemon, so there's no separate GPU process ([performance.md](performance.md)). |
+| audio service | Carries the page's sound to the browser process. Runs inside the daemon (`--disable-features=AudioServiceOutOfProcess`), not as a utility process of its own. |
 | utility: CDM | Runs Google's Widevine library to decrypt the film. |
 | zygote | A template process the others are copied from (Linux only, see below). |
 

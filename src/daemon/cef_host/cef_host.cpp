@@ -295,6 +295,18 @@ class HostApp final : public CefApp, public CefBrowserProcessHandler {
         // Nothing is drawn, so skip the GPU.
         command_line->AppendSwitch("disable-gpu");
         command_line->AppendSwitch("disable-gpu-compositing");
+        // Even without a GPU, Chromium starts a "GPU process" to run its
+        // software compositor. This runs that on a thread of the daemon
+        // instead, one process fewer. The audio service, which carries the
+        // page's sound to us, moves in the same way. Both save the memory a
+        // whole process costs (docs/learning/performance.md).
+        command_line->AppendSwitch("in-process-gpu");
+        command_line->AppendSwitchWithValue("disable-features", "AudioServiceOutOfProcess");
+        // No built-in extensions (the PDF viewer and the like), and none of
+        // Chromium's own background requests (field trials, safe-browsing
+        // lists). The page's own requests aren't affected.
+        command_line->AppendSwitch("disable-extensions");
+        command_line->AppendSwitch("disable-background-networking");
         // Chromium's updater would download Widevine and other components on
         // its own. We only use what's already installed (spec 3.1.1).
         command_line->AppendSwitch("disable-component-update");

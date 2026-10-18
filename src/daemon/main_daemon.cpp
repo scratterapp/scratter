@@ -42,9 +42,10 @@
 //      --test-film, CEF and the page that feeds the audio path instead
 //   5. the telemetry page in shared memory, and the control server
 //   6. media keys, which carry on without if the desktop has none
-//   7. a 10 ms timer that keeps the ring buffer topped up and publishes
-//      telemetry (a command that changes something publishes it at once),
-//      then the reactor runs until a quit signal stops it
+//   7. a timer that keeps the ring buffer topped up and publishes telemetry,
+//      every 10 ms while playing and every 250 ms while paused or stopped (a
+//      command that changes something publishes it at once), then the
+//      reactor runs until a quit signal stops it
 //
 // Shutdown is the same list backwards, mostly done by destructors.
 
@@ -85,6 +86,12 @@ constexpr std::uint32_t kSampleRate = 48000;
 // below the 4096 it holds, and the UI gets telemetry about as often as it
 // draws a frame.
 constexpr auto kTickInterval = 10ms;
+// Paused or stopped, nothing moves, so the daemon wakes 4 times a second
+// instead of 100. Every wake-up costs a little power, and a daemon that sits
+// paused in the background all day shouldn't keep the CPU busy
+// (docs/learning/performance.md). A command that starts playback runs the
+// tick at once, so play doesn't wait for the slow timer.
+constexpr auto kIdleTickInterval = 250ms;
 
 enum ExitCode : int {
     kExitOk = 0,
@@ -256,8 +263,8 @@ int main(int argc, char** argv) {
     // the next tick, so `amctl pause; amctl status` shows the new state. The
     // media widget hears about it at the same time.
     std::optional<am::pal::MediaControls> media;
+    std::function<void()> tick; // step 7
     auto publish = [&] {
-        telemetry->write(make_snapshot(*audio, sink.has_value()));
         if (cef) {
             cef->set_state(audio->state()); // the page plays, pauses or stops to match
         }
@@ -265,6 +272,7 @@ int main(int argc, char** argv) {
             media->set_playback_state(audio->state());
             media->set_volume(audio->volume());
         }
+        tick(); // publishes telemetry, and speeds up or slows down to match the new state
     };
     am::daemon::ControlServer server(std::move(*listener), *audio, publish);
 
@@ -320,9 +328,10 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "no media keys: %s\n", opened.error().message().c_str());
     }
 
-    // 7. The tick. The reactor has one-shot timers, so it sets itself again
-    // each time it runs.
-    std::function<void()> tick = [&] {
+    // 7. The tick. The reactor has one timer, and it fires once, so the tick
+    // sets it again each time it runs. Setting it replaces the old deadline,
+    // which is how publish() moves the next tick when the state changes.
+    tick = [&] {
         if (!cef) {
             audio->top_up(sine);
         }
@@ -331,7 +340,9 @@ int main(int argc, char** argv) {
             media->set_position(
                 std::chrono::microseconds{static_cast<std::int64_t>(audio->position_micros())});
         }
-        (void)reactor->set_timer(kTickInterval, [&tick] { tick(); });
+        const auto next =
+            audio->state() == PlaybackState::Playing ? kTickInterval : kIdleTickInterval;
+        (void)reactor->set_timer(next, [&tick] { tick(); });
     };
     tick();
 
