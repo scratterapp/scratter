@@ -1,5 +1,7 @@
 # Build and IDE output
 build/
+soak-results/
+__pycache__/
 out/
 .cache/
 compile_commands.json

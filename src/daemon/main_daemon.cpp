@@ -1,6 +1,7 @@
 // The daemon: plays audio and answers commands until it's told to quit.
 //
-//   scratterd [--name NAME] [--no-audio] [--test-film [--widevine-dir DIR] [--no-sandbox]]
+//   scratterd [--name NAME] [--no-audio]
+//             [--test-film | --clear-film] [--widevine-dir DIR] [--no-sandbox]
 //
 //   --name NAME   listen on endpoint NAME and publish telemetry as
 //                 NAME_telemetry_v2 (default: the daemon's own name, which is
@@ -13,6 +14,8 @@
 //   --test-film   play Google's Widevine test film through CEF instead of the
 //                 tone (cef_host/test_film_page.hpp). Needs a daemon built with
 //                 CEF (the linux-cef preset) and an installed Widevine CDM.
+//   --clear-film  the same film without encryption: CEF and the audio path as
+//                 with --test-film, but no Widevine license needed.
 //   --widevine-dir DIR
 //                 the installed Widevine CDM folder, if it isn't in one of the
 //                 usual places (src/pal/linux/browser_files.cpp lists them).
@@ -109,6 +112,9 @@ std::optional<Options> parse_arguments(std::span<char*> args) {
             options.audio = false;
         } else if (arg == "--test-film") {
             options.test_film = true;
+        } else if (arg == "--clear-film") {
+            options.test_film = true;
+            options.cef.clear_film = true;
         } else if (arg == "--widevine-dir" && i + 1 < args.size()) {
             options.cef.widevine_dir = args[++i];
         } else if (arg == "--no-sandbox") {
@@ -137,8 +143,8 @@ int main(int argc, char** argv) {
     const auto options = parse_arguments(std::span(argv, static_cast<std::size_t>(argc)));
     if (!options) {
         std::fprintf(stderr,
-                     "usage: %s [--name NAME] [--no-audio] [--test-film [--widevine-dir DIR] "
-                     "[--no-sandbox]]\n",
+                     "usage: %s [--name NAME] [--no-audio] [--test-film | --clear-film] "
+                     "[--widevine-dir DIR] [--no-sandbox]\n",
                      argv[0]);
         return kExitBadArguments;
     }
@@ -301,7 +307,7 @@ int main(int argc, char** argv) {
     if (auto opened = am::pal::MediaControls::open(*reactor, on_media_key, options->media_name)) {
         media.emplace(std::move(*opened));
         media->set_volume(audio->volume());
-        media->set_track({.title = cef ? "Widevine test film (Angel One)" : "440 Hz test tone",
+        media->set_track({.title = cef ? "Widevine test film (Tears of Steel)" : "440 Hz test tone",
                           .artist = std::string(am::common::kAppName),
                           .album = {},
                           .artwork_url = {},
@@ -328,9 +334,10 @@ int main(int argc, char** argv) {
 
     if (cef) {
         std::fprintf(stderr,
-                     "%s: %s the Widevine test film at %u Hz, listening as %s. Ctrl-C quits.\n",
+                     "%s: %s the %s test film at %u Hz, listening as %s. Ctrl-C quits.\n",
                      am::common::kDaemonName.data(),
-                     sink ? "playing" : "pretending to play (--no-audio)", sample_rate, name);
+                     sink ? "playing" : "pretending to play (--no-audio)",
+                     options->cef.clear_film ? "unencrypted" : "Widevine", sample_rate, name);
     } else {
         std::fprintf(
             stderr, "%s: %s a %g Hz tone at %u Hz, listening as %s. Ctrl-C quits.\n",

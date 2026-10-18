@@ -244,9 +244,19 @@ window:
 Back in the first window, Ctrl-C should end with "stopped cleanly" and no
 "stack smashing detected" anywhere above it.
 
-Known: Google's test license server sometimes refuses a second license request
-("ACCESS_DENIED") after a few seconds of play, and the film stops. That's
-Google's test server, not us; it happened in the experiment too.
+The film used to be Shaka's "Angel One" demo, licensed through
+`cwip-shaka-proxy.appspot.com`; now it's "Tears of Steel" through Widevine's own
+test server, the stream Android's ExoPlayer tests against. On robbie's machine
+(2026-10-18) both servers refuse our very first license request (Angel One's
+with HTTP 500 ACCESS_DENIED, Widevine's with 400 Bad Request), and both films
+start with a few seconds that aren't encrypted. So you hear 3 to 10 seconds
+and then silence: the daemon has not decrypted anything yet. Finding out why
+is open. The page logs each license request (`page: license request: ...`)
+and, if the film stops after an error, loads it again from the same spot
+("page: reloading the film").
+
+`scratterd --clear-film` plays Google's unencrypted copy of the same film, so
+everything but Widevine can be tested in the meantime.
 
 ## What you learn
 

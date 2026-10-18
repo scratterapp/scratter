@@ -89,7 +89,8 @@ class PageSchemeHandlerFactory final : public CefSchemeHandlerFactory {
   public:
     CefRefPtr<CefResourceHandler> Create(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
                                          const CefString&, CefRefPtr<CefRequest> request) override {
-        if (request->GetURL().ToString() != kTestFilmUrl) {
+        const std::string url = request->GetURL().ToString();
+        if (url != kTestFilmUrl && url != kClearFilmUrl) {
             return nullptr; // anything else on this host doesn't exist
         }
         // CreateForData wants a non-const pointer but only reads from it.
@@ -276,7 +277,8 @@ class PageClient final : public CefClient,
 // Browser-process settings and the first page.
 class HostApp final : public CefApp, public CefBrowserProcessHandler {
   public:
-    explicit HostApp(CefRefPtr<PageClient> client) : client_(std::move(client)) {}
+    HostApp(CefRefPtr<PageClient> client, std::string_view url)
+        : client_(std::move(client)), url_(url) {}
 
     CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
 
@@ -303,11 +305,12 @@ class HostApp final : public CefApp, public CefBrowserProcessHandler {
     // UI thread, once CEF is up: serve the built-in page and open it.
     void OnContextInitialized() override {
         CefRegisterSchemeHandlerFactory("https", "player.invalid", new PageSchemeHandlerFactory);
-        client_->open(std::string(kTestFilmUrl));
+        client_->open(url_);
     }
 
   private:
     CefRefPtr<PageClient> client_;
+    std::string url_;
 
     IMPLEMENT_REFCOUNTING(HostApp);
 };
@@ -384,7 +387,7 @@ std::expected<CefHost, std::string> CefHost::start(const CefHostOptions& options
     static char* argv[] = {program.data(), nullptr};
     const CefMainArgs main_args = pal::cef_main_args(1, argv);
 
-    if (!CefInitialize(main_args, settings, new HostApp(impl->client), nullptr)) {
+    if (!CefInitialize(main_args, settings, new HostApp(impl->client, options.clear_film ? kClearFilmUrl : kTestFilmUrl), nullptr)) {
         return std::unexpected("CEF didn't start (exit code " + std::to_string(CefGetExitCode()) +
                                "). Its log is " + (*profile / "cef.log").string());
     }

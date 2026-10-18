@@ -546,10 +546,12 @@ scratter/
 │       ├── main_client.cpp            # Fast-attach entry point (<5ms startup)
 │       ├── ui_state.cpp               # IPC command sender + SeqLock telemetry reader
 │       └── views/                     # ImGui views (Library, Search, Queue, Spectrum)
-├── tools/                             # Small helper programs (link am_common + am_pal only)
-│   └── amctl/                         # Command-line remote for the daemon, like mpc for mpd
-│       ├── main_amctl.cpp             # Every request the daemon handles, over IPC; status from telemetry
-│       └── amctl_args.hpp             # Command-line parsing, and which command sends each opcode
+├── tools/                             # Small helper programs (the C++ ones link am_common + am_pal only)
+│   ├── amctl/                         # Command-line remote for the daemon, like mpc for mpd
+│   │   ├── main_amctl.cpp             # Every request the daemon handles, over IPC; status from telemetry
+│   │   └── amctl_args.hpp             # Command-line parsing, and which command sends each opcode
+│   └── soak/
+│       └── soak.py                    # Linux-only Python script: plays for hours, logs memory per process each minute
 ├── bench/                             # Hand-run benchmarks, not in ctest
 │   └── ipc_ping_pong.cpp              # IPC round-trip latency (target: median under 25 µs)
 └── tests/                             # Catch2 v3 (FetchContent); one executable per file
