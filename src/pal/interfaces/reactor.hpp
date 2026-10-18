@@ -92,8 +92,8 @@ class Reactor {
     using Callback = std::move_only_function<void()>;
 
     // Opens the OS objects behind the reactor (epoll + eventfd + timerfd, or a
-    // completion port + threadpool timer). Constructors can't report failure
-    // without exceptions, so this is the only way to get a Reactor.
+    // completion port). Constructors can't report failure without exceptions,
+    // so this is the only way to get a Reactor.
     [[nodiscard]] static std::expected<Reactor, std::error_code> create();
 
     ~Reactor();
@@ -123,8 +123,10 @@ class Reactor {
     // Starts reporting events on `handle` to `callback`. The handle must stay
     // open until unwatch(). Watching the same handle twice is an error.
     //
-    // On Windows the handle is associated with the completion port for the
-    // rest of its life (IOCP can't undo that), and `interest` is ignored.
+    // On Windows the handle is associated with the completion port, and
+    // `interest` is ignored. unwatch() takes it off the port again only if its
+    // I/O was cancelled and collected first (see unwatch()); otherwise it stays
+    // on the port until it is closed, and watching it again fails.
     std::expected<void, std::error_code> watch(NativeHandle handle, Interest interest,
                                                IoCallback callback);
 
@@ -140,8 +142,30 @@ class Reactor {
     //
     // On Windows, cancel outstanding I/O first (CancelIoEx) and let it finish:
     // completions that arrive after unwatch() are dropped, and the OVERLAPPED
-    // they point at must stay alive until they do.
+    // and buffer they point at must stay alive until they do. Collecting those
+    // completions before unwatch() is also what lets the handle be watched again.
     std::expected<void, std::error_code> unwatch(NativeHandle handle);
+
+    // --- Events the OS doesn't report ------------------------------------
+
+    // Delivers `event` to the callback watching `handle`, as if the OS had
+    // reported it. The callback runs from the loop and never inside post()
+    // itself: in the current run_once() pass, after the events the OS already
+    // reported, or in the next one. Events come out in the order they were
+    // posted, and run_once() doesn't wait while any are queued. An event posted
+    // by a callback runs in the next pass, so a callback that keeps posting
+    // can't starve the loop.
+    //
+    // This is for an operation that finished without the OS saying so. On
+    // Windows, ConnectNamedPipe returns ERROR_PIPE_CONNECTED, and queues no
+    // completion, when the client got there first, and a ReadFile that fails at
+    // once queues none either. The caller fills in whichever half of `event` its
+    // platform uses; nothing is read from the OS.
+    //
+    // Fails with no_such_file_or_directory if `handle` isn't watched. An event
+    // whose handle is unwatched before it is delivered is dropped, like one the
+    // OS reported, even if the handle's number has been reused since.
+    std::expected<void, std::error_code> post(NativeHandle handle, const IoEvent& event);
 
     // --- Cross-thread wakeup ---------------------------------------------
 

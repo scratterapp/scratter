@@ -11,6 +11,10 @@
 // Everything is level-triggered (no EPOLLET): epoll keeps reporting an fd for
 // as long as it's readable, so a callback that doesn't drain it all gets called
 // again on the next loop instead of being forgotten.
+//
+// post() doesn't involve epoll. Its events wait in a queue that the loop drains
+// after each epoll_wait(), and epoll_wait() gets a zero timeout while the queue
+// isn't empty.
 
 #include "reactor.hpp"
 
@@ -26,6 +30,7 @@
 #include <climits>
 #include <cstdint>
 #include <ctime>
+#include <deque>
 #include <initializer_list>
 #include <memory>
 #include <unordered_map>
@@ -101,6 +106,15 @@ struct Reactor::Impl {
     Callback wake_callback;
     Callback timer_callback;
 
+    // Events from post(), waiting for the next dispatch. Like an epoll event they
+    // name the watch by fd and generation, so one for an unwatched fd is dropped.
+    struct Posted {
+        int fd;
+        std::uint32_t generation;
+        IoEvent event;
+    };
+    std::deque<Posted> posted;
+
     Impl() = default;
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
@@ -114,8 +128,10 @@ struct Reactor::Impl {
     // One epoll_wait() and the callbacks for whatever it returned.
     std::expected<void, std::error_code> wait_and_dispatch(int timeout_ms) {
         std::array<epoll_event, 64> events{};
+        // Posted events are ready now, so don't wait for the OS to report anything.
+        const int wait_ms = posted.empty() ? timeout_ms : 0;
         const int count =
-            ::epoll_wait(epoll_fd, events.data(), static_cast<int>(events.size()), timeout_ms);
+            ::epoll_wait(epoll_fd, events.data(), static_cast<int>(events.size()), wait_ms);
         if (count < 0) {
             // A signal interrupted the wait. Nothing happened, so it's not an error.
             if (errno == EINTR) {
@@ -136,6 +152,7 @@ struct Reactor::Impl {
                 dispatch_watch(fd, tag_generation(event.data.u64), event.events);
             }
         }
+        deliver_posted();
         return {};
     }
 
@@ -167,14 +184,34 @@ struct Reactor::Impl {
     }
 
     void dispatch_watch(int fd, std::uint32_t generation, std::uint32_t epoll_events) {
-        // An earlier callback in this batch may have unwatched this fd, or
-        // unwatched it and then watched a new fd that got the same number.
+        deliver(fd, generation, to_io_event(epoll_events));
+    }
+
+    // Runs the callback of the watch that `fd` and `generation` name, if it still
+    // exists. An earlier callback in this batch may have unwatched this fd, or
+    // unwatched it and then watched a new fd that got the same number; the
+    // generation tells the two apart.
+    void deliver(int fd, std::uint32_t generation, const IoEvent& event) {
         const auto it = watches.find(fd);
         if (it == watches.end() || it->second.generation != generation) {
             return;
         }
         const std::shared_ptr<IoCallback> callback = it->second.callback;
-        (*callback)(to_io_event(epoll_events));
+        (*callback)(event);
+    }
+
+    // Delivers the events post() queued before this call. One that a callback
+    // posts meanwhile waits for the next dispatch, so a callback that keeps
+    // posting can't keep the loop from ever returning.
+    void deliver_posted() {
+        if (posted.empty()) {
+            return;
+        }
+        std::deque<Posted> batch;
+        batch.swap(posted);
+        for (const Posted& entry : batch) {
+            deliver(entry.fd, entry.generation, entry.event);
+        }
     }
 };
 
@@ -279,6 +316,16 @@ std::expected<void, std::error_code> Reactor::unwatch(NativeHandle handle) {
     if (::epoll_ctl(impl_->epoll_fd, EPOLL_CTL_DEL, fd, nullptr) < 0) {
         return last_error();
     }
+    return {};
+}
+
+std::expected<void, std::error_code> Reactor::post(NativeHandle handle, const IoEvent& event) {
+    const int fd = static_cast<int>(handle.value);
+    const auto it = impl_->watches.find(fd);
+    if (it == impl_->watches.end()) {
+        return std::unexpected(std::make_error_code(std::errc::no_such_file_or_directory));
+    }
+    impl_->posted.push_back(Impl::Posted{fd, it->second.generation, event});
     return {};
 }
 

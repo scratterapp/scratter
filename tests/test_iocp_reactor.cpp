@@ -51,6 +51,7 @@ using Clock = std::chrono::steady_clock;
 constexpr std::uint32_t kErrorAborted = ERROR_OPERATION_ABORTED;
 constexpr std::uint32_t kErrorBrokenPipe = ERROR_BROKEN_PIPE;
 constexpr std::uint32_t kErrorMoreData = ERROR_MORE_DATA;
+constexpr std::uint32_t kErrorPipeConnected = ERROR_PIPE_CONNECTED;
 constexpr DWORD kIoPending = ERROR_IO_PENDING;
 constexpr DWORD kPipeConnected = ERROR_PIPE_CONNECTED;
 constexpr DWORD kWaitObject0 = WAIT_OBJECT_0;
@@ -106,7 +107,9 @@ std::wstring unique_pipe_name() {
     return L"\\\\.\\pipe\\am_iocp_test_" + std::to_wstring(rd()) + L"_" + std::to_wstring(rd());
 }
 
-void connect_pair(PipePair& pair) {
+// Creates both ends. The client has connected, but the server end hasn't called
+// ConnectNamedPipe yet.
+void open_pair(PipePair& pair) {
     const std::wstring name = unique_pipe_name();
     pair.server = ::CreateNamedPipeW(
         name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
@@ -116,6 +119,10 @@ void connect_pair(PipePair& pair) {
     pair.client = ::CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
                                 OPEN_EXISTING, 0, nullptr);
     REQUIRE(pair.client != INVALID_HANDLE_VALUE);
+}
+
+void connect_pair(PipePair& pair) {
+    open_pair(pair);
 
     // The client got in first, so this reports ERROR_PIPE_CONNECTED and queues
     // no completion packet.
@@ -128,7 +135,6 @@ void connect_pair(PipePair& pair) {
     REQUIRE(connected == 0);
     REQUIRE(err == kPipeConnected);
 }
-
 // Writes one message of `length` bytes to the client end.
 void send_message(HANDLE client, std::size_t length) {
     const std::string message(length, 'x');
@@ -970,4 +976,154 @@ TEST_CASE("watching, unwatching and doing I/O in any order is reported correctly
             }
         }
     }
+}
+
+// --- post(): events the OS doesn't report ----------------------------------
+
+TEST_CASE("a posted event reaches the watch callback from the loop, not from post()",
+          "[iocp][post]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    OVERLAPPED marker{};
+    PipePair pipe;
+    connect_pair(pipe);
+
+    Seen seen;
+    watch_or_fail(*reactor, pipe.server, recorder(seen));
+
+    IoEvent event;
+    event.overlapped = &marker;
+    event.bytes = 7;
+    event.error = kErrorPipeConnected;
+    REQUIRE(reactor->post(native(pipe.server), event).has_value());
+    CHECK(seen.count == 0); // not inside post()
+
+    REQUIRE(reactor->run_once(0ms).has_value());
+    CHECK(seen.count == 1);
+    CHECK(seen.last.overlapped == &marker);
+    CHECK(seen.last.bytes == 7u);
+    CHECK(seen.last.error == kErrorPipeConnected);
+}
+
+TEST_CASE("posted events keep their order and run_once doesn't wait for them", "[iocp][post]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    PipePair pipe;
+    connect_pair(pipe);
+
+    std::vector<std::uint32_t> order;
+    watch_or_fail(*reactor, pipe.server, [&](const IoEvent& e) { order.push_back(e.bytes); });
+    for (std::uint32_t i = 1; i <= 3; ++i) {
+        IoEvent event;
+        event.bytes = i;
+        REQUIRE(reactor->post(native(pipe.server), event).has_value());
+    }
+
+    const auto start = Clock::now();
+    REQUIRE(reactor->run_once(10s).has_value());
+    CHECK(Clock::now() - start < 5s);
+    CHECK(order == std::vector<std::uint32_t>{1u, 2u, 3u});
+}
+
+TEST_CASE("an event posted from a callback waits for the next pass", "[iocp][post]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    PipePair pipe;
+    connect_pair(pipe);
+
+    int calls = 0;
+    watch_or_fail(*reactor, pipe.server, [&](const IoEvent& e) {
+        ++calls;
+        if (e.bytes == 1) {
+            IoEvent next;
+            next.bytes = 2;
+            CHECK(reactor->post(native(pipe.server), next).has_value());
+        }
+    });
+    IoEvent first;
+    first.bytes = 1;
+    REQUIRE(reactor->post(native(pipe.server), first).has_value());
+
+    REQUIRE(reactor->run_once(0ms).has_value());
+    CHECK(calls == 1);
+    REQUIRE(reactor->run_once(0ms).has_value());
+    CHECK(calls == 2);
+}
+
+TEST_CASE("post fails for a handle that isn't watched", "[iocp][post]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    PipePair pipe;
+    connect_pair(pipe);
+
+    auto result = reactor->post(native(pipe.server), IoEvent{});
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == std::errc::no_such_file_or_directory);
+}
+
+TEST_CASE("a posted event for a handle unwatched before delivery is dropped", "[iocp][post]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    PipePair pipe;
+    connect_pair(pipe);
+
+    int calls = 0;
+    watch_or_fail(*reactor, pipe.server, [&](const IoEvent&) { ++calls; });
+    REQUIRE(reactor->post(native(pipe.server), IoEvent{}).has_value());
+    REQUIRE(reactor->unwatch(native(pipe.server)).has_value());
+
+    REQUIRE(reactor->run_once(50ms).has_value());
+    CHECK(calls == 0);
+}
+
+TEST_CASE("a posted event isn't delivered to a watch that reuses the handle number",
+          "[iocp][post]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    auto old_pipe = std::make_unique<PipePair>();
+    connect_pair(*old_pipe);
+
+    int old_calls = 0;
+    int new_calls = 0;
+    watch_or_fail(*reactor, old_pipe->server, [&](const IoEvent&) { ++old_calls; });
+    REQUIRE(reactor->post(native(old_pipe->server), IoEvent{}).has_value());
+    REQUIRE(reactor->unwatch(native(old_pipe->server)).has_value());
+    old_pipe.reset(); // closes the handle, whose number Windows tends to hand out again
+
+    PipePair replacement;
+    connect_pair(replacement);
+    watch_or_fail(*reactor, replacement.server, [&](const IoEvent&) { ++new_calls; });
+
+    REQUIRE(reactor->run_once(50ms).has_value());
+    CHECK(old_calls == 0);
+    CHECK(new_calls == 0);
+}
+
+// The case post() exists for. When the client gets to a pipe before the server
+// calls ConnectNamedPipe, the call reports ERROR_PIPE_CONNECTED and Windows
+// queues nothing, so the reactor would never hear that the pipe is connected.
+TEST_CASE("ERROR_PIPE_CONNECTED queues no packet, and post() reports the connect instead",
+          "[iocp][post]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    PipePair pipe;
+    open_pair(pipe);
+
+    Seen seen;
+    watch_or_fail(*reactor, pipe.server, recorder(seen));
+
+    OVERLAPPED connect_ov{};
+    REQUIRE(::ConnectNamedPipe(pipe.server, &connect_ov) == 0);
+    REQUIRE(::GetLastError() == kPipeConnected);
+
+    REQUIRE(reactor->run_once(100ms).has_value());
+    CHECK(seen.count == 0); // Windows said nothing
+
+    IoEvent event;
+    event.overlapped = &connect_ov;
+    REQUIRE(reactor->post(native(pipe.server), event).has_value());
+    REQUIRE(run_until(*reactor, [&] { return seen.count > 0; }));
+    CHECK(seen.count == 1);
+    CHECK(seen.last.overlapped == &connect_ov);
+    CHECK(seen.last.error == 0u);
 }
