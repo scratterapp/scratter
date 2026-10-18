@@ -98,9 +98,9 @@ Linux has a cleaner way, `signalfd`:
 3. Watch it with the reactor like any socket.
 
 The "signal" then arrives as an ordinary reactor callback, where anything is
-allowed; ours calls `reactor->stop()`. Windows will do the same job with
-`SetConsoleCtrlHandler`, whose handler runs on a separate thread and can wake
-the reactor. Both hide behind `am::pal::ShutdownSignal`, so `src/daemon/` has
+allowed; ours calls `reactor->stop()`. Windows does the same job with
+`SetConsoleCtrlHandler`, whose handler runs on a separate thread, sets a flag
+and wakes the reactor, which then runs the callback. Both hide behind `am::pal::ShutdownSignal`, so `src/daemon/` has
 no `#ifdef`.
 
 ## Answering commands
