@@ -20,7 +20,19 @@
 // origins"), and https counts as a secure origin even though nothing is
 // fetched over the network for it.
 //
-// The page logs every license request it makes, with its kind. If one is refused (Shaka error 6007) or
+// Before the first license, the page asks the license server for its "service
+// certificate" and hands it to Widevine, so Widevine encrypts the device's
+// identity in its license requests ("privacy mode"). A real Chrome asks for
+// this certificate itself; issue #21 suspects ours doesn't, and that the server
+// refuses requests that show the identity in the clear.
+// docs/learning/widevine-license.md explains the exchange.
+//
+// The page logs every license request it makes: its kind, its size, and what
+// kind of Widevine message it is (a certificate request, or a license request
+// with the identity encrypted or not; if not, the device details Widevine put in
+// it, which the server sees anyway). It never logs keys or the license itself,
+// only its size. When a server says no, the page prints its answer as plain
+// text. If a license is refused (Shaka error 6007) or
 // anything else goes wrong, it checks 3 seconds later whether the film is
 // still moving. Only if it stopped does the page wait 5 more seconds and load
 // the film again from where it was, with a fresh license. It logs "reloading
@@ -66,6 +78,89 @@ window.amStop = () => {
   if (ready) { film.pause(); film.currentTime = 0; }
 };
 
+// Widevine's messages are protobufs, Google's binary format: a list of
+// fields, each a field number and a value. This splits one level of a message
+// into its fields: numbers become { number, value }, nested messages and text
+// become { number, bytes }.
+function protobufFields(bytes) {
+  const fields = [];
+  let i = 0;
+  const varint = () => { // a number written 7 bits per byte
+    let value = 0;
+    for (let shift = 0; i < bytes.length; shift += 7) {
+      const b = bytes[i++];
+      value += (b & 0x7f) * 2 ** shift;
+      if (!(b & 0x80)) break;
+    }
+    return value;
+  };
+  while (i < bytes.length) {
+    const key = varint();
+    const number = Math.floor(key / 8);
+    const wire = key % 8;
+    if (wire === 0) {
+      fields.push({ number, value: varint() });
+    } else if (wire === 2) {
+      const length = varint();
+      fields.push({ number, bytes: bytes.subarray(i, i + length) });
+      i += length;
+    } else if (wire === 1 || wire === 5) {
+      i += wire === 1 ? 8 : 4; // fixed-size numbers we don't need
+    } else {
+      break; // not a protobuf after all
+    }
+  }
+  return fields;
+}
+
+// Says what kind of Widevine message the CDM asked the page to send. The field
+// numbers are from Widevine's public license_protocol.proto: SignedMessage
+// field 1 is its type and field 2 the message; in a LicenseRequest, field 1 is
+// the device's identity in the clear and field 8 the same identity encrypted;
+// the identity's field 3 holds name=value pairs describing the device.
+function describeWidevine(bytes) {
+  const signed = protobufFields(bytes);
+  const type = signed.find((f) => f.number === 1)?.value;
+  if (type === 4) return 'a service certificate request';
+  if (type !== 1) return `not a license request (message type ${type})`;
+  const request = protobufFields(signed.find((f) => f.number === 2)?.bytes ?? new Uint8Array());
+  if (request.some((f) => f.number === 8)) return 'identity encrypted (privacy mode)';
+  const identity = request.find((f) => f.number === 1);
+  if (!identity) return 'no identity in it';
+  const text = (fields, n) => new TextDecoder().decode(fields.find((f) => f.number === n)?.bytes);
+  const details = protobufFields(identity.bytes)
+    .filter((f) => f.number === 3)
+    .map((f) => protobufFields(f.bytes))
+    .map((pair) => `${text(pair, 1)}=${text(pair, 2)}`);
+  return `identity NOT encrypted: ${details.join(', ')}`;
+}
+
+// The words of an HTML page, without its tags and styles.
+function pageText(html) {
+  return html.replace(/<style[\s\S]*?<\/style>/g, ' ').replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ').trim().slice(0, 300);
+}
+
+// Asks the license server for its service certificate by sending the 2-byte
+// Widevine message that means "send me your certificate" (a SignedMessage of
+// type 4). Returns null if it couldn't, and the film then starts without one.
+async function serviceCertificate() {
+  try {
+    const response = await fetch(license, { method: 'POST', body: new Uint8Array([0x08, 0x04]) });
+    if (!response.ok) {
+      console.log(`no service certificate: the license server answered HTTP ${response.status}: ` +
+                  pageText(await response.text()));
+      return null;
+    }
+    const certificate = new Uint8Array(await response.arrayBuffer());
+    console.log(`got the license server's service certificate, ${certificate.byteLength} bytes`);
+    return certificate;
+  } catch (e) {
+    console.log(`no service certificate: ${e}`);
+    return null;
+  }
+}
+
 async function main() {
   const aac = 'audio/mp4; codecs="mp4a.40.2"';
   if (!MediaSource.isTypeSupported(aac)) {
@@ -79,18 +174,28 @@ async function main() {
   shaka.polyfill.installAll();
   const player = new shaka.Player();
   await player.attach(film);
+  const certificate = clear ? null : await serviceCertificate();
   player.configure({
     manifest: { disableVideo: true, disableText: true },
     preferredAudioCodecs: ['mp4a.40.2'],
-    drm: { servers: clear ? {} : { 'com.widevine.alpha': license } },
+    drm: {
+      servers: clear ? {} : { 'com.widevine.alpha': license },
+      advanced: certificate ? { 'com.widevine.alpha': { serverCertificate: certificate } } : {},
+    },
   });
   // Log every license request and what kind it is (the first license, a
-  // renewal, ...), to see which one a server refuses.
+  // renewal, ...), to see which one a server refuses, and the size of each
+  // answer that came back.
+  const LICENSE = shaka.net.NetworkingEngine.RequestType.LICENSE;
   player.getNetworkingEngine().registerRequestFilter((type, request) => {
-    if (type !== shaka.net.NetworkingEngine.RequestType.LICENSE) return;
+    if (type !== LICENSE) return;
     const kind = request.licenseRequestType || 'unknown kind';
-    const bytes = request.body ? request.body.byteLength : 0;
-    console.log(`license request: ${kind}, ${bytes} bytes`);
+    const body = request.body ? shaka.util.BufferUtils.toUint8(request.body) : new Uint8Array();
+    console.log(`license request: ${kind}, ${body.byteLength} bytes, ${describeWidevine(body)}`);
+  });
+  player.getNetworkingEngine().registerResponseFilter((type, response) => {
+    if (type !== LICENSE) return;
+    console.log(`license answer: ${response.data.byteLength} bytes`);
   });
   // Load the film again from the same place, which asks for a fresh license.
   let reloading = false;
@@ -119,6 +224,13 @@ async function main() {
     let data = '';
     try { data = JSON.stringify(error.data).slice(0, 300); } catch { /* not plain data */ }
     console.log(`Shaka error ${error.code} (see shaka.util.Error in Shaka's docs): ${data}`);
+    // A refused license (6007) carries the HTTP error (1001), whose third
+    // item is what the server sent back. Google's servers send an HTML page,
+    // so print just its words.
+    const http = error.code === 6007 && error.data && error.data[0];
+    if (http && http.code === 1001 && typeof http.data[2] === 'string') {
+      console.log(`the license server answered HTTP ${http.data[1]}: ${pageText(http.data[2])}`);
+    }
     if (error.severity !== shaka.util.Error.Severity.CRITICAL) return;
     // Not every critical error stops the film: a refused license renewal
     // doesn't, while the license from before is still good. So look again in

@@ -250,10 +250,12 @@ test server, the stream Android's ExoPlayer tests against. On robbie's machine
 (2026-10-18) both servers refuse our very first license request (Angel One's
 with HTTP 500 ACCESS_DENIED, Widevine's with 400 Bad Request), and both films
 start with a few seconds that aren't encrypted. So you hear 3 to 10 seconds
-and then silence: the daemon has not decrypted anything yet. Finding out why
-is open. The page logs each license request (`page: license request: ...`)
-and, if the film stops after an error, loads it again from the same spot
-("page: reloading the film").
+and then silence: the daemon has not decrypted anything yet. Issue #21 tracks
+why; [widevine-license.md](widevine-license.md) explains the suspect (our
+Widevine skips "privacy mode") and the certificate request the page now makes
+first. The page logs each license request and what's in it
+(`page: license request: ...`) and, if the film stops after an error, loads it
+again from the same spot ("page: reloading the film").
 
 `scratterd --clear-film` plays Google's unencrypted copy of the same film, so
 everything but Widevine can be tested in the meantime.
