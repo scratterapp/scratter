@@ -1,11 +1,13 @@
 # Getting a Widevine license (#21)
 
-`scratterd --test-film` plays Google's Widevine-encrypted test film, but on
-robbie's machine the license server says no to our very first license request,
-so only the film's unencrypted first seconds play. Helium, on the same machine
-with the same Widevine, plays Widevine films fine. This page explains what a
-license request is, what we think goes wrong in ours, and what the page now
-does about it.
+For two days `scratterd --test-film` played the Widevine test film's first few
+seconds and then went silent. Google's license server was refusing every
+license we asked for. The cause turned out to be outside our code: the
+Widevine CDM installed on robbie's machine (4.10.2934.0) was old enough that
+Google had revoked it. Updating the system package (`chromium-widevine`, to
+4.10.3050.0) fixed it. This page explains what a license request is, how we
+found the cause, and what the page now logs so the next refusal explains
+itself.
 
 ## The conversation, step by step
 
@@ -17,125 +19,124 @@ page only carries the messages between them:
 1. the page loads the film         Shaka sees the film is encrypted
 2. Widevine writes a request       "I'm this device, I want the key for this film"
 3. the page posts it to the server proxy.uat.widevine.com, an ordinary HTTPS POST
-4. the server checks the device    is this a real, trusted Widevine device?
+4. the server checks the device    is this a real Widevine that isn't revoked?
 5. the server sends the license    the key, locked so only that device can open it
 6. Widevine decrypts the film      the decoded sound reaches CefAudioHandler
 ```
 
-On our side, step 4 fails: the server answers step 3 with an error (400 from
-Widevine's server, 500 ACCESS_DENIED from the one Angel One used), so step 5
-never happens.
+Our requests failed at step 4.
 
-## The device's identity and "privacy mode"
+## Device certificates and revocation
 
-The request in step 2 carries the device's **identity**: a certificate built
-into Widevine, plus a few name=value details such as the CDM version and the
-operating system. That identity is the same every time, so anyone watching the
-network could follow one computer around the web with it.
+The request in step 2 carries the device's identity: a **device certificate**
+built into that version of Widevine, plus a few name=value details such as the
+Widevine version and the operating system. A certificate here is like an ID
+card signed by Google.
 
-So since Chrome 58, Widevine hides it. Before the first license request,
-Chrome's Widevine sends a tiny 2-byte message instead, "send me your
-certificate". The server answers with its **service certificate**, and Widevine
-then encrypts its identity with it, so only the license server can read it.
-That's called privacy mode.
+Every few months Google ships a new Widevine with a new certificate, and some
+months later revokes the old ones. After that, the license server refuses any
+request carrying an old certificate, whatever the site or browser. Desktop
+Chrome never notices, because its component updater keeps Widevine current.
+Our daemon turns that updater off (`--disable-component-update`, because we
+don't download anything ourselves), so Widevine is only as new as the system
+package. On robbie's machine that package hadn't been updated in a while.
 
-In our logs, Widevine's first and only message was a 1722-byte license
-request. No 2-byte certificate request came before it. That's the suspect:
-our CEF's Widevine sends its identity in the clear, and Google's servers now
-refuse that from a desktop browser. Why our CEF skips the step while Helium
-doesn't is still unknown.
+## How we found it
 
-## What the server really said
+The trail, in order, because the wrong turns are part of the lesson:
 
-With the page printing the server's answer as text, the next run on robbie's
-machine (2026-10-18) gave the real reason:
+1. **The symptom.** Sound for 3 to 10 seconds, then silence. Test films start
+   with a few unencrypted seconds, so that was all we ever heard. The page's
+   log showed one license request, refused with HTTP 400.
+2. **Ruled out:** the sandbox (same with `--no-sandbox`) and the copy of
+   Widevine (Helium had the same version, and pointing the daemon at Helium's
+   copy failed the same way). Helium seemed to play a Widevine demo, so we
+   blamed our CEF build. That was the wrong conclusion: we didn't check that
+   Helium got past the unencrypted part.
+3. **A wrong guess.** Chrome normally hides the device's identity by first
+   asking the server for a "service certificate" and encrypting with it
+   ("privacy mode"). Ours sent the identity in the clear, so we tried fetching
+   that certificate ourselves. Widevine still sent the identity in the clear,
+   and the server read it fine either way. Not the cause; that code is gone.
+4. **Reading the error properly.** Google's server sends its errors as an HTML
+   page, and we had only been printing the first 300 characters of the HTML,
+   which held nothing but the page header. Printing the page's words instead
+   showed:
 
-```
-status=ACCESS_DENIED, internal_status=DRM_DEVICE_CERTIFICATE_REVOKED
-```
+   ```
+   status=ACCESS_DENIED, internal_status=DRM_DEVICE_CERTIFICATE_REVOKED
+   ```
 
-Google has revoked the device certificate our Widevine sends. Privacy mode
-wasn't the cause: the server read the identity fine, and Widevine still sent
-it in the clear even with the service certificate in place. A fresh browser
-profile changed nothing, so it isn't old data the daemon kept.
+5. **Which certificate?** The page now decodes the request and prints the
+   certificate's system ID and the date it was made: `system ID 39208, made
+   2025-08-13`. Google revoked every Widevine older than its October 2025
+   update in January 2026, so a certificate from August 2025 is one of them.
+6. **Checking Helium properly.** `tools/test_page/serve.py` serves the
+   daemon's own page on `http://localhost:8000`, so a normal browser can run
+   it. Helium couldn't start Widevine on it at all (Shaka error 6001). So its
+   earlier "pass" had been the unencrypted lead-in too.
+7. **The fix.** Updating `chromium-widevine` from the AUR installed
+   4.10.3050.0, with a certificate made 2026-03-12. The next run printed
+   `license answer: 1655 bytes`, and the film played on.
 
-Helium runs the same Widevine version and gets licenses, so the next question
-is what Helium sends that we don't. `tools/test_page/serve.py` serves
-the daemon's own page on `http://localhost:8000`, so Helium can run exactly
-the same page against the same server and print the same log lines in its
-console, including which device certificate it sends (its "system ID" and
-when it was made). The rest of this page explains how we got here.
+The lesson: when a server refuses you, read its whole answer before you guess.
+And when you compare against something that "works", check that it really
+does.
 
-## What the page does now
-
-The page (`src/daemon/cef_host/test_film_page.hpp`) asks for the service
-certificate itself, before loading the film, and gives it to Shaka:
-
-```js
-const response = await fetch(license, { method: 'POST', body: new Uint8Array([0x08, 0x04]) });
-...
-drm: { advanced: { 'com.widevine.alpha': { serverCertificate: certificate } } }
-```
-
-`0x08 0x04` is the whole "send me your certificate" message. The server's
-answer wraps the certificate in a message of its own (type 5), and
-`setServerCertificate()` wants the certificate alone, so the page unwraps it
-first. The first try on robbie's machine passed the whole answer and Widevine
-refused it (Shaka error 6004, "invalid server certificate"), which stopped the
-film from loading at all. Now the page tries the certificate alone, then the
-whole answer, then no certificate, so the film always starts. Shaka passes the
-answer to the browser with `MediaKeys.setServerCertificate()`, the standard
-web way of doing what Chrome's Widevine does by itself. This is ordinary
-use of the browser's DRM API: nothing is bypassed and no key is touched.
-
-It also logs what each message is, so one run tells us which case we're in:
+## What the page logs
 
 | Log line | Meaning |
 | --- | --- |
-| `got the license server's service certificate, N bytes` | The certificate arrived. |
-| `Widevine refused the N-byte certificate (Shaka error 6004)` | Widevine didn't accept that form; the page tries the next. |
-| `loaded the film with a N-byte certificate` | Widevine accepted it; `no certificate` means it took none. |
-| `no service certificate: the license server answered HTTP 400: ...` | Even this tiny request is refused, so the problem is the HTTP request itself, not Widevine. |
-| `license request: ..., identity encrypted (privacy mode)` | Widevine used the certificate. |
-| `license request: ..., identity NOT encrypted: name=value, ...; device certificate: system ID N, made DATE` | It didn't. The details are what the server sees about the device. |
+| `license request: license-request, N bytes, identity NOT encrypted: ...; device certificate: system ID N, made DATE` | What Widevine told the server about this device. |
+| `license request: ..., identity encrypted (privacy mode)` | The same, hidden from us (Widevine encrypted it for the server). |
 | `license answer: N bytes` | The server sent a license. It worked. |
-| `the license server answered HTTP 400: ...` | The server's own words, without the HTML. |
+| `the license server answered HTTP 400: ...` | The server's own words, without the HTML. `DRM_DEVICE_CERTIFICATE_REVOKED` means: update Widevine. |
+
+It never logs keys or the license itself, only sizes. Everything it prints
+about the device is what the server sees anyway.
+
+If you see the revoked error, check the installed version and update the
+package that provides it:
+
+```sh
+grep '"version"' /usr/lib/chromium/WidevineCdm/manifest.json
+pacman -Qo /usr/lib/chromium/WidevineCdm/manifest.json
+```
 
 ## Reading a protobuf by hand
 
 Widevine's messages are **protobufs**, Google's compact binary format. A
 protobuf is a list of fields, and each field starts with one number that packs
 two things: the field's number and its "wire type" (`key = number * 8 + type`).
-Type 0 is a number, type 2 is a run of bytes (text or a message inside the
+Type 0 is a number, type 2 is a run of bytes (text, or a message inside the
 message). Numbers are written 7 bits per byte, with the top bit meaning "more
 bytes follow".
 
-So `08 04` reads as: key `0x08` = field 1, type 0; value `4`. Field 1 of a
-Widevine `SignedMessage` is its type, and type 4 is
+For example, `08 04` reads as: key `0x08` = field 1, type 0; value `4`. Field 1
+of a Widevine `SignedMessage` is its type, and type 4 is
 `SERVICE_CERTIFICATE_REQUEST`. That's the whole message.
 
 `protobufFields()` in the page does exactly this for one level, and
 `describeWidevine()` walks the few fields we care about, using the field
 numbers from Widevine's public `license_protocol.proto`:
 
-- `SignedMessage`: field 1 the type (1 is a license request, 4 a certificate
-  request), field 2 the message inside.
+- `SignedMessage`: field 1 the type (1 is a license request), field 2 the
+  message inside.
 - `LicenseRequest`: field 1 the identity in the clear, field 8 the identity
   encrypted.
 - the identity: field 2 the device certificate, each field 3 one name=value
   pair.
 - the device certificate (a `SignedDrmCertificate`): field 1 the certificate
-  itself, in which field 3 is when it was made (seconds since 1970) and
-  field 5 the system ID, the number Google gives each kind of device. A
-  revocation names system IDs or certificates, so this is what to compare.
+  itself, in which field 3 is when it was made (seconds since 1970) and field
+  5 the system ID, the number Google gives each Widevine build.
 
 ## What you learn
 
 - How DRM in a browser really works: the page only carries messages, and the
   key never leaves Widevine.
-- Why a device identity is a privacy problem, and how a server certificate
-  solves it.
+- Why a DRM library expires: certificates, revocation, and what a component
+  updater quietly does for a normal browser.
 - Reading a binary format byte by byte, and what a protobuf looks like on the
   wire.
 - Debugging something you can't run yourself: make one run print enough to
-  tell every likely cause apart.
+  tell the likely causes apart, and read the whole error first.

@@ -132,7 +132,10 @@ reads the hint at startup and loads the CDM into the zygote before the sandbox
 closes, which is why this has to happen before `CefInitialize()`.
 
 Chromium's updater would also download Widevine and other components on its
-own, so the daemon passes `--disable-component-update`.
+own, so the daemon passes `--disable-component-update`. That makes keeping
+Widevine current the system package's job: Google revokes old versions, and a
+revoked one is refused every license
+([license-request.md](license-request.md)).
 
 The profile folder is `~/.cache/scratter/browser` (from the product
 name). It holds cookies, the browser cache, the hint file, and `cef.log`,
@@ -246,18 +249,18 @@ Back in the first window, Ctrl-C should end with "stopped cleanly" and no
 
 The film used to be Shaka's "Angel One" demo, licensed through
 `cwip-shaka-proxy.appspot.com`; now it's "Tears of Steel" through Widevine's own
-test server, the stream Android's ExoPlayer tests against. On robbie's machine
-(2026-10-18) both servers refuse our very first license request (Angel One's
-with HTTP 500 ACCESS_DENIED, Widevine's with 400 Bad Request), and both films
-start with a few seconds that aren't encrypted. So you hear 3 to 10 seconds
-and then silence: the daemon has not decrypted anything yet. Issue #21 tracks
-why; [license-request.md](license-request.md) explains the server's answer
-(our device certificate is revoked) and how the page found it. The page logs each license request and what's in it
-(`page: license request: ...`) and, if the film stops after an error, loads it
-again from the same spot ("page: reloading the film").
+test server, the stream Android's ExoPlayer tests against. Both films start
+with a few seconds that aren't encrypted, so if you hear 3 to 10 seconds and
+then silence, the license was refused and nothing was decrypted. Look for
+`page: the license server answered` in the output: until 2026-10-18 that was
+`DRM_DEVICE_CERTIFICATE_REVOKED`, because the installed Widevine was too old
+(issue #21, [license-request.md](license-request.md)). The page logs each
+license request and what's in it (`page: license request: ...`), each license
+that arrives (`page: license answer: ...`) and, if the film stops after an
+error, loads it again from the same spot ("page: reloading the film").
 
-`scratterd --clear-film` plays Google's unencrypted copy of the same film, so
-everything but Widevine can be tested in the meantime.
+`scratterd --clear-film` plays Google's unencrypted copy of the same film, to
+test everything but Widevine.
 
 ## What you learn
 

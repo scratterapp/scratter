@@ -9,31 +9,21 @@
 // dash.js test against the same stream and server.
 //
 // The #5 experiment and the first version of this page used Shaka's "Angel
-// One" demo through cwip-shaka-proxy.appspot.com. On robbie's machine both
-// servers refuse our very first license request (Angel One's with HTTP 500
-// ACCESS_DENIED, this one with 400), so only the film's unencrypted first
-// seconds play; why is still open (docs/learning/cef-host.md). kClearFilmUrl
-// plays Google's unencrypted copy of the same film in the meantime.
+// One" demo through cwip-shaka-proxy.appspot.com. kClearFilmUrl plays Google's
+// unencrypted copy of the same film, for testing everything but Widevine.
 //
 // CEF serves this from memory at kTestFilmUrl. It has to be an https address:
 // Chromium refuses DRM on file:// pages ("EME use is not allowed on unique
 // origins"), and https counts as a secure origin even though nothing is
 // fetched over the network for it.
 //
-// Before the first license, the page asks the license server for its "service
-// certificate" and hands it to Widevine (trying the next form, then none, if
-// Widevine refuses it), so Widevine encrypts the device's
-// identity in its license requests ("privacy mode"). A real Chrome asks for
-// this certificate itself; issue #21 suspects ours doesn't, and that the server
-// refuses requests that show the identity in the clear.
-// docs/learning/license-request.md explains the exchange.
-//
 // The page logs every license request it makes: its kind, its size, and what
-// kind of Widevine message it is (a certificate request, or a license request
-// with the identity encrypted or not; if not, the device details Widevine put in
-// it, which the server sees anyway). It never logs keys or the license itself,
-// only its size. When a server says no, the page prints its answer as plain
-// text. If a license is refused (Shaka error 6007) or
+// Widevine put in it about the device (its Widevine version and device
+// certificate, which the server sees anyway), and the size of each license
+// that comes back. It never logs keys or the license itself. When a server
+// says no, the page prints its answer as plain text: that's how issue #21
+// found a revoked Widevine (docs/learning/license-request.md). If a license
+// is refused (Shaka error 6007) or
 // anything else goes wrong, it checks 3 seconds later whether the film is
 // still moving. Only if it stopped does the page wait 5 more seconds and load
 // the film again from where it was, with a fresh license. It logs "reloading
@@ -153,33 +143,6 @@ function pageText(html) {
     .replace(/\s+/g, ' ').trim().slice(0, 300);
 }
 
-// Asks the license server for its service certificate by sending the 2-byte
-// Widevine message that means "send me your certificate" (a SignedMessage of
-// type 4). The answer is a SignedMessage of type 5 with the certificate in
-// field 2. Returns the forms to try, best first: the certificate on its own
-// (what MediaKeys.setServerCertificate() expects), the whole answer, and null
-// for none, so the film still starts if Widevine takes neither.
-async function serviceCertificates() {
-  try {
-    const response = await fetch(license, { method: 'POST', body: new Uint8Array([0x08, 0x04]) });
-    if (!response.ok) {
-      console.log(`no service certificate: the license server answered HTTP ${response.status}: ` +
-                  pageText(await response.text()));
-      return [null];
-    }
-    const answer = new Uint8Array(await response.arrayBuffer());
-    const fields = protobufFields(answer);
-    const type = fields.find((f) => f.number === 1)?.value;
-    const inner = fields.find((f) => f.number === 2)?.bytes;
-    console.log(`got the license server's service certificate, ${answer.byteLength} bytes ` +
-                `(message type ${type}, certificate ${inner ? inner.byteLength : 0} bytes)`);
-    return type === 5 && inner ? [inner.slice(), answer, null] : [answer, null];
-  } catch (e) {
-    console.log(`no service certificate: ${e}`);
-    return [null];
-  }
-}
-
 async function main() {
   const aac = 'audio/mp4; codecs="mp4a.40.2"';
   if (!MediaSource.isTypeSupported(aac)) {
@@ -247,7 +210,6 @@ async function main() {
       console.log(`the license server answered HTTP ${http.data[1]}: ${pageText(http.data[2])}`);
     }
     if (error.severity !== shaka.util.Error.Severity.CRITICAL) return;
-    if (!ready) return; // the first load handles its own errors, below
     // Not every critical error stops the film: a refused license renewal
     // doesn't, while the license from before is still good. So look again in
     // 3 seconds, and reload only if the film stopped moving.
@@ -267,26 +229,11 @@ async function main() {
   });
   film.addEventListener('pause', () => console.log('paused'));
 
-  // Load the film with each form of the certificate in turn. Widevine
-  // refusing one is Shaka error 6004; an empty certificate means none.
-  const certificates = clear ? [null] : await serviceCertificates();
-  for (const [i, certificate] of certificates.entries()) {
-    const serverCertificate = certificate ?? new Uint8Array(0);
-    player.configure({ drm: { advanced: { 'com.widevine.alpha': { serverCertificate } } } });
-    try {
-      await player.load(manifest);
-      const size = certificate ? `a ${certificate.byteLength}-byte` : 'no';
-      if (!clear) console.log(`loaded the film with ${size} certificate`);
-      break;
-    } catch (e) {
-      if (e.code === 6004 && i + 1 < certificates.length) {
-        console.log(`Widevine refused the ${certificate.byteLength}-byte certificate ` +
-                    '(Shaka error 6004), trying the next form');
-        continue;
-      }
-      console.log(`couldn't load the film: Shaka error ${e.code}`);
-      return;
-    }
+  try {
+    await player.load(manifest);
+  } catch (e) {
+    console.log(`couldn't load the film: Shaka error ${e.code}`);
+    return;
   }
   ready = true;
   if (wanted === 'play') film.play();
