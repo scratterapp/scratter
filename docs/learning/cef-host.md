@@ -197,7 +197,9 @@ test that overflowed the ring buffer (45056 frames dropped), and pressing play
 replayed that stale sound, ran dry, cut out, and came back. Now `render()`
 throws away whatever reaches the ring buffer while paused or stopped, and on
 play waits for ~85 ms of fresh sound before it starts. The cost is skipping
-about the last 0.1 s before the pause, which you don't notice.
+about the last 0.1 s before the pause, which you don't notice. Since #1 the
+sound also fades in over 10 ms on play and out over 10 ms on pause, so the jump
+doesn't click; see [fade.md](fade.md).
 
 ## Play, pause, stop
 

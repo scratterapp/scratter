@@ -35,6 +35,12 @@
 // after, so keeping that audio for later would replay stale sound on resume,
 // run dry and stutter. Resuming skips about the last 0.1 s before the pause.
 //
+// Starting and stopping the sound fades it over 10 ms instead of jumping
+// between silence and full volume in one sample, which you'd hear as a click.
+// Play fades in once the ring buffer has filled up (after a run-dry too), and
+// Pause or Stop keeps playing for those 10 ms while it fades out, then goes
+// silent. Pressing play again during a fade-out just fades back in.
+//
 // Construct it on the heap (std::make_unique): the ring buffer alone is 128 KiB.
 
 #include "common/spsc_ring_buffer.hpp"
@@ -59,13 +65,17 @@ class AudioPath {
     static constexpr std::size_t kCapacityFrames = 16384; // spec 3.1.4: ~341 ms at 48 kHz
     static constexpr std::size_t kTargetFrames = 4096;    // ~85 ms, the drift controller's target
     static constexpr std::size_t kPacketFrames = 512;     // what CEF delivers per packet
+    static constexpr std::uint32_t kFadeMillis = 10;      // fade in on play, out on pause
 
     using RingBuffer = common::LockFreeSpscAudioBuffer<float, kCapacityFrames, kChannels>;
 
     static_assert(kChannels == PolyphaseResampler::kChannels);
 
     // Allocates the resampler's table, so do it at setup, not on the audio thread.
-    explicit AudioPath(std::uint32_t sample_rate_hz) : sample_rate_hz_(sample_rate_hz) {}
+    explicit AudioPath(std::uint32_t sample_rate_hz)
+        : sample_rate_hz_(sample_rate_hz),
+          fade_frames_(std::max<std::size_t>(1, sample_rate_hz * kFadeMillis / 1000)),
+          fade_step_(1.0f / static_cast<float>(fade_frames_)) {}
 
     // --- Producer: the reactor thread (tone) --------------------------------
 
@@ -137,6 +147,8 @@ class AudioPath {
         return volume_percent_.load(std::memory_order_relaxed);
     }
     [[nodiscard]] std::uint32_t sample_rate_hz() const noexcept { return sample_rate_hz_; }
+    // How many frames a fade lasts: 480 at 48 kHz.
+    [[nodiscard]] std::size_t fade_frames() const noexcept { return fade_frames_; }
 
     // Frames played since the last Stop (Pause keeps the place).
     [[nodiscard]] std::uint64_t position_frames() const noexcept {
@@ -173,9 +185,11 @@ class AudioPath {
     // is the AudioSink's render callback.
     void render(std::span<float> out) noexcept {
         const PlaybackState state = state_.load(std::memory_order_acquire);
-        if (state != PlaybackState::Playing) {
-            // Paused or stopped: silence, and throw away what's in the ring
-            // buffer (see the top). Playing again fills up afresh.
+        const bool playing = state == PlaybackState::Playing;
+        if (!playing && fade_ == 0.0f) {
+            // Paused or stopped, and done fading out: silence, and throw away
+            // what's in the ring buffer (see the top). Playing again fills up
+            // afresh. Until the fade-out is done, play on below.
             std::ranges::fill(out, 0.0f);
             ring_.commit_read(ring_.available_read_frames());
             filling_up_ = true;
@@ -217,8 +231,18 @@ class AudioPath {
         // use one) can come with the UI's volume slider.
         const float gain =
             static_cast<float>(volume_percent_.load(std::memory_order_relaxed)) / 100.0f;
-        for (float& sample : out) {
-            sample *= gain;
+
+        // The fade moves one step per frame: up towards 1 while playing, down
+        // towards 0 while paused or stopped. Both channels of a frame get the
+        // same step.
+        for (std::size_t i = 0; i + 1 < out.size(); i += kChannels) {
+            fade_ =
+                playing ? std::min(1.0f, fade_ + fade_step_) : std::max(0.0f, fade_ - fade_step_);
+            out[i] *= gain * fade_;
+            out[i + 1] *= gain * fade_;
+        }
+        if (filling_up_) {
+            fade_ = 0.0f; // ran dry: fade in again once it's filled up
         }
 
         position_frames_.fetch_add(produced, std::memory_order_relaxed);
@@ -228,6 +252,8 @@ class AudioPath {
   private:
     RingBuffer ring_;
     std::uint32_t sample_rate_hz_;
+    std::size_t fade_frames_;
+    float fade_step_; // 1 / fade_frames_
 
     // Written by the reactor thread, read by the audio thread.
     std::atomic<PlaybackState> state_{PlaybackState::Playing};
@@ -237,6 +263,7 @@ class AudioPath {
     DriftController drift_;
     PolyphaseResampler resampler_;
     bool filling_up_ = true; // waiting for kTargetFrames before playing
+    float fade_ = 0.0f;      // 0 is silent, 1 is full volume; see render()
 
     // Written by the audio thread, read by the reactor thread.
     std::atomic<std::uint64_t> position_frames_{0};

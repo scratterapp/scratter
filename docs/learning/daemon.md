@@ -133,13 +133,12 @@ it grows, and those pointers would dangle.
 
 - **Playing:** ask the drift controller for a ratio, resample out of the ring
   buffer, apply the volume, add to the position.
-- **Paused:** write silence and leave the ring buffer alone. Playing again
-  continues from exactly the same sample.
-- **Stopped:** silence too, and the position goes back to 0.
+- **Paused:** fade out over 10 ms, then write silence and throw away what
+  reaches the ring buffer (see [cef-host.md](cef-host.md) for why). Playing
+  again waits for the ring to fill and fades back in ([fade.md](fade.md)).
+- **Stopped:** the same, and the position goes back to 0.
 
-For a tone, stop and pause sound the same. With real music, stop will also
-throw away what's buffered, but that only means something once there's a
-track to throw away.
+For a tone, stop and pause sound the same; only the position differs.
 
 Volume is plain linear multiplication (50% halves each sample). Most players
 use a curve, because hearing isn't linear; that can come with the UI's slider.

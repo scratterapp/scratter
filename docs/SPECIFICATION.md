@@ -569,7 +569,7 @@ scratter/
     ├── fuzz_ipc_framing.cpp           # libFuzzer target for the frame parser and body decoders (linux-fuzz preset)
     ├── test_realtime.cpp              # lock_memory / unlock_memory
     ├── test_pipewire_sink.cpp         # Linux-only: PipeWire sink (passes with a warning if no daemon)
-    ├── test_audio_path.cpp            # The daemon's render callback: play, pause, stop, volume, underruns, CEF's planar input
+    ├── test_audio_path.cpp            # The daemon's render callback: play, pause, stop, fades, volume, underruns, CEF's planar input
     ├── test_daemon.cpp                # Linux-only: starts the daemon binary, drives it directly and with amctl
     ├── test_amctl_args.cpp            # amctl's argument parsing
     ├── test_credential_vault.cpp      # CredentialVault contract (skips where there's no vault or no keyring running)
