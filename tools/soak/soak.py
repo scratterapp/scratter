@@ -173,17 +173,18 @@ def memory_kb(pid: int) -> tuple[int, int, int] | None:
 
 
 def process_kind(pid: int) -> str:
+    # Chromium rewrites its processes' command lines to one string with spaces
+    # (like a renamed process title), so search the whole thing.
     try:
-        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace")
     except OSError:
         return "other"
-    for arg in cmdline:
-        if arg.startswith(b"--type="):
-            kind = arg[len(b"--type=") :].decode(errors="replace")
-            # Chromium calls the GPU process "gpu-process".
-            kind = "gpu" if kind.startswith("gpu") else kind
-            return kind if kind in KINDS else "other"
-    return "other"
+    match = re.search(r"--type=([\w-]+)", cmdline)
+    if not match:
+        return "other"
+    # Chromium calls the GPU process "gpu-process".
+    kind = "gpu" if match[1].startswith("gpu") else match[1]
+    return kind if kind in KINDS else "other"
 
 
 def measure(daemon_pid: int) -> dict:
