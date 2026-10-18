@@ -51,6 +51,8 @@ Deeper write-ups for finished pieces:
 - [cef-host.md](cef-host.md): CEF inside the daemon (#76), Chromium's processes,
   the zygote and the "stack smashing" crash, the sandbox, and a second producer
   for the ring buffer.
+- [fade.md](fade.md): fading in and out on play and pause (#1), and why a
+  sudden jump in the samples sounds like a click.
 
 ## How to work an issue
 
@@ -478,6 +480,15 @@ started so far get a section here; the rest are summarized after them.
   a heavy dependency optional.
 - **Read:** [cef-host.md](cef-host.md).
 
+### #1 Fade in and out on play and pause (shared)
+
+- **How:** `AudioPath::render()` keeps one gain between 0 and 1 and moves it a
+  step per frame, up while playing and down while paused or stopped, so play
+  ramps up over 10 ms and pause plays on for 10 ms while it ramps down. That
+  removes the click right after play in the CEF hand test.
+- **You learn:** why a jump in the samples is audible, and how to test for one.
+- **Read:** [fade.md](fade.md).
+
 ### Still to come in phase 3
 
 - **#4 Apple Music through MusicKit JS** (waits on the MusicKit key), **#3 the
@@ -522,3 +533,4 @@ Where each idea first shows up, so you can jump to the issue that teaches it.
 | D-Bus, the Secret Service, wrapping a C library's errors | #53 |
 | Two-way interfaces, events on one thread, desktop media keys | #55, #56, #9 |
 | Browser processes, stack canaries, sandboxes, optional dependencies | #76 |
+| Clicks, fades | #1 |
