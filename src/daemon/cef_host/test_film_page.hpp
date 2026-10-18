@@ -118,7 +118,10 @@ function protobufFields(bytes) {
 // numbers are from Widevine's public license_protocol.proto: SignedMessage
 // field 1 is its type and field 2 the message; in a LicenseRequest, field 1 is
 // the device's identity in the clear and field 8 the same identity encrypted;
-// the identity's field 3 holds name=value pairs describing the device.
+// in the identity, field 2 is the device certificate (a SignedDrmCertificate
+// whose field 1 is the DrmCertificate: field 3 when it was made, field 5 the
+// "system ID" Google gave this kind of device) and each field 3 is a
+// name=value pair describing the device.
 function describeWidevine(bytes) {
   const signed = protobufFields(bytes);
   const type = signed.find((f) => f.number === 1)?.value;
@@ -133,7 +136,15 @@ function describeWidevine(bytes) {
     .filter((f) => f.number === 3)
     .map((f) => protobufFields(f.bytes))
     .map((pair) => `${text(pair, 1)}=${text(pair, 2)}`);
-  return `identity NOT encrypted: ${details.join(', ')}`;
+  const signedCertificate = protobufFields(protobufFields(identity.bytes)
+    .find((f) => f.number === 2)?.bytes ?? new Uint8Array());
+  const certificate = protobufFields(signedCertificate.find((f) => f.number === 1)?.bytes ??
+                                     new Uint8Array());
+  const made = certificate.find((f) => f.number === 3)?.value;
+  const systemId = certificate.find((f) => f.number === 5)?.value;
+  const date = made ? new Date(made * 1000).toISOString().slice(0, 10) : 'unknown';
+  return `identity NOT encrypted: ${details.join(', ')}; ` +
+         `device certificate: system ID ${systemId}, made ${date}`;
 }
 
 // The words of an HTML page, without its tags and styles.
