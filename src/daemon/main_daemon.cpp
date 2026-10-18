@@ -301,7 +301,7 @@ int main(int argc, char** argv) {
     if (auto opened = am::pal::MediaControls::open(*reactor, on_media_key, options->media_name)) {
         media.emplace(std::move(*opened));
         media->set_volume(audio->volume());
-        media->set_track({.title = cef ? "Widevine test film (Angel One)" : "440 Hz test tone",
+        media->set_track({.title = cef ? "Widevine test film (Tears of Steel)" : "440 Hz test tone",
                           .artist = std::string(am::common::kAppName),
                           .album = {},
                           .artwork_url = {},

@@ -1,22 +1,29 @@
 #pragma once
 
 // The page the daemon plays until Apple Music arrives (issue #4): Google's
-// public Widevine test film "Angel One", audio only, through Shaka Player.
-// Google encrypts it with Widevine and runs a test license server that gives
-// the key to anyone, so it exercises the same path as an Apple Music track
-// (AAC audio, a Widevine license, protected audio reaching CefAudioHandler)
-// without an Apple account. The #5 experiment used the same film.
+// public Widevine test film "Tears of Steel" (12 minutes, looped), audio
+// only, through Shaka Player. Google encrypts it with Widevine and runs a test
+// license server that gives the key to anyone, so it exercises the same path
+// as an Apple Music track (AAC audio, a Widevine license, protected audio
+// reaching CefAudioHandler) without an Apple account. Android's ExoPlayer and
+// dash.js test against the same stream and server.
+//
+// The #5 experiment and the first version of this page used Shaka's "Angel
+// One" demo through cwip-shaka-proxy.appspot.com instead. That proxy answers
+// only the first license request and refuses every later one (HTTP 500,
+// ACCESS_DENIED), and Chromium asks again a few seconds in, so the film
+// stopped after 3 to 8 seconds: no good for a 4-hour soak test.
 //
 // CEF serves this from memory at kTestFilmUrl. It has to be an https address:
 // Chromium refuses DRM on file:// pages ("EME use is not allowed on unique
 // origins"), and https counts as a secure origin even though nothing is
 // fetched over the network for it.
 //
-// Google's test license server sometimes refuses a license request a few
-// seconds into the film (Shaka error 6007), and the film stops. The page then
-// loads the film again from where it was, which starts with a fresh license,
-// and logs "reloading the film" so the soak test (tools/soak/soak.py) can
-// tell a refused license from a fault of ours.
+// If the license server refuses anyway (Shaka error 6007) or anything else
+// stops the film, the page waits 5 seconds and loads the film again from
+// where it was, which starts with a fresh license. It logs "reloading the
+// film" so the soak test (tools/soak/soak.py) can tell a refused license
+// from a fault of ours.
 //
 // The daemon drives the page through three functions, amPlay(), amPause() and
 // amStop(). The page prints what it's doing to its console, and the daemon
@@ -36,8 +43,8 @@ inline constexpr std::string_view kTestFilmPage = R"html(<!doctype html>
 <video id="film" loop></video>
 <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.11.2/dist/shaka-player.compiled.js"></script>
 <script>
-const manifest = 'https://storage.googleapis.com/shaka-demo-assets/angel-one-widevine/dash.mpd';
-const license = 'https://cwip-shaka-proxy.appspot.com/no_auth';
+const manifest = 'https://storage.googleapis.com/wvmedia/cenc/h264/tears/tears.mpd';
+const license = 'https://proxy.uat.widevine.com/proxy?provider=widevine_test';
 const film = document.getElementById('film');
 let ready = false;
 let wanted = 'play';
@@ -77,6 +84,8 @@ async function main() {
     reloading = true;
     const at = film.currentTime;
     console.log(`reloading the film at ${at.toFixed(1)} s after Shaka error ${code}`);
+    // Not at once: a server that just said no shouldn't be asked again and again.
+    await new Promise((resolve) => setTimeout(resolve, 5000));
     for (;;) {
       try {
         await player.load(manifest, at);

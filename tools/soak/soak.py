@@ -29,8 +29,9 @@ the daemon's own output in daemon.log.
 
 Linux only: it reads memory use from /proc. Needs Python 3 and nothing else.
 
-Exit code: 0 when the run passed (or was too short to judge memory, but
-otherwise went fine), 1 when it failed, 2 for bad arguments.
+The summary ends in PASSED, FAILED, or NOT JUDGED when the run was too short
+to say anything about memory (under 45 minutes) but nothing went wrong.
+Exit code: 0 for PASSED or NOT JUDGED, 1 for FAILED, 2 for bad arguments.
 """
 
 import argparse
@@ -243,6 +244,7 @@ def slope_per_hour(times: list[float], values: list[float]) -> float:
 def summarize(rows: list[dict], args, shutdown: dict) -> tuple[str, bool]:
     lines = []
     passed = True
+    judged_memory = False
 
     def fail(text: str):
         nonlocal passed
@@ -279,6 +281,7 @@ def summarize(rows: list[dict], args, shutdown: dict) -> tuple[str, bool]:
                 f"more than {args.max_growth:g}. The columns above show which process."
             )
         else:
+            judged_memory = True
             lines.append(f"memory: flat ({growth:+.2f} MB/hour, limit {args.max_growth:g})")
     else:
         lines.append("memory: too short to judge")
@@ -299,7 +302,9 @@ def summarize(rows: list[dict], args, shutdown: dict) -> tuple[str, bool]:
             f"note: the test license server cut the film off {reloads} times and the page "
             "reloaded it; gaps in those minutes and the next don't count"
         )
-    if not with_sound:
+    if not rows:
+        lines.append("playback: not checked (no lines in memory.csv)")
+    elif not with_sound:
         lines.append("playback: not checked (no audio output)")
     elif stalls:
         when = ", ".join(f"{r['elapsed_s'] / 60:.0f}" for r in stalls[:10])
@@ -332,7 +337,12 @@ def summarize(rows: list[dict], args, shutdown: dict) -> tuple[str, bool]:
         # A few late buffers at the start, while the film loads, are normal.
         # Dropped frames mean the ring buffer overflowed.
 
-    lines.append("PASSED" if passed else "FAILED")
+    if not passed:
+        lines.append("FAILED")
+    elif not judged_memory:
+        lines.append("NOT JUDGED: too short to say whether memory stays flat")
+    else:
+        lines.append("PASSED")
     return "\n".join(lines) + "\n", passed
 
 

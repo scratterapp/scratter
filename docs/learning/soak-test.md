@@ -88,7 +88,8 @@ More than 10 MB an hour of anonymous plus shared memory (`--max-growth` to chang
 fails the run. 10 MB is a judgment call, not a rule: it allows for Chromium's
 own housekeeping, and over 4 hours it would still be a 40 MB climb you'd see
 in the numbers. Under half an hour after the warm-up, the summary says "too
-short to judge" instead of guessing.
+short to judge" instead of guessing, and it ends in NOT JUDGED rather
+than PASSED, so a run cut short can't pass for a good one.
 
 ## Running it
 
@@ -117,8 +118,8 @@ python3 tools/soak/soak.py --build build/linux-debug -- --no-audio
 Anything after `--` goes to the daemon in place of `--test-film`, so the
 second line soaks the plain tone without a sound card.
 
-Known: Google's test license server sometimes refuses a license ("Shaka
-error 6007" in `daemon.log`), and the film stops. The page then loads the film
+If Google's test license server refuses a license ("Shaka error 6007" in
+`daemon.log`), the film stops. The page then waits 5 seconds and loads the film
 again from the same spot with a fresh license and prints `page: reloading the
 film`. The script counts those lines each minute (column `reloads`), and a
 minute where the sound stopped but the page reloaded the film doesn't fail the

@@ -241,11 +241,14 @@ window:
 Back in the first window, Ctrl-C should end with "stopped cleanly" and no
 "stack smashing detected" anywhere above it.
 
-Known: Google's test license server sometimes refuses a second license request
-("ACCESS_DENIED", Shaka error 6007) after a few seconds of play, and the film
-stops. That's Google's test server, not us; it happened in the experiment too.
-The page then loads the film again from the same spot, which asks for a fresh
-license, and prints "page: reloading the film". You hear a short gap.
+The film used to be Shaka's "Angel One" demo, licensed through
+`cwip-shaka-proxy.appspot.com`. That server answers only the first license
+request and refuses every later one ("ACCESS_DENIED", Shaka error 6007), and
+Chromium asks again a few seconds in, so the film kept stopping (the first
+soak test run lasted 4 seconds). The page now plays "Tears of Steel" through
+Widevine's own test server, the stream Android's ExoPlayer tests against. If
+a license is refused anyway, the page waits 5 seconds, loads the film again
+from the same spot with a fresh license and prints "page: reloading the film".
 
 ## What you learn
 
