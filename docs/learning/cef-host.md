@@ -242,17 +242,18 @@ Back in the first window, Ctrl-C should end with "stopped cleanly" and no
 "stack smashing detected" anywhere above it.
 
 The film used to be Shaka's "Angel One" demo, licensed through
-`cwip-shaka-proxy.appspot.com`. That server answers only the first license
-request and refuses every later one ("ACCESS_DENIED", Shaka error 6007), and
-Chromium asks again a few seconds in, so the film kept stopping (the first
-soak test run lasted 4 seconds). The page now plays "Tears of Steel" through
-Widevine's own test server, the stream Android's ExoPlayer tests against, but
-that server refuses a second request a few seconds in too. So the page logs
-each license request with its kind (`page: license request: ...`) to find out
-what that request is, and if one is refused it checks 3 seconds later whether
-the film still moves. Only if it stopped does it wait 5 more seconds, load the
-film again from the same spot with a fresh license and print "page: reloading
-the film".
+`cwip-shaka-proxy.appspot.com`; now it's "Tears of Steel" through Widevine's own
+test server, the stream Android's ExoPlayer tests against. On robbie's machine
+(2026-10-18) both servers refuse our very first license request (Angel One's
+with HTTP 500 ACCESS_DENIED, Widevine's with 400 Bad Request), and both films
+start with a few seconds that aren't encrypted. So you hear 3 to 10 seconds
+and then silence: the daemon has not decrypted anything yet. Finding out why
+is open. The page logs each license request (`page: license request: ...`)
+and, if the film stops after an error, loads it again from the same spot
+("page: reloading the film").
+
+`scratterd --clear-film` plays Google's unencrypted copy of the same film, so
+everything but Widevine can be tested in the meantime.
 
 ## What you learn
 

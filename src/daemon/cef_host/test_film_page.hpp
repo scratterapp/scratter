@@ -10,16 +10,17 @@
 //
 // The #5 experiment and the first version of this page used Shaka's "Angel
 // One" demo through cwip-shaka-proxy.appspot.com. On robbie's machine both
-// servers answer the first license request, then refuse a second one a few
-// seconds in (Angel One's with HTTP 500 ACCESS_DENIED, this one with 400).
+// servers refuse our very first license request (Angel One's with HTTP 500
+// ACCESS_DENIED, this one with 400), so only the film's unencrypted first
+// seconds play; why is still open (docs/learning/cef-host.md). kClearFilmUrl
+// plays Google's unencrypted copy of the same film in the meantime.
 //
 // CEF serves this from memory at kTestFilmUrl. It has to be an https address:
 // Chromium refuses DRM on file:// pages ("EME use is not allowed on unique
 // origins"), and https counts as a secure origin even though nothing is
 // fetched over the network for it.
 //
-// The page logs every license request it makes, with its kind, to find out
-// what that second request is. If one is refused (Shaka error 6007) or
+// The page logs every license request it makes, with its kind. If one is refused (Shaka error 6007) or
 // anything else goes wrong, it checks 3 seconds later whether the film is
 // still moving. Only if it stopped does the page wait 5 more seconds and load
 // the film again from where it was, with a fresh license. It logs "reloading
@@ -37,6 +38,8 @@ namespace am::daemon {
 // A made-up host under .invalid, a name reserved so it can never be a real site.
 inline constexpr std::string_view kTestFilmOrigin = "https://player.invalid";
 inline constexpr std::string_view kTestFilmUrl = "https://player.invalid/test-film.html";
+// The same page asked to play the film's unencrypted copy (--clear-film).
+inline constexpr std::string_view kClearFilmUrl = "https://player.invalid/test-film.html?clear";
 
 inline constexpr std::string_view kTestFilmPage = R"html(<!doctype html>
 <meta charset="utf-8">
@@ -44,7 +47,11 @@ inline constexpr std::string_view kTestFilmPage = R"html(<!doctype html>
 <video id="film" loop></video>
 <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.11.2/dist/shaka-player.compiled.js"></script>
 <script>
-const manifest = 'https://storage.googleapis.com/wvmedia/cenc/h264/tears/tears.mpd';
+// ?clear asks for Google's unencrypted copy of the same film.
+const clear = location.search === '?clear';
+const manifest = clear
+  ? 'https://storage.googleapis.com/wvmedia/clear/h264/tears/tears.mpd'
+  : 'https://storage.googleapis.com/wvmedia/cenc/h264/tears/tears.mpd';
 const license = 'https://proxy.uat.widevine.com/proxy?provider=widevine_test';
 const film = document.getElementById('film');
 let ready = false;
@@ -75,7 +82,7 @@ async function main() {
   player.configure({
     manifest: { disableVideo: true, disableText: true },
     preferredAudioCodecs: ['mp4a.40.2'],
-    drm: { servers: { 'com.widevine.alpha': license } },
+    drm: { servers: clear ? {} : { 'com.widevine.alpha': license } },
   });
   // Log every license request and what kind it is (the first license, a
   // renewal, ...), to see which one a server refuses.
@@ -127,7 +134,8 @@ async function main() {
   });
   film.addEventListener('playing', () => {
     const track = player.getVariantTracks().find((t) => t.active);
-    console.log(`playing the Widevine test film, audio ${track ? track.audioCodec : 'unknown'}`);
+    const kind = clear ? 'unencrypted' : 'Widevine';
+    console.log(`playing the ${kind} test film, audio ${track ? track.audioCodec : 'unknown'}`);
   });
   film.addEventListener('pause', () => console.log('paused'));
 

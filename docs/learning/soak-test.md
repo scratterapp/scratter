@@ -112,11 +112,14 @@ Shorter or different runs:
 
 ```sh
 python3 tools/soak/soak.py --hours 1
+python3 tools/soak/soak.py -- --clear-film
 python3 tools/soak/soak.py --build build/linux-debug -- --no-audio
 ```
 
-Anything after `--` goes to the daemon in place of `--test-film`, so the
-second line soaks the plain tone without a sound card.
+Anything after `--` goes to the daemon in place of `--test-film`. The second
+line plays the same film without encryption: everything in CEF and the audio
+path runs, but no Widevine and no license server. The third soaks the plain
+tone without a sound card.
 
 If Google's test license server refuses a license ("Shaka error 6007" in
 `daemon.log`), the film stops. The page then waits 5 seconds and loads the film

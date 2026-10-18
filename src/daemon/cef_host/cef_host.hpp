@@ -42,6 +42,9 @@ struct CefHostOptions {
     // The installed Widevine CDM folder. Empty: look in the usual places
     // (am::pal::find_widevine_cdm()).
     std::filesystem::path widevine_dir;
+    // Play the same film without encryption (--clear-film): no Widevine and
+    // no license server, so it plays even where licensing doesn't work.
+    bool clear_film = false;
 };
 
 class CefHost {
