@@ -500,7 +500,8 @@ scratter/
 │   │   │   ├── shutdown_signal.hpp    # Ctrl-C / SIGTERM as a reactor callback
 │   │   │   ├── credential_vault.hpp   # Keyring / DPAPI token storage interface
 │   │   │   ├── media_controls.hpp     # OS media transport (MPRIS / SMTC) interface
-│   │   │   └── browser_files.hpp      # CEF's profile folder, the program's folder, the installed Widevine CDM
+│   │   │   ├── browser_files.hpp      # CEF's profile folder, the program's folder, the installed Widevine CDM
+│   │   │   └── cef_main_args.hpp      # CefMainArgs per OS; its .cpp files build am_pal_cef (only with AM_WITH_CEF)
 │   │   ├── linux/                     # Owner: Linux developer
 │   │   │   ├── epoll_reactor.cpp      # epoll + eventfd + timerfd
 │   │   │   ├── unix_seqpacket_ipc.cpp # AF_UNIX SOCK_SEQPACKET in $XDG_RUNTIME_DIR
@@ -511,7 +512,8 @@ scratter/
 │   │   │   ├── secret_vault.cpp       # libsecret (org.freedesktop.secrets), login keyring
 │   │   │   ├── signalfd_shutdown.cpp  # SIGINT/SIGTERM blocked and read through a signalfd
 │   │   │   ├── mpris_controls.cpp     # sd-bus MPRIS v2: org.mpris.MediaPlayer2.<name>, fd watched by the reactor
-│   │   │   └── browser_files.cpp      # ~/.cache/<app>/browser, /proc/self/exe, known WidevineCdm folders
+│   │   │   ├── browser_files.cpp      # ~/.cache/<app>/browser, /proc/self/exe, known WidevineCdm folders
+│   │   │   └── cef_main_args.cpp      # CefMainArgs from argc and argv
 │   │   └── win32/                     # Owner: Windows developer
 │   │       ├── iocp_reactor.cpp       # IOCP + PostQueuedCompletionStatus + timer in the wait timeout
 │   │       ├── named_pipe_ipc.cpp     # Overlapped message-mode Named Pipes
@@ -521,7 +523,8 @@ scratter/
 │   │       ├── dpapi_vault.cpp        # DPAPI + Credential Manager
 │   │       ├── console_shutdown.cpp   # SetConsoleCtrlHandler (stub for now)
 │   │       ├── smtc_controls.cpp      # C++/WinRT SystemMediaTransportControls
-│   │       └── browser_files.cpp      # CEF profile folder and installed Widevine on Windows (stub for now)
+│   │       ├── browser_files.cpp      # CEF profile folder and installed Widevine on Windows (stub for now)
+│   │       └── cef_main_args.cpp      # CefMainArgs from GetModuleHandleW(nullptr)
 │   ├── net/                           # Target: am_net (Static Library - Async HTTP & JSON)
 │   │   ├── curl_reactor_bridge.cpp    # Binds curl_multi_socket_action to pal::Reactor
 │   │   └── catalog_parser.cpp         # simdjson On-Demand Apple Music API parsers

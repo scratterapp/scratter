@@ -16,6 +16,7 @@
 #include "daemon/cef_host/cef_host.hpp"
 
 #include "browser_files.hpp"
+#include "cef_main_args.hpp"
 #include "common/app_name.hpp"
 #include "daemon/cef_host/test_film_page.hpp"
 
@@ -377,12 +378,11 @@ std::expected<CefHost, std::string> CefHost::start(const CefHostOptions& options
     impl->client = new PageClient(audio, options.sample_rate_hz);
 
     // CEF reads Chromium switches from the program's arguments. The daemon's
-    // own aren't for it, so it only gets the program's path.
-    // TODO(#8): Windows builds CefMainArgs from the HINSTANCE instead
-    // (GetModuleHandle(nullptr)), which needs a small pal helper. Owner: @kerelosgayed
+    // own aren't for it, so on Linux it only gets the program's path. Windows
+    // ignores these and reads the real command line (cef_main_args.hpp).
     static std::string program = (*exe_dir / common::kDaemonName).string();
     static char* argv[] = {program.data(), nullptr};
-    CefMainArgs main_args(1, argv);
+    const CefMainArgs main_args = pal::cef_main_args(1, argv);
 
     if (!CefInitialize(main_args, settings, new HostApp(impl->client), nullptr)) {
         return std::unexpected("CEF didn't start (exit code " + std::to_string(CefGetExitCode()) +

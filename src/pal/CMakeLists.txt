@@ -40,8 +40,12 @@ if(WIN32)
     # One set of Windows header settings for every target that links am_pal, so
     # <windows.h> is lean, doesn't define min/max macros, and resolves the -W/-A
     # API names to their wide forms. _WIN32_WINNT/WINVER pin the SDK to Windows
-    # 10, which is what the IOCP and WASAPI code targets.
-    target_compile_definitions(am_pal PUBLIC
+    # 10, which is what the IOCP and WASAPI code targets. Its own target so
+    # am_pal_cef (root CMakeLists.txt) can use it without linking am_pal; CEF's
+    # headers need NOMINMAX too, since they include <windows.h> and then call
+    # std::min.
+    add_library(am_win32_headers INTERFACE)
+    target_compile_definitions(am_win32_headers INTERFACE
         WIN32_LEAN_AND_MEAN
         NOMINMAX
         UNICODE
@@ -49,6 +53,7 @@ if(WIN32)
         _WIN32_WINNT=0x0A00
         WINVER=0x0A00
     )
+    target_link_libraries(am_pal PUBLIC am_win32_headers)
 endif()
 
 if(LINUX)

@@ -12,14 +12,17 @@
 // finishes and main() returns, the check fails and glibc kills the process
 // with "*** stack smashing detected ***". The #5 experiment hit exactly this
 // when playback stopped. CEF's own samples mark main() this way for the same
-// reason.
+// reason. With MSVC the macro is empty.
+
+#include "cef_main_args.hpp"
 
 #include "include/base/cef_compiler_specific.h"
 #include "include/cef_app.h"
 
 NO_STACK_PROTECTOR
 int main(int argc, char* argv[]) {
-    CefMainArgs main_args(argc, argv);
+    // argc and argv on Linux, the helper's module handle on Windows.
+    const CefMainArgs main_args = am::pal::cef_main_args(argc, argv);
     // Runs the subprocess until it's done and returns its exit code. There's
     // no CefApp: the built-in page needs nothing custom in the renderer.
     return CefExecuteProcess(main_args, nullptr, nullptr);

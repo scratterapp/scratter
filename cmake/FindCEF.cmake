@@ -43,6 +43,13 @@ endif()
 # same two includes; ours replaces it because this file has the same name.
 set(_CEF_ROOT "${CEF_ROOT}")
 set(_CEF_ROOT_EXPLICIT 1)
+if(WIN32)
+    # CEF builds its wrapper with the static C++ runtime (/MT, /MTd) unless
+    # told otherwise, and our code uses CMake's default, the DLL runtime (/MD,
+    # /MDd). MSVC refuses to link the two together (LNK2038), so the wrapper
+    # follows ours. libcef.dll itself is unaffected: its interface is plain C.
+    set(CEF_RUNTIME_LIBRARY_FLAG /MD)
+endif()
 enable_language(C) # cef_variables checks C compiler flags too
 list(APPEND CMAKE_MODULE_PATH "${CEF_ROOT}/cmake")
 include(cef_variables)
