@@ -55,6 +55,9 @@ Deeper write-ups for finished pieces:
   sudden jump in the samples sounds like a click.
 - [soak-test.md](soak-test.md): the 4-hour soak test (#2), reading a process's
   memory from `/proc`, and telling a leak from a cache filling up.
+- [license-request.md](license-request.md): how a Widevine license is asked
+  for, how we found Google had revoked our Widevine (#21), and reading a
+  protobuf by hand.
 
 ## How to work an issue
 

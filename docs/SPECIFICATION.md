@@ -550,8 +550,10 @@ scratter/
 │   ├── amctl/                         # Command-line remote for the daemon, like mpc for mpd
 │   │   ├── main_amctl.cpp             # Every request the daemon handles, over IPC; status from telemetry
 │   │   └── amctl_args.hpp             # Command-line parsing, and which command sends each opcode
-│   └── soak/
-│       └── soak.py                    # Linux-only Python script: plays for hours, logs memory per process each minute
+│   ├── soak/
+│   │   └── soak.py                    # Linux-only Python script: plays for hours, logs memory per process each minute
+│   └── test_page/
+│       └── serve.py                   # Serves the daemon's built-in test film page on localhost, to run it in a browser
 ├── bench/                             # Hand-run benchmarks, not in ctest
 │   └── ipc_ping_pong.cpp              # IPC round-trip latency (target: median under 25 µs)
 └── tests/                             # Catch2 v3 (FetchContent); one executable per file

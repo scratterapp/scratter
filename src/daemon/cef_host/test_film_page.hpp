@@ -9,18 +9,21 @@
 // dash.js test against the same stream and server.
 //
 // The #5 experiment and the first version of this page used Shaka's "Angel
-// One" demo through cwip-shaka-proxy.appspot.com. On robbie's machine both
-// servers refuse our very first license request (Angel One's with HTTP 500
-// ACCESS_DENIED, this one with 400), so only the film's unencrypted first
-// seconds play; why is still open (docs/learning/cef-host.md). kClearFilmUrl
-// plays Google's unencrypted copy of the same film in the meantime.
+// One" demo through cwip-shaka-proxy.appspot.com. kClearFilmUrl plays Google's
+// unencrypted copy of the same film, for testing everything but Widevine.
 //
 // CEF serves this from memory at kTestFilmUrl. It has to be an https address:
 // Chromium refuses DRM on file:// pages ("EME use is not allowed on unique
 // origins"), and https counts as a secure origin even though nothing is
 // fetched over the network for it.
 //
-// The page logs every license request it makes, with its kind. If one is refused (Shaka error 6007) or
+// The page logs every license request it makes: its kind, its size, and what
+// Widevine put in it about the device (its Widevine version and device
+// certificate, which the server sees anyway), and the size of each license
+// that comes back. It never logs keys or the license itself. When a server
+// says no, the page prints its answer as plain text: that's how issue #21
+// found a revoked Widevine (docs/learning/license-request.md). If a license
+// is refused (Shaka error 6007) or
 // anything else goes wrong, it checks 3 seconds later whether the film is
 // still moving. Only if it stopped does the page wait 5 more seconds and load
 // the film again from where it was, with a fresh license. It logs "reloading
@@ -66,6 +69,80 @@ window.amStop = () => {
   if (ready) { film.pause(); film.currentTime = 0; }
 };
 
+// Widevine's messages are protobufs, Google's binary format: a list of
+// fields, each a field number and a value. This splits one level of a message
+// into its fields: numbers become { number, value }, nested messages and text
+// become { number, bytes }.
+function protobufFields(bytes) {
+  const fields = [];
+  let i = 0;
+  const varint = () => { // a number written 7 bits per byte
+    let value = 0;
+    for (let shift = 0; i < bytes.length; shift += 7) {
+      const b = bytes[i++];
+      value += (b & 0x7f) * 2 ** shift;
+      if (!(b & 0x80)) break;
+    }
+    return value;
+  };
+  while (i < bytes.length) {
+    const key = varint();
+    const number = Math.floor(key / 8);
+    const wire = key % 8;
+    if (wire === 0) {
+      fields.push({ number, value: varint() });
+    } else if (wire === 2) {
+      const length = varint();
+      fields.push({ number, bytes: bytes.subarray(i, i + length) });
+      i += length;
+    } else if (wire === 1 || wire === 5) {
+      i += wire === 1 ? 8 : 4; // fixed-size numbers we don't need
+    } else {
+      break; // not a protobuf after all
+    }
+  }
+  return fields;
+}
+
+// Says what kind of Widevine message the CDM asked the page to send. The field
+// numbers are from Widevine's public license_protocol.proto: SignedMessage
+// field 1 is its type and field 2 the message; in a LicenseRequest, field 1 is
+// the device's identity in the clear and field 8 the same identity encrypted;
+// in the identity, field 2 is the device certificate (a SignedDrmCertificate
+// whose field 1 is the DrmCertificate: field 3 when it was made, field 5 the
+// "system ID" Google gave this kind of device) and each field 3 is a
+// name=value pair describing the device.
+function describeWidevine(bytes) {
+  const signed = protobufFields(bytes);
+  const type = signed.find((f) => f.number === 1)?.value;
+  if (type === 4) return 'a service certificate request';
+  if (type !== 1) return `not a license request (message type ${type})`;
+  const request = protobufFields(signed.find((f) => f.number === 2)?.bytes ?? new Uint8Array());
+  if (request.some((f) => f.number === 8)) return 'identity encrypted (privacy mode)';
+  const identity = request.find((f) => f.number === 1);
+  if (!identity) return 'no identity in it';
+  const text = (fields, n) => new TextDecoder().decode(fields.find((f) => f.number === n)?.bytes);
+  const details = protobufFields(identity.bytes)
+    .filter((f) => f.number === 3)
+    .map((f) => protobufFields(f.bytes))
+    .map((pair) => `${text(pair, 1)}=${text(pair, 2)}`);
+  const signedCertificate = protobufFields(protobufFields(identity.bytes)
+    .find((f) => f.number === 2)?.bytes ?? new Uint8Array());
+  const certificate = protobufFields(signedCertificate.find((f) => f.number === 1)?.bytes ??
+                                     new Uint8Array());
+  const made = certificate.find((f) => f.number === 3)?.value;
+  const systemId = certificate.find((f) => f.number === 5)?.value;
+  const date = made ? new Date(made * 1000).toISOString().slice(0, 10) : 'unknown';
+  return `identity NOT encrypted: ${details.join(', ')}; ` +
+         `device certificate: system ID ${systemId}, made ${date}`;
+}
+
+// The words of an HTML page, without its tags and styles.
+function pageText(html) {
+  return html.replace(/<style[\s\S]*?<\/style>/g, ' ').replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ').trim().slice(0, 300);
+}
+
 async function main() {
   const aac = 'audio/mp4; codecs="mp4a.40.2"';
   if (!MediaSource.isTypeSupported(aac)) {
@@ -85,12 +162,18 @@ async function main() {
     drm: { servers: clear ? {} : { 'com.widevine.alpha': license } },
   });
   // Log every license request and what kind it is (the first license, a
-  // renewal, ...), to see which one a server refuses.
+  // renewal, ...), to see which one a server refuses, and the size of each
+  // answer that came back.
+  const LICENSE = shaka.net.NetworkingEngine.RequestType.LICENSE;
   player.getNetworkingEngine().registerRequestFilter((type, request) => {
-    if (type !== shaka.net.NetworkingEngine.RequestType.LICENSE) return;
+    if (type !== LICENSE) return;
     const kind = request.licenseRequestType || 'unknown kind';
-    const bytes = request.body ? request.body.byteLength : 0;
-    console.log(`license request: ${kind}, ${bytes} bytes`);
+    const body = request.body ? shaka.util.BufferUtils.toUint8(request.body) : new Uint8Array();
+    console.log(`license request: ${kind}, ${body.byteLength} bytes, ${describeWidevine(body)}`);
+  });
+  player.getNetworkingEngine().registerResponseFilter((type, response) => {
+    if (type !== LICENSE) return;
+    console.log(`license answer: ${response.data.byteLength} bytes`);
   });
   // Load the film again from the same place, which asks for a fresh license.
   let reloading = false;
@@ -119,6 +202,13 @@ async function main() {
     let data = '';
     try { data = JSON.stringify(error.data).slice(0, 300); } catch { /* not plain data */ }
     console.log(`Shaka error ${error.code} (see shaka.util.Error in Shaka's docs): ${data}`);
+    // A refused license (6007) carries the HTTP error (1001), whose third
+    // item is what the server sent back. Google's servers send an HTML page,
+    // so print just its words.
+    const http = error.code === 6007 && error.data && error.data[0];
+    if (http && http.code === 1001 && typeof http.data[2] === 'string') {
+      console.log(`the license server answered HTTP ${http.data[1]}: ${pageText(http.data[2])}`);
+    }
     if (error.severity !== shaka.util.Error.Severity.CRITICAL) return;
     // Not every critical error stops the film: a refused license renewal
     // doesn't, while the license from before is still good. So look again in
