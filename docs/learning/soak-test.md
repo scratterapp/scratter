@@ -135,8 +135,45 @@ tone with `--no-audio`) so it can't quietly break when the daemon changes.
 
 ## Results
 
-Not run yet. The first 4-hour run on robbie's machine goes here: the summary,
-and where memory grew if it did.
+**2026-10-18, robbie's machine: PASSED.** 4 hours of `--clear-film` (the
+unencrypted copy of the film, because Widevine licensing doesn't work in our
+CEF yet, issue #21), `linux-cef` debug build, CachyOS, 13 processes:
+
+```
+ran for 4.00 hours, 240 lines in memory.csv
+memory after the first 15 minutes (start -> end, growth):
+  total         2006.8 ->   1979.1 MB,  -11.15 MB/hour
+  total_anon     381.5 ->    385.4 MB,   +0.44 MB/hour
+  total_shmem      3.3 ->      3.7 MB,   +0.03 MB/hour
+  daemon         341.7 ->    336.7 MB,   -1.97 MB/hour
+  renderer       688.8 ->    682.3 MB,   -2.79 MB/hour
+  gpu            156.7 ->    148.0 MB,   -2.59 MB/hour
+  utility        456.6 ->    453.5 MB,   -2.51 MB/hour
+  zygote         289.4 ->    284.9 MB,   -1.27 MB/hour
+  other           73.7 ->     73.7 MB,   +0.00 MB/hour
+memory: flat (+0.47 MB/hour, limit 10)
+playback: played the whole time
+stopped cleanly: 1 late audio buffers, 0 frames dropped
+PASSED
+```
+
+What it says:
+
+- **No leak.** The memory the processes own (anonymous plus shared) grew
+  half a megabyte an hour, about 2 MB over the whole run: noise. Every process
+  kind went slightly *down* in resident memory, which is the kernel trimming
+  pages nobody touched, not the player shrinking.
+- **No dropouts.** Every one of the 240 minutes played its full 60 seconds.
+  The one late buffer is the start, while the film loaded.
+- **The size.** About 385 MB the processes own, around 2 GB if you add up
+  every process's resident memory (shared libraries such as `libcef.so`
+  counted once per process). The renderer and the audio utility process are
+  the biggest. That's normal for a hidden Chromium, and heavier than a music
+  player needs; making it smaller is separate work.
+
+Still to do: the same run on the Widevine film once #21 is fixed, since the
+CDM process and license renewals only run there, and again with real Apple
+Music (#4).
 
 ## What you learn
 
