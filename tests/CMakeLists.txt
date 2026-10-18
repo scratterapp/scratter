@@ -119,6 +119,24 @@ if(LINUX)
     am_enable_warnings(test_daemon)
     catch_discover_tests(test_daemon DISCOVERY_MODE PRE_TEST)
 
+    # A few seconds of the soak test (tools/soak/soak.py) against the tone with
+    # no sound card, so the script keeps working with the daemon it measures.
+    # The real run is hours long and by hand (docs/learning/soak-test.md).
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_FOUND)
+        set(soak_dir "${CMAKE_CURRENT_BINARY_DIR}/soak_smoke")
+        file(MAKE_DIRECTORY "${soak_dir}/runtime")
+        add_test(NAME soak_smoke
+                 COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/soak/soak.py"
+                         --build "$<TARGET_FILE_DIR:${AM_DAEMON_TARGET}>" --hours 0.002
+                         --interval 1 --name soak_smoke --out "${soak_dir}/results"
+                         -- --no-audio)
+        # A private $XDG_RUNTIME_DIR, like test_daemon, so the daemon's socket
+        # can't clash with a real one.
+        set_tests_properties(soak_smoke PROPERTIES
+                             ENVIRONMENT "XDG_RUNTIME_DIR=${soak_dir}/runtime")
+    endif()
+
     # Not a ctest test: plays a sine through the speakers (see the file).
     add_executable(play_sine manual/play_sine.cpp)
     target_link_libraries(play_sine PRIVATE am_pal am_common)

@@ -1,0 +1,131 @@
+# The soak test: does memory stay flat? (#2)
+
+Half of the phase 3 gate (spec section 6) is "4 hours of playback with flat
+memory". A program that leaks loses a little memory every time it does
+something, say every audio packet or every license renewal. A short test never
+notices; after a few hours, or a few days of a daemon that's always on, the
+machine does. A **soak test** is the cure: leave the thing running for a long
+time and watch.
+
+`tools/soak/soak.py` does the watching:
+
+```
+soak.py
+  ├─ starts build/linux-cef/scratterd --test-film   (output -> daemon.log)
+  ├─ once a minute:
+  │    ├─ memory of the daemon and every CEF process under it   (/proc)
+  │    ├─ amctl status --json: how far did playback get?
+  │    └─ one line in memory.csv
+  └─ after 4 hours: stops the daemon like Ctrl-C, writes summary.txt
+```
+
+Everything lands in `soak-results/<date-time>/`, which git ignores.
+
+## Which memory, of which processes
+
+The daemon isn't one process once CEF is on. Chromium runs the page, the audio
+decoding, the GPU stub and Widevine in processes of their own, all started by
+the daemon ([cef-host.md](cef-host.md) has the table). A leak can be in any of
+them, so the script finds every process whose parent, or parent's parent, is
+the daemon, by reading the parent pid out of `/proc/PID/stat` for every
+process on the machine. It sorts them by the `--type=` argument Chromium
+starts them with (`renderer`, `gpu-process`, `utility`, `zygote`), so the
+CSV has a column per kind.
+
+For each process it reads two numbers from `/proc/PID/status`:
+
+- **`VmRSS`**, the resident set size: all of the process's memory that sits in
+  RAM right now. It includes shared libraries such as `libcef.so`, which every
+  CEF process maps, so adding up RSS counts those more than once. That's fine
+  here: we care about change over time, not the exact total.
+- **`RssAnon`**, the anonymous part: memory the program asked for itself
+  (`malloc`, `new`, a JavaScript heap) rather than memory that mirrors a file
+  on disk. A leak is memory asked for and never given back, so it shows up
+  here. The pass/fail verdict uses the total of this one.
+
+`/proc/PID/smaps_rollup` has a fairer number (PSS, which splits shared pages
+between the processes sharing them), but reading it needs the same permission
+as attaching a debugger, which a sandboxed Chromium process may refuse.
+`status` is readable for any process, and is enough to see a trend.
+
+## Is it playing?
+
+Memory staying flat means nothing if the film stopped after a minute. Each
+line also records the play position from `amctl status --json`. The daemon
+only moves the position for audio it actually sent to the sound card, so the
+difference between two lines is how many seconds of sound played in that
+minute. Below 90% of the minute counts as "the sound stopped or cut out" in
+that line (column `stalled`).
+
+When the daemon quits it prints `stopped cleanly, N late audio buffers,
+M frames dropped`. The script stops it with SIGTERM, the same signal Ctrl-C
+handling listens for, and copies that line into the summary. A late buffer is
+a moment PipeWire asked for sound and the ring buffer had run dry (a dropout
+you can hear). A dropped frame is sound that arrived when the ring buffer was
+full and had to be thrown away. A handful of late buffers in the first second,
+while the film loads, is normal; a steady climb is not.
+
+## Leak or cache?
+
+Memory nearly always rises at the start: Chromium fills its caches, the page
+loads Shaka Player and the film, the JavaScript engine grows its heap. That's
+not a leak. A leak is memory that **keeps** rising at a steady rate for as long
+as the program runs.
+
+So the summary ignores the first 15 minutes, then fits a straight line through
+the rest of the points and reports its slope in MB per hour. "Least squares"
+picks the line that sits closest to all the points at once, so one spike at
+the start or the end can't swing the answer the way "last minus first" would.
+More than 10 MB an hour of anonymous memory (`--max-growth` to change it)
+fails the run. 10 MB is a judgment call, not a rule: it allows for Chromium's
+own housekeeping, and over 4 hours it would still be a 40 MB climb you'd see
+in the numbers. Under half an hour after the warm-up, the summary says "too
+short to judge" instead of guessing.
+
+## Running it
+
+It needs the CEF build (the `linux-cef` preset) and Python 3, nothing else.
+
+```sh
+git fetch origin
+git switch feature/cef-soak-test
+cmake --build --preset linux-cef
+python3 tools/soak/soak.py
+```
+
+It prints a line a minute. Leave it running for the 4 hours, with the PC
+awake (a locked screen is fine; sleep or suspend isn't). The film plays out
+loud the whole time; turn the speakers down, or from a second terminal window
+run `./build/linux-cef/amctl volume 5` (volume doesn't change what's measured).
+Ctrl-C ends the run early and still writes the summary.
+
+Shorter or different runs:
+
+```sh
+python3 tools/soak/soak.py --hours 1
+python3 tools/soak/soak.py --build build/linux-debug -- --no-audio
+```
+
+Anything after `--` goes to the daemon in place of `--test-film`, so the
+second line soaks the plain tone without a sound card.
+
+Known: Google's test license server sometimes refuses a renewal ("Shaka
+error 6007" in `daemon.log`), and the film stops. The summary will say the
+sound stopped at minute N. That's Google's test server, not a leak; run it
+again.
+
+A few seconds of the same script run in ctest (`soak_smoke`, against the
+tone with `--no-audio`) so it can't quietly break when the daemon changes.
+
+## Results
+
+Not run yet. The first 4-hour run on robbie's machine goes here: the summary,
+and where memory grew if it did.
+
+## What you learn
+
+- What RSS and anonymous memory are, and why the numbers from different
+  processes overlap.
+- How Linux describes processes in `/proc`, and walking a process tree from it.
+- Why a leak is a slope, not a big number, and fitting a line to noisy data.
+- Why long tests catch what short ones can't.

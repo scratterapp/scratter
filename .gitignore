@@ -1,5 +1,6 @@
 # Build and IDE output
 build/
+soak-results/
 out/
 .cache/
 compile_commands.json

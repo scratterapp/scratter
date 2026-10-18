@@ -51,6 +51,8 @@ Deeper write-ups for finished pieces:
 - [cef-host.md](cef-host.md): CEF inside the daemon (#76), Chromium's processes,
   the zygote and the "stack smashing" crash, the sandbox, and a second producer
   for the ring buffer.
+- [soak-test.md](soak-test.md): the 4-hour soak test (#2), reading a process's
+  memory from `/proc`, and telling a leak from a cache filling up.
 
 ## How to work an issue
 
@@ -478,11 +480,23 @@ started so far get a section here; the rest are summarized after them.
   a heavy dependency optional.
 - **Read:** [cef-host.md](cef-host.md).
 
+### #2 The 4-hour soak test (shared)
+
+- **How:** `tools/soak/soak.py` starts `scratterd --test-film`, and once a
+  minute adds up the memory of the daemon and every CEF process under it
+  (from `/proc/PID/status`) and asks `amctl status --json` how far playback
+  got. After 4 hours it stops the daemon, reads its late-buffer and
+  dropped-frame counts, and says whether memory grew after a 15-minute
+  warm-up, by how much per hour, and in which process.
+- **You learn:** what RSS and anonymous memory are, why a leak shows as a
+  slope and not as a big number, and fitting a straight line to noisy data.
+- **Read:** [soak-test.md](soak-test.md).
+
 ### Still to come in phase 3
 
 - **#4 Apple Music through MusicKit JS** (waits on the MusicKit key), **#3 the
-  login popup** that stores the user token in the vault, **#2 a 4-hour soak
-  test**, and **#8** the Windows build of CEF. You learn: EME/Widevine against
+  login popup** that stores the user token in the vault, and **#8** the
+  Windows build of CEF. You learn: EME/Widevine against
   a real service, and OS secret storage in use. Spec 3.1.1, 3.1.2, 3.3.3.
 - **Phase 4, metadata and media keys.** libcurl's multi interface driven by our
   reactor, `simdjson` On-Demand parsing into an arena allocator, MPRIS over sd-bus
