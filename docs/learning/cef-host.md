@@ -25,6 +25,7 @@ Files:
 | `src/daemon/cef_host/cef_helper_main.cpp` | The helper program CEF runs for its subprocesses. |
 | `src/daemon/cef_host/test_film_page.hpp` | The built-in page, as a string. |
 | `src/pal/interfaces/browser_files.hpp` | Where the profile folder and the installed Widevine are, per OS. |
+| `src/pal/interfaces/cef_main_args.hpp` | CEF's startup arguments, which each OS builds differently. |
 | `cmake/FindCEF.cmake` | Finds our CEF build and builds CEF's C++ wrapper. |
 
 ## Turning it on

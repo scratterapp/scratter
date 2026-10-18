@@ -44,15 +44,33 @@ if(AM_WITH_CEF)
     endif()
     find_package(CEF REQUIRED)
 
+    # How CefMainArgs is built differs by OS (src/pal/interfaces/cef_main_args.hpp).
+    # Its .cpp files need CEF's headers, so they're built here and not in
+    # am_pal, which never links CEF.
+    if(WIN32)
+        add_library(am_pal_cef STATIC src/pal/win32/cef_main_args.cpp)
+    else()
+        add_library(am_pal_cef STATIC src/pal/linux/cef_main_args.cpp)
+    endif()
+    target_include_directories(am_pal_cef PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src/pal/interfaces")
+    target_link_libraries(am_pal_cef PUBLIC CEF::CEF)
+    if(WIN32)
+        # The Windows header settings am_pal uses. The helper doesn't link
+        # am_pal, and CEF's headers need NOMINMAX at least.
+        target_link_libraries(am_pal_cef PUBLIC am_win32_headers)
+    endif()
+    am_enable_warnings(am_pal_cef)
+
     # The real CEF host, and the small program CEF runs for its subprocesses.
     set(AM_CEF_HELPER_TARGET "${AM_DAEMON_TARGET}-cef-helper")
     target_sources(${AM_DAEMON_TARGET} PRIVATE src/daemon/cef_host/cef_host.cpp)
-    target_link_libraries(${AM_DAEMON_TARGET} PRIVATE CEF::CEF)
+    target_link_libraries(${AM_DAEMON_TARGET} PRIVATE am_pal_cef CEF::CEF)
+    # The helper's file name as it is on disk, so with .exe on Windows.
     target_compile_definitions(${AM_DAEMON_TARGET} PRIVATE
-        AM_CEF_HELPER_NAME="${AM_CEF_HELPER_TARGET}")
+        AM_CEF_HELPER_NAME="$<TARGET_FILE_NAME:${AM_CEF_HELPER_TARGET}>")
 
     add_executable(${AM_CEF_HELPER_TARGET} src/daemon/cef_host/cef_helper_main.cpp)
-    target_link_libraries(${AM_CEF_HELPER_TARGET} PRIVATE CEF::CEF)
+    target_link_libraries(${AM_CEF_HELPER_TARGET} PRIVATE am_pal_cef CEF::CEF)
     am_enable_warnings(${AM_CEF_HELPER_TARGET})
     add_dependencies(${AM_DAEMON_TARGET} ${AM_CEF_HELPER_TARGET})
 
