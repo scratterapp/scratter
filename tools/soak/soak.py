@@ -141,13 +141,16 @@ def descendants(root_pid: int) -> list[int]:
     return found
 
 
-def memory_kb(pid: int) -> tuple[int, int] | None:
-    """(resident, anonymous) memory of one process in KiB, or None if it's gone.
+def memory_kb(pid: int) -> tuple[int, int, int] | None:
+    """(resident, anonymous, shared) memory of one process in KiB, or None if it's gone.
 
     Resident (VmRSS) is all of the process's memory that's in RAM right now,
     including shared libraries it shares with other processes. Anonymous
     (RssAnon) leaves out memory backed by files, which is where a leak shows:
-    memory the program asked for and never gave back. /proc/PID/status is
+    memory the program asked for and never gave back. Shared (RssShmem) is
+    memory set up to be shared between processes: Chromium passes audio and
+    other data between its processes that way, so a leak can hide there too.
+    /proc/PID/status is
     readable for any process; smaps, with fairer numbers, needs debugger-level
     access that a sandboxed Chromium process may refuse.
     """
@@ -160,7 +163,7 @@ def memory_kb(pid: int) -> tuple[int, int] | None:
     def kb(key: str) -> int:
         return int(fields.get(key, "0 kB").split()[0])
 
-    return kb("VmRSS"), kb("RssAnon")
+    return kb("VmRSS"), kb("RssAnon"), kb("RssShmem")
 
 
 def process_kind(pid: int) -> str:
@@ -181,6 +184,7 @@ def measure(daemon_pid: int) -> dict:
     """Memory per process kind, in MB, plus totals and the number of processes."""
     resident = dict.fromkeys(KINDS, 0)
     anonymous = 0
+    shared = 0
     processes = 0
     for pid in [daemon_pid, *descendants(daemon_pid)]:
         mem = memory_kb(pid)
@@ -189,10 +193,12 @@ def measure(daemon_pid: int) -> dict:
         kind = "daemon" if pid == daemon_pid else process_kind(pid)
         resident[kind] += mem[0]
         anonymous += mem[1]
+        shared += mem[2]
         processes += 1
     row = {f"{kind}_mb": round(kb / 1024, 1) for kind, kb in resident.items()}
     row["total_mb"] = round(sum(resident.values()) / 1024, 1)
     row["total_anon_mb"] = round(anonymous / 1024, 1)
+    row["total_shmem_mb"] = round(shared / 1024, 1)
     row["processes"] = processes
     return row
 
@@ -247,7 +253,8 @@ def summarize(rows: list[dict], args, shutdown: dict) -> tuple[str, bool]:
     if len(judged) >= 2:
         times = [r["elapsed_s"] for r in judged]
         lines.append(f"memory after the first {warm_up / 60:.0f} minutes (start -> end, growth):")
-        for column in ["total_mb", "total_anon_mb"] + [f"{k}_mb" for k in KINDS]:
+        columns = ["total_mb", "total_anon_mb", "total_shmem_mb"] + [f"{k}_mb" for k in KINDS]
+        for column in columns:
             values = [r[column] for r in judged]
             if max(values) == 0:
                 continue  # no process of that kind ran
@@ -256,12 +263,14 @@ def summarize(rows: list[dict], args, shutdown: dict) -> tuple[str, bool]:
                 f"  {column[:-3]:<11} {values[0]:8.1f} -> {values[-1]:8.1f} MB, "
                 f"{growth:+7.2f} MB/hour"
             )
-        growth = slope_per_hour(times, [r["total_anon_mb"] for r in judged])
+        # The verdict goes by memory a leak can live in: anonymous plus shared.
+        leakable = [r["total_anon_mb"] + r["total_shmem_mb"] for r in judged]
+        growth = slope_per_hour(times, leakable)
         if times[-1] - times[0] < MIN_JUDGED_SECONDS:
             lines.append("memory: too short to judge (needs 30 minutes after the warm-up)")
         elif growth > args.max_growth:
             fail(
-                f"memory grows: {growth:+.2f} MB/hour (anonymous total), "
+                f"memory grows: {growth:+.2f} MB/hour (anonymous + shared), "
                 f"more than {args.max_growth:g}. The columns above show which process."
             )
         else:
@@ -346,7 +355,7 @@ def main() -> int:
     print(f"writing to {out}/ for {args.hours:g} hours; Ctrl-C stops early and still summarizes")
 
     columns = ["time", "elapsed_s"] + [f"{k}_mb" for k in KINDS]
-    columns += ["total_mb", "total_anon_mb", "processes"]
+    columns += ["total_mb", "total_anon_mb", "total_shmem_mb", "processes"]
     columns += ["state", "position_s", "played_s", "ring_fill", "sample_rate_hz", "stalled"]
 
     rows = []

@@ -41,7 +41,15 @@ For each process it reads two numbers from `/proc/PID/status`:
 - **`RssAnon`**, the anonymous part: memory the program asked for itself
   (`malloc`, `new`, a JavaScript heap) rather than memory that mirrors a file
   on disk. A leak is memory asked for and never given back, so it shows up
-  here. The pass/fail verdict uses the total of this one.
+  here.
+- **`RssShmem`**, shared memory: memory set up on purpose to be shared
+  between processes. Chromium hands audio and other data from one of its
+  processes to another this way, so a leak can sit here instead. Each process
+  that maps a piece counts it, so the total overcounts, but a rising line
+  still shows.
+
+The pass/fail verdict goes by anonymous plus shared memory, added up over
+all the processes.
 
 `/proc/PID/smaps_rollup` has a fairer number (PSS, which splits shared pages
 between the processes sharing them), but reading it needs the same permission
@@ -76,7 +84,7 @@ So the summary ignores the first 15 minutes, then fits a straight line through
 the rest of the points and reports its slope in MB per hour. "Least squares"
 picks the line that sits closest to all the points at once, so one spike at
 the start or the end can't swing the answer the way "last minus first" would.
-More than 10 MB an hour of anonymous memory (`--max-growth` to change it)
+More than 10 MB an hour of anonymous plus shared memory (`--max-growth` to change it)
 fails the run. 10 MB is a judgment call, not a rule: it allows for Chromium's
 own housekeeping, and over 4 hours it would still be a 40 MB climb you'd see
 in the numbers. Under half an hour after the warm-up, the summary says "too
@@ -124,7 +132,7 @@ and where memory grew if it did.
 
 ## What you learn
 
-- What RSS and anonymous memory are, and why the numbers from different
+- What RSS, anonymous and shared memory are, and why the numbers from different
   processes overlap.
 - How Linux describes processes in `/proc`, and walking a process tree from it.
 - Why a leak is a slope, not a big number, and fitting a line to noisy data.
