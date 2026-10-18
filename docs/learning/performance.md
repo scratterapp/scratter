@@ -67,6 +67,11 @@ license request included, are not "background" and still go out.
 All four are in `HostApp::OnBeforeCommandLineProcessing` in
 `src/daemon/cef_host/cef_host.cpp`.
 
+The price: a crash in the compositor or the audio service used to take down
+only its own process, which Chromium would restart. Now it takes the whole
+daemon down. The page and Widevine, the parts that run code we didn't write,
+stay in their own sandboxed processes.
+
 ## Fewer wake-ups while paused
 
 Every time a thread wakes up, the CPU has to leave its low-power state for a
