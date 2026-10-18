@@ -172,6 +172,21 @@ message would look exactly like a hang-up.
 level-triggered and a closed socket stays "readable" forever, so otherwise the
 reactor would spin calling the callback.
 
+A hang-up doesn't mean there's nothing left to read, though. If the other side
+sends a message and closes straight away, both arrive together: the message is
+still queued in our socket, and epoll reports "readable" and "hung up" in the
+same loop. `recvmsg()` hands out the queued messages first and only returns 0
+once they're gone, so a hang-up is only final when `receive()` says
+`PeerClosed`. A channel with no readable callback (amctl, which calls
+`receive()` itself in a loop) used to mark itself closed as soon as epoll
+reported the hang-up, throwing that last message away. That's what made the
+"amctl drives the daemon" test fail now and then on a busy machine: the daemon
+sent `amctl watch` its "playing" event, the test stopped the daemon right
+after, and if the watcher hadn't woken up in between, the event was lost. Now
+the channel only stops watching at that point and lets `receive()` find the
+end of the queue. The test "messages sent just before a hang-up are still
+received" sets up exactly that order, so it doesn't depend on luck.
+
 **Destroying a channel from its own callback.** The usual reaction to
 `PeerClosed` is to destroy the channel, often from inside the readable
 callback. Two things make that safe. The callbacks are stored behind a

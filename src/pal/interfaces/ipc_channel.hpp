@@ -45,6 +45,10 @@
 // The other end hanging up isn't an error either: send() and receive() return
 // IoStatus::PeerClosed, after which the channel is finished and should be
 // destroyed. Errors (std::error_code) are for things that really went wrong.
+// Messages the other end sent before it hung up still come out of receive()
+// first: PeerClosed only once none are left, even when the channel has no
+// readable callback and the caller polls receive() itself. (amctl watch relies
+// on this to see the daemon's last event before it quits.)
 //
 // Threading and lifetime
 // ----------------------
