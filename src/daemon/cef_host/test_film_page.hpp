@@ -26,7 +26,7 @@
 // identity in its license requests ("privacy mode"). A real Chrome asks for
 // this certificate itself; issue #21 suspects ours doesn't, and that the server
 // refuses requests that show the identity in the clear.
-// docs/learning/widevine-license.md explains the exchange.
+// docs/learning/license-request.md explains the exchange.
 //
 // The page logs every license request it makes: its kind, its size, and what
 // kind of Widevine message it is (a certificate request, or a license request

@@ -251,9 +251,8 @@ test server, the stream Android's ExoPlayer tests against. On robbie's machine
 with HTTP 500 ACCESS_DENIED, Widevine's with 400 Bad Request), and both films
 start with a few seconds that aren't encrypted. So you hear 3 to 10 seconds
 and then silence: the daemon has not decrypted anything yet. Issue #21 tracks
-why; [widevine-license.md](widevine-license.md) explains the suspect (our
-Widevine skips "privacy mode") and the certificate request the page now makes
-first. The page logs each license request and what's in it
+why; [license-request.md](license-request.md) explains the server's answer
+(our device certificate is revoked) and how the page found it. The page logs each license request and what's in it
 (`page: license request: ...`) and, if the film stops after an error, loads it
 again from the same spot ("page: reloading the film").
 
