@@ -9,20 +9,21 @@
 // dash.js test against the same stream and server.
 //
 // The #5 experiment and the first version of this page used Shaka's "Angel
-// One" demo through cwip-shaka-proxy.appspot.com instead. That proxy answers
-// only the first license request and refuses every later one (HTTP 500,
-// ACCESS_DENIED), and Chromium asks again a few seconds in, so the film
-// stopped after 3 to 8 seconds: no good for a 4-hour soak test.
+// One" demo through cwip-shaka-proxy.appspot.com. On robbie's machine both
+// servers answer the first license request, then refuse a second one a few
+// seconds in (Angel One's with HTTP 500 ACCESS_DENIED, this one with 400).
 //
 // CEF serves this from memory at kTestFilmUrl. It has to be an https address:
 // Chromium refuses DRM on file:// pages ("EME use is not allowed on unique
 // origins"), and https counts as a secure origin even though nothing is
 // fetched over the network for it.
 //
-// If the license server refuses anyway (Shaka error 6007) or anything else
-// stops the film, the page waits 5 seconds and loads the film again from
-// where it was, which starts with a fresh license. It logs "reloading the
-// film" so the soak test (tools/soak/soak.py) can tell a refused license
+// The page logs every license request it makes, with its kind, to find out
+// what that second request is. If one is refused (Shaka error 6007) or
+// anything else goes wrong, it checks 3 seconds later whether the film is
+// still moving. Only if it stopped does the page wait 5 more seconds and load
+// the film again from where it was, with a fresh license. It logs "reloading
+// the film" so the soak test (tools/soak/soak.py) can tell a refused license
 // from a fault of ours.
 //
 // The daemon drives the page through three functions, amPlay(), amPause() and
@@ -76,8 +77,15 @@ async function main() {
     preferredAudioCodecs: ['mp4a.40.2'],
     drm: { servers: { 'com.widevine.alpha': license } },
   });
-  // A critical error stops the film. Load it again from the same place: a
-  // fresh load asks for a fresh license, which the server gives.
+  // Log every license request and what kind it is (the first license, a
+  // renewal, ...), to see which one a server refuses.
+  player.getNetworkingEngine().registerRequestFilter((type, request) => {
+    if (type !== shaka.net.NetworkingEngine.RequestType.LICENSE) return;
+    const kind = request.licenseRequestType || 'unknown kind';
+    const bytes = request.body ? request.body.byteLength : 0;
+    console.log(`license request: ${kind}, ${bytes} bytes`);
+  });
+  // Load the film again from the same place, which asks for a fresh license.
   let reloading = false;
   async function reload(code) {
     if (reloading) return; // errors during the reload itself land here too
@@ -104,7 +112,18 @@ async function main() {
     let data = '';
     try { data = JSON.stringify(error.data).slice(0, 300); } catch { /* not plain data */ }
     console.log(`Shaka error ${error.code} (see shaka.util.Error in Shaka's docs): ${data}`);
-    if (error.severity === shaka.util.Error.Severity.CRITICAL) reload(error.code);
+    if (error.severity !== shaka.util.Error.Severity.CRITICAL) return;
+    // Not every critical error stops the film: a refused license renewal
+    // doesn't, while the license from before is still good. So look again in
+    // 3 seconds, and reload only if the film stopped moving.
+    const before = film.currentTime;
+    setTimeout(() => {
+      if (wanted === 'play' && film.currentTime === before) {
+        reload(error.code);
+      } else {
+        console.log(`the film plays on after Shaka error ${error.code}`);
+      }
+    }, 3000);
   });
   film.addEventListener('playing', () => {
     const track = player.getVariantTracks().find((t) => t.active);

@@ -246,9 +246,13 @@ The film used to be Shaka's "Angel One" demo, licensed through
 request and refuses every later one ("ACCESS_DENIED", Shaka error 6007), and
 Chromium asks again a few seconds in, so the film kept stopping (the first
 soak test run lasted 4 seconds). The page now plays "Tears of Steel" through
-Widevine's own test server, the stream Android's ExoPlayer tests against. If
-a license is refused anyway, the page waits 5 seconds, loads the film again
-from the same spot with a fresh license and prints "page: reloading the film".
+Widevine's own test server, the stream Android's ExoPlayer tests against, but
+that server refuses a second request a few seconds in too. So the page logs
+each license request with its kind (`page: license request: ...`) to find out
+what that request is, and if one is refused it checks 3 seconds later whether
+the film still moves. Only if it stopped does it wait 5 more seconds, load the
+film again from the same spot with a fresh license and print "page: reloading
+the film".
 
 ## What you learn
 
