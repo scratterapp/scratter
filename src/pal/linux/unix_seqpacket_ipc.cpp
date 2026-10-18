@@ -172,9 +172,12 @@ struct IpcChannel::Impl {
             return;
         }
         if (event.hangup && !(on_readable && *on_readable)) {
-            // Nobody will call receive() to notice the hang-up, and epoll would
-            // keep reporting it every loop. Note it ourselves and stop watching.
-            mark_peer_closed();
+            // No callback to tell, and epoll would keep reporting the hang-up
+            // every loop, so stop watching. Don't mark the peer closed yet:
+            // messages it sent just before closing are still queued, and a
+            // caller that polls receive() itself (like amctl) must get them
+            // first. receive() says PeerClosed once the queue is empty.
+            stop_watching();
             return;
         }
         if (event.readable || event.hangup) {

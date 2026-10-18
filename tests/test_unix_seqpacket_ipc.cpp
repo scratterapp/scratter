@@ -381,6 +381,30 @@ TEST_CASE("a hang-up with no readable callback doesn't spin the reactor", "[ipc]
     CHECK(received->status == IoStatus::PeerClosed);
 }
 
+// The peer sends one last message and closes before we read it, so epoll
+// reports the message and the hang-up in the same loop. The message must still
+// come out of receive() before PeerClosed. (amctl watch used to lose the
+// daemon's last event this way when the daemon quit right after sending it.)
+TEST_CASE("messages sent just before a hang-up are still received", "[ipc]") {
+    Connection c;
+    REQUIRE(c.client.send(message_of(32, 7)).value() == IoStatus::Done);
+    { [[maybe_unused]] IpcChannel gone = std::move(c.client); }
+
+    // No readable callback, like amctl: the loop sees the hang-up first.
+    REQUIRE(c.reactor.run_once(20ms).has_value());
+
+    std::array<std::byte, 64> buffer{};
+    const auto last = c.server.receive(buffer);
+    REQUIRE(last.has_value());
+    CHECK(last->status == IoStatus::Done);
+    CHECK(last->bytes == 32);
+    CHECK(buffer[0] == std::byte{7});
+
+    const auto after = c.server.receive(buffer);
+    REQUIRE(after.has_value());
+    CHECK(after->status == IoStatus::PeerClosed);
+}
+
 TEST_CASE("a channel can be destroyed from inside its own callback", "[ipc]") {
     Connection c;
     std::optional<IpcChannel> server = std::move(c.server);
