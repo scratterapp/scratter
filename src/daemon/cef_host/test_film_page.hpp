@@ -21,7 +21,8 @@
 // fetched over the network for it.
 //
 // Before the first license, the page asks the license server for its "service
-// certificate" and hands it to Widevine, so Widevine encrypts the device's
+// certificate" and hands it to Widevine (trying the next form, then none, if
+// Widevine refuses it), so Widevine encrypts the device's
 // identity in its license requests ("privacy mode"). A real Chrome asks for
 // this certificate itself; issue #21 suspects ours doesn't, and that the server
 // refuses requests that show the identity in the clear.
@@ -143,21 +144,28 @@ function pageText(html) {
 
 // Asks the license server for its service certificate by sending the 2-byte
 // Widevine message that means "send me your certificate" (a SignedMessage of
-// type 4). Returns null if it couldn't, and the film then starts without one.
-async function serviceCertificate() {
+// type 4). The answer is a SignedMessage of type 5 with the certificate in
+// field 2. Returns the forms to try, best first: the certificate on its own
+// (what MediaKeys.setServerCertificate() expects), the whole answer, and null
+// for none, so the film still starts if Widevine takes neither.
+async function serviceCertificates() {
   try {
     const response = await fetch(license, { method: 'POST', body: new Uint8Array([0x08, 0x04]) });
     if (!response.ok) {
       console.log(`no service certificate: the license server answered HTTP ${response.status}: ` +
                   pageText(await response.text()));
-      return null;
+      return [null];
     }
-    const certificate = new Uint8Array(await response.arrayBuffer());
-    console.log(`got the license server's service certificate, ${certificate.byteLength} bytes`);
-    return certificate;
+    const answer = new Uint8Array(await response.arrayBuffer());
+    const fields = protobufFields(answer);
+    const type = fields.find((f) => f.number === 1)?.value;
+    const inner = fields.find((f) => f.number === 2)?.bytes;
+    console.log(`got the license server's service certificate, ${answer.byteLength} bytes ` +
+                `(message type ${type}, certificate ${inner ? inner.byteLength : 0} bytes)`);
+    return type === 5 && inner ? [inner.slice(), answer, null] : [answer, null];
   } catch (e) {
     console.log(`no service certificate: ${e}`);
-    return null;
+    return [null];
   }
 }
 
@@ -174,14 +182,10 @@ async function main() {
   shaka.polyfill.installAll();
   const player = new shaka.Player();
   await player.attach(film);
-  const certificate = clear ? null : await serviceCertificate();
   player.configure({
     manifest: { disableVideo: true, disableText: true },
     preferredAudioCodecs: ['mp4a.40.2'],
-    drm: {
-      servers: clear ? {} : { 'com.widevine.alpha': license },
-      advanced: certificate ? { 'com.widevine.alpha': { serverCertificate: certificate } } : {},
-    },
+    drm: { servers: clear ? {} : { 'com.widevine.alpha': license } },
   });
   // Log every license request and what kind it is (the first license, a
   // renewal, ...), to see which one a server refuses, and the size of each
@@ -232,6 +236,7 @@ async function main() {
       console.log(`the license server answered HTTP ${http.data[1]}: ${pageText(http.data[2])}`);
     }
     if (error.severity !== shaka.util.Error.Severity.CRITICAL) return;
+    if (!ready) return; // the first load handles its own errors, below
     // Not every critical error stops the film: a refused license renewal
     // doesn't, while the license from before is still good. So look again in
     // 3 seconds, and reload only if the film stopped moving.
@@ -251,11 +256,26 @@ async function main() {
   });
   film.addEventListener('pause', () => console.log('paused'));
 
-  try {
-    await player.load(manifest);
-  } catch (e) {
-    console.log(`couldn't load the film: Shaka error ${e.code}`);
-    return;
+  // Load the film with each form of the certificate in turn. Widevine
+  // refusing one is Shaka error 6004; an empty certificate means none.
+  const certificates = clear ? [null] : await serviceCertificates();
+  for (const [i, certificate] of certificates.entries()) {
+    const serverCertificate = certificate ?? new Uint8Array(0);
+    player.configure({ drm: { advanced: { 'com.widevine.alpha': { serverCertificate } } } });
+    try {
+      await player.load(manifest);
+      const size = certificate ? `a ${certificate.byteLength}-byte` : 'no';
+      if (!clear) console.log(`loaded the film with ${size} certificate`);
+      break;
+    } catch (e) {
+      if (e.code === 6004 && i + 1 < certificates.length) {
+        console.log(`Widevine refused the ${certificate.byteLength}-byte certificate ` +
+                    '(Shaka error 6004), trying the next form');
+        continue;
+      }
+      console.log(`couldn't load the film: Shaka error ${e.code}`);
+      return;
+    }
   }
   ready = true;
   if (wanted === 'play') film.play();
