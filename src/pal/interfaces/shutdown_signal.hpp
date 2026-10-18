@@ -18,6 +18,10 @@
 // "blocked" from the thread that created it. A thread started earlier would
 // still get the default reaction, which kills the whole process.
 //
+// On Windows the handler runs on a thread of its own and reaches the reactor
+// thread through Reactor::wake(), so a ShutdownSignal takes the reactor's wake
+// callback. Don't set another one while it exists.
+//
 // Each platform defines this class once: src/pal/linux/signalfd_shutdown.cpp
 // and src/pal/win32/console_shutdown.cpp.
 

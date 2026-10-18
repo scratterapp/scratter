@@ -521,7 +521,7 @@ scratter/
 │   │       ├── wasapi_sink.cpp        # WASAPI shared low-latency + exclusive mode
 │   │       ├── mmcss_priority.cpp     # MMCSS "Pro Audio" + VirtualLock
 │   │       ├── dpapi_vault.cpp        # DPAPI + Credential Manager
-│   │       ├── console_shutdown.cpp   # SetConsoleCtrlHandler (stub for now)
+│   │       ├── console_shutdown.cpp   # SetConsoleCtrlHandler, onto the reactor thread through Reactor::wake()
 │   │       ├── smtc_controls.cpp      # C++/WinRT SystemMediaTransportControls
 │   │       ├── browser_files.cpp      # CEF profile folder and installed Widevine on Windows (stub for now)
 │   │       └── cef_main_args.cpp      # CefMainArgs from GetModuleHandleW(nullptr)
