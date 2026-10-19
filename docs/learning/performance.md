@@ -53,15 +53,17 @@ Google's closed library, so both stay sandboxed). Two don't:
   process to run its compositor, the part that would put the page on screen,
   in software instead. Our page is never shown. `--in-process-gpu` runs that on
   a thread of the daemon instead.
-- **The audio service.** It's how the page's sound reaches CEF's audio handler,
-  and so us. It plays nothing itself (CEF hands the sound to us instead of the
-  speakers). `--disable-features=AudioServiceOutOfProcess` runs it in the
-  daemon too.
+- **Spare renderers.** The first measurement on a real machine showed three
+  renderer processes, two of them idle (no wake-ups) at about 45 MB each.
+  Chromium keeps spare renderers warm so the next page opens faster, and we
+  never open a next page. `--renderer-process-limit=1` caps it at the one
+  renderer our page needs.
 
-A third is a renderer. The first measurement on a real machine showed three renderer
-processes, two of them idle (no wake-ups) at about 45 MB each. Chromium keeps
-a spare renderer warm so the next page opens faster, and we never open a next
-page. `--renderer-process-limit=1` caps it at the one renderer our page needs.
+One more looked optional and wasn't: the **audio service**, which carries the
+page's sound to CEF's audio handler. `--disable-features=AudioServiceOutOfProcess`
+runs it inside the daemon and saved about 38 MB, but then Ctrl-C ended in a
+crash: Chromium's shutdown check found a pointer still aimed at memory the
+audio service had freed. So the audio service keeps its own process.
 
 Two more switches trim work rather than processes: `--disable-extensions`
 skips Chromium's built-in extensions (the PDF viewer and so on), and
@@ -72,7 +74,7 @@ license request included, are not "background" and still go out.
 All four are in `HostApp::OnBeforeCommandLineProcessing` in
 `src/daemon/cef_host/cef_host.cpp`.
 
-The price: a crash in the compositor or the audio service used to take down
+The price: a crash in the compositor used to take down
 only its own process, which Chromium would restart. Now it takes the whole
 daemon down. The page and Widevine, the parts that run code we didn't write,
 stay in their own sandboxed processes.
