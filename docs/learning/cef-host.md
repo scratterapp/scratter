@@ -55,7 +55,7 @@ CEF code can't quietly stop building.
 `linux-cef` builds our code for debugging. For listening, and for measuring,
 use `linux-cef-release` instead (the same commands with that name, and
 `./build/linux-cef-release/scratterd`): the same code with the compiler's
-optimizations on, which takes about 3% of a CPU core less
+optimizations on, which takes about 4% of a CPU core less
 ([performance.md](performance.md#debug-and-optimized-builds)).
 
 ## CEF is several programs, not one

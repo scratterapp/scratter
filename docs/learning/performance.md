@@ -200,8 +200,20 @@ And the daemon playing its tone into PipeWire on the same machine, with
 | the reactor (the tone and telemetry) | 0.5% | 0.4% |
 
 The audio thread costs a little more than the benchmark because PipeWire does
-its own work on it too. The numbers from robbie's machine, with CEF playing the
-Widevine film, are in [`../BENCHMARKS.md`](../BENCHMARKS.md).
+its own work on it too.
+
+On robbie's machine, with CEF playing the Widevine film, the two builds one
+after the other:
+
+| | `linux-cef` (debug) | `linux-cef-release` |
+| --- | --- | --- |
+| PipeWire's audio thread, running `render()` | 5.1% | 0.3% |
+| the whole daemon process | 7.6% | 3.7% |
+| all processes | 14.4% | 12.3% |
+
+All processes together moved less than the daemon, because Chromium's network
+process happened to be busier during the second run (2.6% against 4.3%).
+[`../BENCHMARKS.md`](../BENCHMARKS.md) has the full log.
 
 So: build with `linux-cef-release` to listen and to measure (every number in
 BENCHMARKS.md from here on uses it), and with `linux-cef` when something

@@ -515,8 +515,8 @@ started so far get a section here; the rest are summarized after them.
   process's memory (RSS, PSS, own), CPU, wake-ups and GPU use, then the totals
   against the goals. The daemon keeps one renderer instead of three, and
   ticks 4 times a second instead of 100 while paused. The `linux-cef-release`
-  preset builds our code optimized, which cuts the audio path's CPU by about
-  ten times (`bench/audio_render`).
+  preset builds our code optimized, which cuts the audio path's CPU by more
+  than ten times (`bench/audio_render`).
 - **You learn:** why adding up RSS overcounts, what a process costs, why
   an idle program should rarely wake up, and what a debug build costs.
 - **Read:** [performance.md](performance.md).

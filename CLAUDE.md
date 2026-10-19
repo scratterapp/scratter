@@ -142,8 +142,8 @@ Sanitizer builds use the same three commands with a different preset:
   isn't compiled and `--test-film` says so.
 - `linux-cef-release` is `linux-cef` with our code optimized (a Release build).
   Use it for listening and for measuring performance (`docs/BENCHMARKS.md`): the
-  debug build's audio code alone takes about 3% of a CPU core. Keep `linux-cef`
-  for debugging.
+  debug build's audio code alone takes about 5% of a CPU core, the optimized one
+  0.3%. Keep `linux-cef` for debugging.
 
 ```sh
 cmake --preset linux-tsan

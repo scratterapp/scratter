@@ -52,10 +52,10 @@ design targets.
 
 | Measure | Baseline | Goal | Now |
 | --- | --- | --- | --- |
-| Memory (PSS, playing) | 693 MB | under 500 MB | 664 MB |
-| CPU while playing | 9.8% | under 5% | 10.3% |
-| CPU while paused | not measured | under 0.5% | 2.4% |
-| Wake-ups per second while paused | not measured | under 50 | 317 |
+| Memory (PSS, playing) | 693 MB | under 500 MB | 609 MB |
+| CPU while playing | 9.8% | under 5% | 12.3% |
+| CPU while paused | not measured | under 0.5% | 8.7% |
+| Wake-ups per second while paused | not measured | under 50 | 1156 |
 | Video memory | 0 MB | stays 0 MB | 0 MB |
 | IPC round trip, median | 7.52 µs | stays under 25 µs | 7.52 µs |
 | Dropouts | 1 late buffer | stays at 0 after start-up | 0 late, 0 dropped |
@@ -68,6 +68,19 @@ One line per change that moved a number, newest last.
 | --- | --- | --- | --- | --- | --- |
 | 2026-10-19 | Baseline (`main` at 5928323, debug build) | 693 MB | 9.8% | | |
 | 2026-10-19 | #26: one renderer instead of three, no extensions or background requests, the daemon's tick slows from 100 to 4 a second while paused (debug build) | 664 MB | 10.3% | 2.4% | 317 |
+| 2026-10-19 | #26 measured again, just before the next line (debug build) | 667 MB | 14.4% | 8.5% | 1094 |
+| 2026-10-19 | #29: our code built optimized (`linux-cef-release`). The daemon process went from 7.6% to 3.7% playing, its audio thread from 5.1% to 0.3% | 609 MB | 12.3% | 8.7% | 1156 |
+
+Two runs of the same code can differ by a few points, mostly in Chromium's
+network process: it used 2.6% in the first #29 run and 4.3% in the second.
+That's why #26 was measured again right before #29, and why the daemon
+process shows the change better than the total. Paused, both of those runs
+were much busier than the first #26 run (8.5% against 2.4%), in the network
+process and in Chromium's threads inside the daemon; the network process is
+one of the ideas below. PSS came out 58 MB lower with #29, but the memory the
+processes own didn't change (428 MB, then 431 MB). The difference is in pages
+of shared files like `libcef.so`, which how we build our code shouldn't
+affect, so treat it as noise until another run shows it again.
 
 ## Ideas to try next
 
