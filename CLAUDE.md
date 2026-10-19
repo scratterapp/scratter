@@ -31,6 +31,10 @@ Read these before writing code, in this order:
 6. [`docs/learning/README.md`](docs/learning/README.md) walks through how to do each roadmap
    issue and what it teaches. The pinned roadmap issue on GitHub tracks what's done.
 
+For performance work, [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) has the measured
+baseline, the goals and how to measure; add a line to its log for every change
+that moves a number.
+
 ## Current state
 
 Phase 1, Linux phase 2 and the daemon skeleton are done. `scratterd` (built as

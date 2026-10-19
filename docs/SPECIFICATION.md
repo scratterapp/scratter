@@ -43,6 +43,8 @@ This specification defines a decoupled, dual-binary native architecture modeled 
 |**Catalog JSON Deserialization**|12 ms – 45 ms (`V8 JSON.parse` + GC pauses)|Less than 0.8 ms (zero GC pauses)|`simdjson` On-Demand SIMD vector parsing directly over reusable `libcurl` ring buffers.|
 |**Audio Callback Jitter**|Unbounded (Subject to JS/IPC congestion)|Wait-free ($O(1)$ bounded, zero syscalls)|Cache-line isolated SPSC ring buffer in `mlock`ed physical RAM with adaptive PI clock-drift resampling.|
 
+These are design targets, written before anything was measured. With Chromium inside the daemon for Widevine, the measured baseline on 2026-10-19 was 693 MB and about 10% of one CPU core while playing. [`BENCHMARKS.md`](BENCHMARKS.md) has the measurements, the nearer goals and the progress towards them.
+
 ## 2. High-Level Process & Data Flow Topology
 
 Plaintext
@@ -119,7 +121,7 @@ Plaintext
 
 `scratterd` hosts a minimal Chromium Embedded Framework (CEF) instance configured strictly for headless audio execution:
 
-- **Initialization Flags:** `CefSettings.windowless_rendering_enabled = true`, `CefSettings.no_sandbox = false` (maintaining CDM process sandboxing required by Widevine), and command-line flags `--disable-gpu`, `--disable-gpu-compositing`, `--autoplay-policy=no-user-gesture-required`, `--disable-component-update` (only the Widevine CDM already installed on the machine is used) and `--password-store=basic`.
+- **Initialization Flags:** `CefSettings.windowless_rendering_enabled = true`, `CefSettings.no_sandbox = false` (maintaining CDM process sandboxing required by Widevine), and command-line flags `--disable-gpu`, `--disable-gpu-compositing`, `--renderer-process-limit=1` (no spare renderers, see `docs/learning/performance.md`), `--disable-extensions`, `--disable-background-networking`, `--autoplay-policy=no-user-gesture-required`, `--disable-component-update` (only the Widevine CDM already installed on the machine is used) and `--password-store=basic`.
     
 - **Render Throttling:** Because `windowless_rendering_enabled` requires a `CefRenderHandler`, the daemon implements a stub handler that provides a `1x1` dummy view rectangle and sets `CefBrowserHost::SetWindowlessFrameRate(1)`, eliminating Chromium compositor CPU overhead during steady-state playback.
     
@@ -479,7 +481,7 @@ scratter/
 │   ├── FindCEF.cmake                  # Our AAC-enabled CEF build in third_party/cef/ as CEF::CEF, when AM_WITH_CEF is on (never the Widevine CDM)
 │   ├── CompilerWarnings.cmake         # -Wall -Wextra -Wpedantic -Werror -Wconversion, no exceptions/RTTI
 │   └── Sanitizers.cmake               # ASan+UBSan / TSan flags applied to every target
-├── docs/                              # OVERVIEW, ARCHITECTURE, SPECIFICATION, RATIONALE, COLLABORATION, SETUP; assets/ (logo, banner), learning/, windows/START_HERE.md
+├── docs/                              # OVERVIEW, ARCHITECTURE, SPECIFICATION, RATIONALE, COLLABORATION, SETUP, BENCHMARKS; assets/ (logo, banner), learning/, windows/START_HERE.md
 ├── .github/                           # CODEOWNERS, PR template, CI (path-filtered per platform)
 ├── src/
 │   ├── common/                        # Target: am_common (header-only INTERFACE library - zero OS/CEF deps)
@@ -550,6 +552,8 @@ scratter/
 │   ├── amctl/                         # Command-line remote for the daemon, like mpc for mpd
 │   │   ├── main_amctl.cpp             # Every request the daemon handles, over IPC; status from telemetry
 │   │   └── amctl_args.hpp             # Command-line parsing, and which command sends each opcode
+│   ├── perf/
+│   │   └── footprint.py               # Linux-only Python script: memory (RSS, PSS), CPU, wake-ups and GPU use of a running daemon, per process
 │   ├── soak/
 │   │   └── soak.py                    # Linux-only Python script: plays for hours, logs memory per process each minute
 │   └── test_page/

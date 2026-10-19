@@ -295,6 +295,18 @@ class HostApp final : public CefApp, public CefBrowserProcessHandler {
         // Nothing is drawn, so skip the GPU.
         command_line->AppendSwitch("disable-gpu");
         command_line->AppendSwitch("disable-gpu-compositing");
+        // Chromium still starts a GPU process (and an audio one) of its own.
+        // Moving them into the daemon saves memory but made CEF abort on
+        // shutdown, so they stay (docs/learning/performance.md).
+        // No built-in extensions (the PDF viewer and the like), and none of
+        // Chromium's own background requests (field trials, safe-browsing
+        // lists). The page's own requests aren't affected.
+        command_line->AppendSwitch("disable-extensions");
+        command_line->AppendSwitch("disable-background-networking");
+        // One renderer process. Chromium keeps a spare one ready for the next
+        // page you open, but we only ever have the one page, and an idle
+        // renderer still costs about 45 MB.
+        command_line->AppendSwitchWithValue("renderer-process-limit", "1");
         // Chromium's updater would download Widevine and other components on
         // its own. We only use what's already installed (spec 3.1.1).
         command_line->AppendSwitch("disable-component-update");

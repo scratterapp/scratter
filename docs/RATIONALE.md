@@ -21,6 +21,8 @@ Desktop Apple Music users on Linux (particularly rolling-release distributions l
 |**In-Game GPU & VRR Impact**|**High:** Background compositor ticks cause GPU context switches & break G-Sync/FreeSync|**Moderate-High:** Secondary DWM swapchain overhead|**Zero:** Daemon runs with `--disable-gpu`; UI suspends draw calls on unfocus or detaches completely|
 |**Audio Path**|Chromium generic internal mixer|Windows shared mixer (`audiodg.exe`)|**In-memory PCM tap (`CefAudioHandler`)** $\rightarrow$ lock-free SPSC buffer $\rightarrow$ direct `PipeWire` / `WASAPI`|
 
+The scratterd column is the design target. Measured so far (2026-10-19): 0 MB of video memory as promised, but about 660 MB of RAM and a few percent of a CPU core, nearly all of it the Chromium that Widevine needs. [`BENCHMARKS.md`](BENCHMARKS.md) tracks the real numbers.
+
 ### What We Are Directly Improving
 
 1. **Filling the Open-Source Linux Void:** Replaces abandoned or proprietary Electron wrappers with a transparent, auditable C++20/23 codebase designed natively around Linux primitives (`epoll`, `AF_UNIX`, `PipeWire`, `sd-bus` MPRIS v2, and `libsecret`).
