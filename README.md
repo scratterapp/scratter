@@ -1,12 +1,31 @@
-# Scratter
+<p align="center">
+  <img src="docs/assets/scratter-logo.png" alt="Scratter logo" width="128" height="128">
+</p>
 
-Scratter is an unofficial, cross-platform, native client for Apple Music, targeting
-Arch Linux and Windows. It is intentionally split into two processes:
+<h1 align="center">Scratter</h1>
+
+<p align="center">
+  A native Apple Music client for Linux and Windows that keeps playing after you close the window.
+</p>
+
+<p align="center">
+  <a href="https://github.com/scratterapp/scratter/actions/workflows/ci.yml"><img src="https://github.com/scratterapp/scratter/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/C%2B%2B-23-00599C.svg" alt="C++23">
+  <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20Windows-555.svg" alt="Linux and Windows">
+</p>
+
+> [!IMPORTANT]
+> Scratter is an unofficial, independent project. It is **not affiliated with or
+> endorsed by Apple Inc.** Apple Music is a trademark of Apple Inc. You need your own
+> Apple Music subscription.
+
+Scratter is split into two processes, like `mpd` + `ncmpcpp`:
 
 - **`scratterd`** is a headless daemon for Widevine L3 DRM, playback, native audio
   output, metadata, persistence, and OS media controls.
-- **`am-ui`** is a detachable Dear ImGui client, modeled after `mpd` + `ncmpcpp`.
-  Closing the UI does not stop background playback.
+- **`am-ui`** is a detachable Dear ImGui client. Closing the UI does not stop
+  background playback.
 
 **Status:** early development, not usable yet. On Linux the daemon plays a test tone
 and Google's Widevine test film, answers remote commands (`amctl`) and shows up in the
@@ -15,9 +34,6 @@ to come. Platform behavior belongs behind the Platform Abstraction Layer (`src/p
 
 **New here, or an AI agent?** Start with [CLAUDE.md](CLAUDE.md): it covers who owns
 what, the rules, how to build, and what to work on first.
-
-> **Not affiliated with or endorsed by Apple Inc.** Apple Music is a trademark of
-> Apple Inc. You need your own Apple Music subscription.
 
 ## Why this exists
 
