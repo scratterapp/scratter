@@ -25,7 +25,7 @@ Scratter is split into two processes, like `mpd` + `ncmpcpp`:
 - **`scratterd`** is a headless daemon for Widevine L3 DRM, playback, native audio
   output, metadata, persistence, and OS media controls.
 - **`am-ui`** is a detachable Dear ImGui client. Closing the UI does not stop
-  background playback, and the daemon is built to use no GPU memory on its own.
+  background playback.
 
 **Status:** early development, not usable yet. On Linux the daemon plays a test tone
 and Google's Widevine test film, answers remote commands (`amctl`) and shows up in the
