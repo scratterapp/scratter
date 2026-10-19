@@ -512,8 +512,7 @@ started so far get a section here; the rest are summarized after them.
 
 - **How:** `tools/perf/footprint.py` watches a running daemon and prints each
   process's memory (RSS, PSS, own), CPU, wake-ups and GPU use, then the totals
-  against the goals. The daemon runs Chromium's GPU compositor in its own
-  process instead of a separate one, keeps one renderer instead of three, and
+  against the goals. The daemon keeps one renderer instead of three, and
   ticks 4 times a second instead of 100 while paused.
 - **You learn:** why adding up RSS overcounts, what a process costs, and why
   an idle program should rarely wake up.

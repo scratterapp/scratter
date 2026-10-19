@@ -119,7 +119,7 @@ Plaintext
 
 `scratterd` hosts a minimal Chromium Embedded Framework (CEF) instance configured strictly for headless audio execution:
 
-- **Initialization Flags:** `CefSettings.windowless_rendering_enabled = true`, `CefSettings.no_sandbox = false` (maintaining CDM process sandboxing required by Widevine), and command-line flags `--disable-gpu`, `--disable-gpu-compositing`, `--in-process-gpu` and `--renderer-process-limit=1` (one process each fewer, see `docs/learning/performance.md`), `--disable-extensions`, `--disable-background-networking`, `--autoplay-policy=no-user-gesture-required`, `--disable-component-update` (only the Widevine CDM already installed on the machine is used) and `--password-store=basic`.
+- **Initialization Flags:** `CefSettings.windowless_rendering_enabled = true`, `CefSettings.no_sandbox = false` (maintaining CDM process sandboxing required by Widevine), and command-line flags `--disable-gpu`, `--disable-gpu-compositing`, `--renderer-process-limit=1` (no spare renderers, see `docs/learning/performance.md`), `--disable-extensions`, `--disable-background-networking`, `--autoplay-policy=no-user-gesture-required`, `--disable-component-update` (only the Widevine CDM already installed on the machine is used) and `--password-store=basic`.
     
 - **Render Throttling:** Because `windowless_rendering_enabled` requires a `CefRenderHandler`, the daemon implements a stub handler that provides a `1x1` dummy view rectangle and sets `CefBrowserHost::SetWindowlessFrameRate(1)`, eliminating Chromium compositor CPU overhead during steady-state playback.
     

@@ -295,12 +295,9 @@ class HostApp final : public CefApp, public CefBrowserProcessHandler {
         // Nothing is drawn, so skip the GPU.
         command_line->AppendSwitch("disable-gpu");
         command_line->AppendSwitch("disable-gpu-compositing");
-        // Even without a GPU, Chromium starts a "GPU process" to run its
-        // software compositor. This runs that on a thread of the daemon
-        // instead, one process fewer, which saves the memory a whole process
-        // costs (docs/learning/performance.md). The audio service stays in its
-        // own process: moved into the daemon, it crashed CEF on shutdown.
-        command_line->AppendSwitch("in-process-gpu");
+        // Chromium still starts a GPU process (and an audio one) of its own.
+        // Moving them into the daemon saves memory but made CEF abort on
+        // shutdown, so they stay (docs/learning/performance.md).
         // No built-in extensions (the PDF viewer and the like), and none of
         // Chromium's own background requests (field trials, safe-browsing
         // lists). The page's own requests aren't affected.

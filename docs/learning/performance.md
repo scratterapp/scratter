@@ -47,23 +47,27 @@ start-up state, its own memory allocator with its own free lists, its own
 stacks, its own private pages of the libraries it uses. Chromium spends that on
 purpose, because separate processes contain crashes and attacks. Some of them
 earn it here (the renderer runs a web page and the Widevine process runs
-Google's closed library, so both stay sandboxed). Two don't:
+Google's closed library, so both stay sandboxed).
+
+**Spare renderers** don't. The first measurement on a real machine showed
+three renderer processes, two of them idle (no wake-ups) at about 45 MB each.
+Chromium keeps spare renderers warm so the next page opens faster, and we
+never open a next page. `--renderer-process-limit=1` caps it at the one
+renderer our page needs.
+
+Two more looked optional and weren't, in practice:
 
 - **The GPU process.** We pass `--disable-gpu`, but Chromium still starts a GPU
-  process to run its compositor, the part that would put the page on screen,
-  in software instead. Our page is never shown. `--in-process-gpu` runs that on
-  a thread of the daemon instead.
-- **Spare renderers.** The first measurement on a real machine showed three
-  renderer processes, two of them idle (no wake-ups) at about 45 MB each.
-  Chromium keeps spare renderers warm so the next page opens faster, and we
-  never open a next page. `--renderer-process-limit=1` caps it at the one
-  renderer our page needs.
+  process to run its compositor (the part that would put the page on screen)
+  in software. `--in-process-gpu` runs that on a thread of the daemon instead.
+- **The audio service**, which carries the page's sound to CEF's audio
+  handler. `--disable-features=AudioServiceOutOfProcess` runs it in the daemon.
 
-One more looked optional and wasn't: the **audio service**, which carries the
-page's sound to CEF's audio handler. `--disable-features=AudioServiceOutOfProcess`
-runs it inside the daemon and saved about 38 MB, but then Ctrl-C ended in a
-crash: Chromium's shutdown check found a pointer still aimed at memory the
-audio service had freed. So the audio service keeps its own process.
+Together they saved about 75 MB, but then Ctrl-C ended in a crash: during
+shutdown, Chromium checks that nothing still points at memory it has freed,
+and with these parts in the daemon something did. Those are code paths few
+Chromium users run, and a daemon that can't quit cleanly is worse than one
+that's 75 MB bigger, so both keep their own processes.
 
 Two more switches trim work rather than processes: `--disable-extensions`
 skips Chromium's built-in extensions (the PDF viewer and so on), and
@@ -71,13 +75,8 @@ skips Chromium's built-in extensions (the PDF viewer and so on), and
 (field-trial settings, safe-browsing lists). The page's own requests, the
 license request included, are not "background" and still go out.
 
-All four are in `HostApp::OnBeforeCommandLineProcessing` in
+All three are in `HostApp::OnBeforeCommandLineProcessing` in
 `src/daemon/cef_host/cef_host.cpp`.
-
-The price: a crash in the compositor used to take down
-only its own process, which Chromium would restart. Now it takes the whole
-daemon down. The page and Widevine, the parts that run code we didn't write,
-stay in their own sandboxed processes.
 
 ## Fewer wake-ups while paused
 
