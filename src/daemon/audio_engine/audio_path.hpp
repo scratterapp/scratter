@@ -29,17 +29,23 @@
 // it never waits; CEF's audio arrives in real time, so a page's first
 // ~85 ms are spent filling up.
 //
-// While paused or stopped, render() throws away whatever reaches the ring
-// buffer and starts filling up again on play. A page doesn't stop the moment
-// it's told to pause, and Chromium keeps its audio stream running for a while
-// after, so keeping that audio for later would replay stale sound on resume,
-// run dry and stutter. Resuming skips about the last 0.1 s before the pause.
+// While paused or stopped, the page's audio is thrown away: write_planar()
+// drops it, and render() empties the ring buffer once it has faded out, then
+// starts filling up again on play. A page doesn't stop the moment it's told
+// to pause, and Chromium keeps its audio stream running for a while after, so
+// keeping that audio for later would replay stale sound on resume, run dry
+// and stutter. Resuming skips about the last 0.1 s before the pause.
 //
 // Starting and stopping the sound fades it over 10 ms instead of jumping
 // between silence and full volume in one sample, which you'd hear as a click.
 // Play fades in once the ring buffer has filled up (after a run-dry too), and
 // Pause or Stop keeps playing for those 10 ms while it fades out, then goes
 // silent. Pressing play again during a fade-out just fades back in.
+//
+// Once the fade-out is over, quiet() says so, and the daemon stops the sink
+// so the sound system can sleep too. Play starts it again. While the sink is
+// stopped nothing calls render(), which is why write_planar() has to drop the
+// page's audio itself.
 //
 // Construct it on the heap (std::make_unique): the ring buffer alone is 128 KiB.
 
@@ -106,9 +112,10 @@ class AudioPath {
     // them as it goes. `channels` holds one array per channel, the way
     // CefAudioHandler delivers them; the first two are used, and a single
     // channel goes to both sides. Frames that don't fit are dropped and
-    // counted. Returns how many frames were written.
+    // counted. While paused or stopped everything is dropped, and not counted
+    // (see the top). Returns how many frames were written.
     std::size_t write_planar(std::span<const float* const> channels, std::size_t frames) noexcept {
-        if (channels.empty()) {
+        if (channels.empty() || state_.load(std::memory_order_acquire) != PlaybackState::Playing) {
             return 0;
         }
         const float* left = channels[0];
@@ -133,9 +140,32 @@ class AudioPath {
 
     // --- Reactor thread --------------------------------------------------
 
-    void set_state(PlaybackState state) noexcept { state_.store(state, std::memory_order_release); }
+    void set_state(PlaybackState state) noexcept {
+        if (state == state_.load(std::memory_order_relaxed)) {
+            return;
+        }
+        state_.store(state, std::memory_order_release);
+        // After the state, so a render() that reads the new count also reads
+        // the new state (see quiet()).
+        state_changes_.fetch_add(1, std::memory_order_release);
+    }
     void set_volume(std::uint8_t percent) noexcept {
         volume_percent_.store(percent, std::memory_order_relaxed);
+    }
+
+    // True once render() has seen the latest set_state(), that state isn't
+    // Playing, and the fade-out is over: from then on render() only writes
+    // silence, so the daemon can stop the sink. Turns false again with the
+    // next set_state(), so the daemon starts the sink to play, or to let
+    // render() see a Stop and rewind.
+    //
+    // It compares counts rather than reading a flag, because render() may be
+    // halfway through a buffer when the state changes. That buffer still
+    // plays the old state, and it can't make quiet() true: it saw the old
+    // count, and quiet() only accepts the new one.
+    [[nodiscard]] bool quiet() const noexcept {
+        return quiet_after_.load(std::memory_order_acquire) ==
+               state_changes_.load(std::memory_order_relaxed);
     }
 
     // --- Any thread ------------------------------------------------------
@@ -184,6 +214,9 @@ class AudioPath {
     // Fills `out` (interleaved stereo) with the next stretch of audio. This
     // is the AudioSink's render callback.
     void render(std::span<float> out) noexcept {
+        // The count first: whatever count this reads, the state read after it
+        // is at least as new (set_state() writes them the other way round).
+        const std::uint64_t changes = state_changes_.load(std::memory_order_acquire);
         const PlaybackState state = state_.load(std::memory_order_acquire);
         const bool playing = state == PlaybackState::Playing;
         if (!playing && fade_ == 0.0f) {
@@ -196,6 +229,7 @@ class AudioPath {
             if (state == PlaybackState::Stopped) {
                 position_frames_.store(0, std::memory_order_relaxed);
             }
+            quiet_after_.store(changes, std::memory_order_release); // see quiet()
             return;
         }
 
@@ -258,6 +292,11 @@ class AudioPath {
     // Written by the reactor thread, read by the audio thread.
     std::atomic<PlaybackState> state_{PlaybackState::Playing};
     std::atomic<std::uint8_t> volume_percent_{100};
+    std::atomic<std::uint64_t> state_changes_{1}; // set_state() calls that changed it
+
+    // Written by the audio thread, read by the reactor thread: the value of
+    // state_changes_ when render() last went quiet (0: not yet). See quiet().
+    std::atomic<std::uint64_t> quiet_after_{0};
 
     // Only the audio thread touches these.
     DriftController drift_;

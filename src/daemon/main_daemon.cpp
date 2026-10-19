@@ -44,8 +44,9 @@
 //   6. media keys, which carry on without if the desktop has none
 //   7. a timer that keeps the ring buffer topped up and publishes telemetry,
 //      every 10 ms while playing and every 250 ms while paused or stopped (a
-//      command that changes something publishes it at once), then the
-//      reactor runs until a quit signal stops it
+//      command that changes something publishes it at once), and stops the
+//      audio output once a pause has faded out, then the reactor runs until
+//      a quit signal stops it
 //
 // Shutdown is the same list backwards, mostly done by destructors.
 
@@ -331,7 +332,23 @@ int main(int argc, char** argv) {
     // 7. The tick. The reactor has one timer, and it fires once, so the tick
     // sets it again each time it runs. Setting it replaces the old deadline,
     // which is how publish() moves the next tick when the state changes.
+    //
+    // The tick also stops the sink while nothing plays, so PipeWire's audio
+    // thread (and the sound card, after a few seconds) can sleep too. It
+    // waits until the audio path has faded out (AudioPath::quiet()), so the
+    // last thing the sound card got was silence. Play starts it again at
+    // once, because publish() runs the tick.
+    bool sink_running = sink.has_value();
     tick = [&] {
+        // Running and now quiet: stop it. Stopped and no longer quiet: start it.
+        if (sink && audio->quiet() == sink_running) {
+            sink_running = !sink_running;
+            auto changed = sink_running ? sink->start() : sink->stop();
+            if (!changed) {
+                std::fprintf(stderr, "couldn't %s the audio output: %s\n",
+                             sink_running ? "restart" : "pause", changed.error().message().c_str());
+            }
+        }
         if (!cef) {
             audio->top_up(sine);
         }
