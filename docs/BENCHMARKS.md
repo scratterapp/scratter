@@ -89,12 +89,12 @@ affect. The #30 run was back at 676 MB with 424 MB owned, so it was noise.
 
 Chromium's chatter didn't show up at all in the #30 run: the network process
 woke twice a second and CEF's threads in the daemon fewer than 20 times,
-against about 300 and 500 in the busy runs earlier that day. That, not #30, is most of the drop
-in every column; #30 only changes the paused numbers. Its own part is the
-daemon's PipeWire thread, which woke 47 times a second while playing and now
-stops while paused instead of playing silence. Without #30 that run would
-have shown about 83 wake-ups a second paused instead of 36 (worked out from
-the thread list, not measured separately).
+against about 300 and 500 in the busy runs earlier that day. That, not #30,
+is most of the drop in every column; #30 only changes the paused numbers. Its
+own part is the daemon's PipeWire thread, which woke 47 times a second while
+playing and now stops while paused instead of playing silence. Without #30
+that run would have shown about 83 wake-ups a second paused instead of 36
+(worked out from the thread list, not measured separately).
 
 ## Ideas to try next
 
