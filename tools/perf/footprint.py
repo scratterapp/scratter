@@ -145,12 +145,15 @@ def cpu_ticks(pid: int) -> int | None:
     return int(fields[11]) + int(fields[12]) if fields else None
 
 
-def context_switches(pid: int) -> int | None:
-    """Times any thread of the process was switched in, so far.
+def context_switches(pid: int) -> dict[str, int] | None:
+    """Times each thread of the process was switched in so far, by thread id.
 
-    /proc/PID/status only counts the main thread, so add up every thread's.
+    /proc/PID/status only counts the main thread, so read every thread's.
+    They're kept apart because Chromium starts and ends threads all the time:
+    a total would drop when a busy thread ends, and the difference between
+    two totals could even come out below zero.
     """
-    total = 0
+    counts = {}
     try:
         threads = os.listdir(f"/proc/{pid}/task")
     except OSError:
@@ -158,9 +161,9 @@ def context_switches(pid: int) -> int | None:
     for tid in threads:
         fields = kb_fields(f"/proc/{pid}/task/{tid}/status")
         if fields:
-            total += fields.get("voluntary_ctxt_switches", 0)
-            total += fields.get("nonvoluntary_ctxt_switches", 0)
-    return total
+            counts[tid] = (fields.get("voluntary_ctxt_switches", 0) +
+                           fields.get("nonvoluntary_ctxt_switches", 0))
+    return counts
 
 
 def gpu_use(pid: int) -> tuple[bool, int] | None:
@@ -235,7 +238,10 @@ def main():
         cpu = 100 * (ticks - ticks_before[pid]) / TICKS_PER_SECOND / elapsed
         wakeups = None
         if switches is not None and switches_before[pid] is not None:
-            wakeups = (switches - switches_before[pid]) / elapsed
+            # Threads that ended while we watched aren't counted; ones that
+            # started count from 0.
+            before = switches_before[pid]
+            wakeups = sum(n - before.get(tid, 0) for tid, n in switches.items()) / elapsed
         gpu = gpu_use(pid)
 
         totals["rss"] += rss

@@ -58,6 +58,11 @@ Google's closed library, so both stay sandboxed). Two don't:
   speakers). `--disable-features=AudioServiceOutOfProcess` runs it in the
   daemon too.
 
+A third is a renderer. The first measurement on a real machine showed three renderer
+processes, two of them idle (no wake-ups) at about 45 MB each. Chromium keeps
+a spare renderer warm so the next page opens faster, and we never open a next
+page. `--renderer-process-limit=1` caps it at the one renderer our page needs.
+
 Two more switches trim work rather than processes: `--disable-extensions`
 skips Chromium's built-in extensions (the PDF viewer and so on), and
 `--disable-background-networking` stops the requests Chromium makes on its own

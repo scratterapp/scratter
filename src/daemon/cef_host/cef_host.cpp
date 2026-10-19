@@ -307,6 +307,10 @@ class HostApp final : public CefApp, public CefBrowserProcessHandler {
         // lists). The page's own requests aren't affected.
         command_line->AppendSwitch("disable-extensions");
         command_line->AppendSwitch("disable-background-networking");
+        // One renderer process. Chromium keeps a spare one ready for the next
+        // page you open, but we only ever have the one page, and an idle
+        // renderer still costs about 45 MB.
+        command_line->AppendSwitchWithValue("renderer-process-limit", "1");
         // Chromium's updater would download Widevine and other components on
         // its own. We only use what's already installed (spec 3.1.1).
         command_line->AppendSwitch("disable-component-update");
