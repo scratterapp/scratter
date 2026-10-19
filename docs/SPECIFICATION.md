@@ -481,7 +481,7 @@ scratter/
 │   ├── FindCEF.cmake                  # Our AAC-enabled CEF build in third_party/cef/ as CEF::CEF, when AM_WITH_CEF is on (never the Widevine CDM)
 │   ├── CompilerWarnings.cmake         # -Wall -Wextra -Wpedantic -Werror -Wconversion, no exceptions/RTTI
 │   └── Sanitizers.cmake               # ASan+UBSan / TSan flags applied to every target
-├── docs/                              # OVERVIEW, ARCHITECTURE, SPECIFICATION, RATIONALE, COLLABORATION, SETUP, BENCHMARKS; learning/, windows/START_HERE.md
+├── docs/                              # OVERVIEW, ARCHITECTURE, SPECIFICATION, RATIONALE, COLLABORATION, SETUP, BENCHMARKS; assets/ (logo, banner), learning/, windows/START_HERE.md
 ├── .github/                           # CODEOWNERS, PR template, CI (path-filtered per platform)
 ├── src/
 │   ├── common/                        # Target: am_common (header-only INTERFACE library - zero OS/CEF deps)
