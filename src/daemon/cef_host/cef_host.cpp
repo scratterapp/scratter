@@ -295,9 +295,18 @@ class HostApp final : public CefApp, public CefBrowserProcessHandler {
         // Nothing is drawn, so skip the GPU.
         command_line->AppendSwitch("disable-gpu");
         command_line->AppendSwitch("disable-gpu-compositing");
-        // Chromium still starts a GPU process (and an audio one) of its own.
-        // Moving them into the daemon saves memory but made CEF abort on
-        // shutdown, so they stay (docs/learning/performance.md).
+        // Chromium would still start a GPU process (to composite the page in
+        // software) and an audio service process. Running both on threads of
+        // the daemon instead saves about 75 MB (docs/learning/performance.md).
+        command_line->AppendSwitch("in-process-gpu");
+        // One switch for both features: a second --disable-features would
+        // replace the first. PartitionAllocDanglingPtr is a check for
+        // Chromium's own developers that aborts at exit when Chromium leaves a
+        // dangling pointer behind during shutdown, which it does with the GPU
+        // and audio in-process. Only unofficial builds of Chromium, like our
+        // own CEF build, have that check; CEF's official builds don't.
+        command_line->AppendSwitchWithValue("disable-features",
+                                            "AudioServiceOutOfProcess,PartitionAllocDanglingPtr");
         // No built-in extensions (the PDF viewer and the like), and none of
         // Chromium's own background requests (field trials, safe-browsing
         // lists). The page's own requests aren't affected.

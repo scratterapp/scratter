@@ -57,7 +57,7 @@ Chromium keeps spare renderers warm so the next page opens faster, and we
 never open a next page. `--renderer-process-limit=1` caps it at the one
 renderer our page needs.
 
-Two more looked optional and weren't, in practice:
+Two more looked optional:
 
 - **The GPU process.** We pass `--disable-gpu`, but Chromium still starts a GPU
   process to run its compositor (the part that would put the page on screen)
@@ -65,11 +65,9 @@ Two more looked optional and weren't, in practice:
 - **The audio service**, which carries the page's sound to CEF's audio
   handler. `--disable-features=AudioServiceOutOfProcess` runs it in the daemon.
 
-Together they saved about 75 MB, but then Ctrl-C ended in a crash: during
-shutdown, Chromium checks that nothing still points at memory it has freed,
-and with these parts in the daemon something did. Those are code paths few
-Chromium users run, and a daemon that can't quit cleanly is worse than one
-that's 75 MB bigger, so both keep their own processes.
+Together they save about 75 MB. The first try made Ctrl-C end in a crash, so
+they were dropped at first; the next section is why that crash doesn't count,
+and both now run in the daemon.
 
 Two more switches trim work rather than processes: `--disable-extensions`
 skips Chromium's built-in extensions (the PDF viewer and so on), and
@@ -77,8 +75,56 @@ skips Chromium's built-in extensions (the PDF viewer and so on), and
 (field-trial settings, safe-browsing lists). The page's own requests, the
 license request included, are not "background" and still go out.
 
-All three are in `HostApp::OnBeforeCommandLineProcessing` in
+All of these are in `HostApp::OnBeforeCommandLineProcessing` in
 `src/daemon/cef_host/cef_host.cpp`.
+
+## The shutdown crash was a developer check
+
+With the GPU and audio in the daemon, Ctrl-C ended in this, from inside
+Chromium's own shutdown:
+
+```
+A freed allocation is still referenced by a dangling pointer at exit ...
+FATAL: Check failed: !errors.
+```
+
+A **dangling pointer** points at memory that has already been freed. Using one
+is a classic security bug, so Chromium has a detector for them: while it runs,
+every free is checked against the pointers still pointing at it, and at exit
+it aborts if it found any. Here it found one in Chromium's code while the
+whole process was quitting, when nothing could use it any more.
+
+The detector only exists in **unofficial** builds. Chromium's build has a
+switch, `is_official_build`, that Google and CEF turn on for what they ship:
+it turns on the strongest optimizations and leaves out the checks meant for
+Chromium's own developers (`DCHECK`s, "debug checks", and this detector among
+them). Our CEF build (`build_cef_with_aac.sh`) left it off, so it has them.
+CEF's official builds would never have crashed.
+
+So the daemon turns the detector off with
+`--disable-features=PartitionAllocDanglingPtr`. That hides nothing of ours:
+the pointer is Chromium's, and a release build would never check it.
+
+It also means our CEF build pays for those developer checks everywhere, in
+every process. Rebuilding CEF with `is_official_build=true` is the way to find
+out how much; the [ideas list](../BENCHMARKS.md#ideas-to-try-next) has it.
+
+## What else could go
+
+Where the rest of the memory goes, roughly, and whether it can go:
+
+| Part | About | Can it go? |
+| --- | --- | --- |
+| Our own code | 4 MB | Already small. |
+| The daemon process (CEF's browser side) | 175 MB | No. It's the browser itself. |
+| The renderer (the page, its JavaScript) | 167 MB | Some. A smaller JavaScript heap or fewer JavaScript compilers (`--js-flags`) might save tens of MB, but the real page with MusicKit JS doesn't exist yet, so tuning the test page now could be tuning the wrong thing. |
+| Widevine (the CDM process) | 100 MB | No. Google's closed library has to run in its own sandboxed process. |
+| The network service | 50 MB | Yes, with `--enable-features=NetworkServiceInProcess2`, but it's the code that reads everything arriving from the internet, and in its own process it's sandboxed. Inside the daemon it would sit next to the Apple Music login. |
+| The storage service | 18 MB | No switch for it that we found. |
+| The zygotes | small | Only without the sandbox (`--no-sandbox`), which isn't worth it. |
+
+The daemon process and the renderer count some of `libcef.so` that's shared
+with the others, so the rows don't add up exactly.
 
 ## Fewer wake-ups while paused
 
@@ -231,6 +277,8 @@ number, and the ideas to try next.
 
 - RSS, PSS and anonymous memory, and why adding up RSS overcounts.
 - Why each extra process costs memory, and which of Chromium's are optional.
+- What an official build of Chromium leaves out, and why a crash that only
+  an unofficial build has can be a developer check rather than a real bug.
 - What a wake-up is and why an idle program should have few.
 - Reading CPU time, context switches and open files from `/proc`.
 - What a debug build costs, and why it shows in the audio path first.

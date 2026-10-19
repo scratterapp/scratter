@@ -94,6 +94,10 @@ Guesses, not measurements, roughly cheapest first:
 - **A faster resampler.** Optimized, our audio code takes about 0.3% of a
   core (`bench/audio_render`). SIMD (working on 4 or 8 samples per
   instruction) could cut that further, but it's a small share now.
-- **Ask CEF's forum about the shutdown crash.** Running Chromium's GPU and
-  audio parts inside the daemon saved about 75 MB, but made CEF abort on exit
-  ([learning/performance.md](learning/performance.md)). A newer CEF may not.
+- **Build CEF the official way** (`is_official_build=true`). Our own CEF
+  build is unofficial, so it carries Chromium's developer checks (DCHECKs),
+  which cost CPU and some memory in every process. Takes a night's rebuild.
+- **Chromium's network service in the daemon**
+  (`--enable-features=NetworkServiceInProcess2`), up to about 50 MB, at the
+  cost of the sandbox around the code that reads data from the internet
+  ([learning/performance.md](learning/performance.md#what-else-could-go)).
