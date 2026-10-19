@@ -177,8 +177,16 @@ Under the table it holds the totals against the goals. Without `sudo` the PSS
 and GPU columns say `?` for sandboxed processes. `sudo` is fine here: the
 script only reads `/proc`, it doesn't start or change anything.
 
-`--threads 5` adds each process's five busiest threads under it, by name
-(`/proc/PID/task/TID/comm`), with how often each woke:
+Last, it lists the daemon process's busiest threads, from each thread's CPU
+time in `/proc/PID/task/TID/stat`. With CEF, the daemon process is also
+Chromium's browser process, so most of its threads are Chromium's. Two are
+ours: the main thread (the reactor, named `scratterd`) and PipeWire's audio
+thread (`pw-data-loop` or `data-loop.0`, depending on PipeWire's version),
+where `render()` runs. That's how to tell our CPU from Chromium's.
+
+That list is by CPU and only for the daemon. `--threads 5` adds every
+process's five threads that woke most often, under its line in the table, by
+name (`/proc/PID/task/TID/comm`):
 
 ```
 daemon                              2916      9.4      5.2      1.9    4.3        146  no
@@ -186,10 +194,9 @@ daemon                              2916      9.4      5.2      1.9    4.3      
   pw-data-loop                                                                     47
 ```
 
-That's the tone daemon playing through PipeWire: `scratterd` is the daemon's
-own main thread running the tick, and `pw-data-loop` is PipeWire's audio
-thread. Chromium names its threads too, like `Chrome_IOThread` or
-`ThreadPoolForeg` (Linux keeps only the first 15 letters).
+That's the tone daemon playing through PipeWire. Chromium names its threads
+too, like `Chrome_IOThread` or `ThreadPoolForeg` (Linux keeps only the first
+15 letters).
 
 ## Results
 
@@ -221,6 +228,65 @@ Where that leaves the goals:
   Decoding and moving audio through Chromium's processes costs a few percent
   of a core; nearly all of it is in Chromium, not in our code.
 
+## Debug and optimized builds
+
+The `linux-cef` preset builds our code as a **debug build**: the compiler
+turns each line into machine code as written, and puts every value back in
+memory after each step so a debugger can show it. That makes a crash easy to
+follow in `gdb`, and the code slow. Every `std::span` index and every
+`coefficient()` call in the resampler stays a real function call.
+
+An **optimized build** (CMake's Release type, `-O3`) lets the compiler rewrite
+the code into something faster that does exactly the same: small functions are
+pasted into their callers, values stay in the CPU's registers, loops are
+unrolled. The source is the same, only the compiler settings differ.
+`linux-cef-release` is `linux-cef` with that one change. `libcef.so` doesn't
+change at all; it's Chromium's own optimized build either way.
+
+Most of our code runs a few times a second, so how it's built hardly matters.
+The audio path is the exception. `render()` runs on PipeWire's audio thread
+for every frame of sound, 48,000 a second, and for each one the resampler does
+64 multiply-adds (16 taps, two rows of its table, two channels). In a debug
+build that makes it the biggest CPU user we own.
+
+`bench/audio_render` measures just that: it pushes a simulated minute through
+`write_planar()` and `render()` as fast as it can, then says what share of one
+core that would take in real time. On a 4-core cloud machine with GCC 13:
+
+| Build | CPU per second of audio |
+| --- | --- |
+| debug (`linux-debug`) | 3.4% of one core |
+| optimized (`linux-release`) | 0.3% |
+
+And the daemon playing its tone into PipeWire on the same machine, with
+`footprint.py`:
+
+| | debug | optimized |
+| --- | --- | --- |
+| the whole daemon | 3.9% | 1.0% |
+| PipeWire's audio thread, running `render()` | 3.4% | 0.6% |
+| the reactor (the tone and telemetry) | 0.5% | 0.4% |
+
+The audio thread costs a little more than the benchmark because PipeWire does
+its own work on it too.
+
+On robbie's machine, with CEF playing the Widevine film, the two builds one
+after the other:
+
+| | `linux-cef` (debug) | `linux-cef-release` |
+| --- | --- | --- |
+| PipeWire's audio thread, running `render()` | 5.1% | 0.3% |
+| the whole daemon process | 7.6% | 3.7% |
+| all processes | 14.4% | 12.3% |
+
+All processes together moved less than the daemon, because Chromium's network
+process happened to be busier during the second run (2.6% against 4.3%).
+[`../BENCHMARKS.md`](../BENCHMARKS.md) has the full log.
+
+So: build with `linux-cef-release` to listen and to measure (every number in
+BENCHMARKS.md from here on uses it), and with `linux-cef` when something
+crashes and you want `gdb` to show the line.
+
 ## What's left
 
 The 115 MB and 0.5% goals were written before we knew what a hidden Chromium
@@ -235,5 +301,6 @@ number, and the ideas to try next.
 - Why each extra process costs memory, and which of Chromium's are optional.
 - What a wake-up is and why an idle program should have few.
 - Reading CPU time, context switches and open files from `/proc`.
+- What a debug build costs, and why it shows in the audio path first.
 - Stopping a sound stream without a click, and why a counter beats a flag
   when another thread may be halfway through its work.

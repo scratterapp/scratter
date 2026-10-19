@@ -61,6 +61,14 @@
             }
         },
         {
+            "name": "linux-cef-release",
+            "inherits": "linux-cef",
+            "binaryDir": "${sourceDir}/build/linux-cef-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
             "name": "windows-msvc-debug",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/windows-msvc-debug",
@@ -106,6 +114,10 @@
         {
             "name": "linux-cef",
             "configurePreset": "linux-cef"
+        },
+        {
+            "name": "linux-cef-release",
+            "configurePreset": "linux-cef-release"
         },
         {
             "name": "windows-msvc-debug",
@@ -160,6 +172,13 @@
         {
             "name": "linux-cef",
             "configurePreset": "linux-cef",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "linux-cef-release",
+            "configurePreset": "linux-cef-release",
             "output": {
                 "outputOnFailure": true
             }

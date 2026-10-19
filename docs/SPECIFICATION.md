@@ -476,7 +476,7 @@ scratter/
 ├── CLAUDE.md / AGENTS.md              # Start here: ownership, rules, build/test (AGENTS.md points to CLAUDE.md)
 ├── LEGAL.md                           # Notice: unofficial, not affiliated with Apple
 ├── CMakeLists.txt                     # Root build definition, C++23 flags, sanitizer options
-├── CMakePresets.json                  # Configure/build/test presets: linux-debug/-asan/-tsan/-fuzz/-release/-cef, windows-msvc-debug/-release
+├── CMakePresets.json                  # Configure/build/test presets: linux-debug/-asan/-tsan/-fuzz/-release/-cef/-cef-release, windows-msvc-debug/-release
 ├── cmake/
 │   ├── FindCEF.cmake                  # Our AAC-enabled CEF build in third_party/cef/ as CEF::CEF, when AM_WITH_CEF is on (never the Widevine CDM)
 │   ├── CompilerWarnings.cmake         # -Wall -Wextra -Wpedantic -Werror -Wconversion, no exceptions/RTTI
@@ -553,13 +553,14 @@ scratter/
 │   │   ├── main_amctl.cpp             # Every request the daemon handles, over IPC; status from telemetry
 │   │   └── amctl_args.hpp             # Command-line parsing, and which command sends each opcode
 │   ├── perf/
-│   │   └── footprint.py               # Linux-only Python script: memory (RSS, PSS), CPU, wake-ups and GPU use of a running daemon, per process (and per thread with --threads)
+│   │   └── footprint.py               # Linux-only Python script: memory (RSS, PSS), CPU, wake-ups and GPU use of a running daemon, per process, and its busiest threads (by wake-ups for every process with --threads)
 │   ├── soak/
 │   │   └── soak.py                    # Linux-only Python script: plays for hours, logs memory per process each minute
 │   └── test_page/
 │       └── serve.py                   # Serves the daemon's built-in test film page on localhost, to run it in a browser
 ├── bench/                             # Hand-run benchmarks, not in ctest
-│   └── ipc_ping_pong.cpp              # IPC round-trip latency (target: median under 25 µs)
+│   ├── ipc_ping_pong.cpp              # IPC round-trip latency (target: median under 25 µs)
+│   └── audio_render.cpp               # CPU our audio code (write_planar, render) takes per second of audio
 └── tests/                             # Catch2 v3 (FetchContent); one executable per file
     ├── test_sanity.cpp                # Trivial test proving the framework and sanitizers run
     ├── test_spsc_concurrency.cpp      # TSan multi-threaded ring buffer stress test

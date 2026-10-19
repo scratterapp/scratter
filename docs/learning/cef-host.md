@@ -48,9 +48,15 @@ next to the program. That's a few hundred MB, copied once.
 
 Without CEF, `--test-film` stops with "this daemon was built without CEF" and
 everything else works as before. CI builds both ways: the usual jobs without
-CEF, and a `linux-cef` job that downloads Google's prebuilt CEF of the same
+CEF, and `linux-cef` jobs that download Google's prebuilt CEF of the same
 version. That one can't decode AAC, but it compiles and links the same, so the
 CEF code can't quietly stop building.
+
+`linux-cef` builds our code for debugging. For listening, and for measuring,
+use `linux-cef-release` instead (the same commands with that name, and
+`./build/linux-cef-release/scratterd`): the same code with the compiler's
+optimizations on, which takes about 4% of a CPU core less
+([performance.md](performance.md#debug-and-optimized-builds)).
 
 ## CEF is several programs, not one
 

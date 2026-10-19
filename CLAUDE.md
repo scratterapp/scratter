@@ -140,6 +140,10 @@ Sanitizer builds use the same three commands with a different preset:
   build from `third_party/cef/linux64` (see
   [`docs/learning/cef-host.md`](docs/learning/cef-host.md)). Without it, CEF code
   isn't compiled and `--test-film` says so.
+- `linux-cef-release` is `linux-cef` with our code optimized (a Release build).
+  Use it for listening and for measuring performance (`docs/BENCHMARKS.md`): the
+  debug build's audio code alone takes about 5% of a CPU core, the optimized one
+  0.3%. Keep `linux-cef` for debugging.
 
 ```sh
 cmake --preset linux-tsan
@@ -158,9 +162,9 @@ ctest --preset windows-msvc-debug
 CI (`.github/workflows/ci.yml`) path-filters: changes only under `src/pal/linux/`
 skip the Windows job, changes only under `src/pal/win32/` skip the Linux job, and
 everything else runs both. Linux CI runs on Ubuntu, not Arch, and builds and tests
-`linux-debug`, `linux-asan` and `linux-tsan`, plus `linux-cef` against Google's
-prebuilt CEF of the same version (it can't decode AAC, but it compiles and links the
-same). A separate `ipc-fuzz` job runs the IPC
+`linux-debug`, `linux-asan` and `linux-tsan`, plus `linux-cef` and `linux-cef-release`
+against Google's prebuilt CEF of the same version (it can't decode AAC, but it
+compiles and links the same). A separate `ipc-fuzz` job runs the IPC
 frame fuzzer for 10 million inputs, the last part of the spec's Phase 1 gate.
 
 Tests use [Catch2 v3](https://github.com/catchorg/Catch2), which CMake downloads with

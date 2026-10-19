@@ -10,3 +10,8 @@ if(LINUX)
     target_link_libraries(ipc_ping_pong PRIVATE am_pal am_common)
     am_enable_warnings(ipc_ping_pong)
 endif()
+
+# What our own audio code costs per second of audio; no platform code.
+add_executable(audio_render audio_render.cpp)
+target_link_libraries(audio_render PRIVATE am_common)
+am_enable_warnings(audio_render)
