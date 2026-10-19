@@ -17,7 +17,8 @@ Always the same way, so the numbers compare:
   Widevine test film, left playing for a minute first.
 - **Memory, CPU, wake-ups, GPU:** `sudo python3 tools/perf/footprint.py` in a
   second terminal (30 seconds), then `./build/linux-cef-release/amctl pause`
-  and the same again for the paused numbers.
+  and the same again for the paused numbers. Adding `--threads 5` names each
+  process's threads behind the wake-ups without changing the numbers.
 - **IPC:** `./build/linux-release/bench/ipc_ping_pong` (release build).
 - **Our audio code alone:** `./build/linux-release/bench/audio_render`.
 
@@ -52,13 +53,16 @@ design targets.
 
 | Measure | Baseline | Goal | Now |
 | --- | --- | --- | --- |
-| Memory (PSS, playing) | 693 MB | under 500 MB | 609 MB |
-| CPU while playing | 9.8% | under 5% | 12.3% |
-| CPU while paused | not measured | under 0.5% | 8.7% |
-| Wake-ups per second while paused | not measured | under 50 | 1156 |
+| Memory (PSS, playing) | 693 MB | under 500 MB | 676 MB |
+| CPU while playing | 9.8% | under 5% | 4.7% |
+| CPU while paused | not measured | under 0.5% | 0.6% |
+| Wake-ups per second while paused | not measured | under 50 | 36 |
 | Video memory | 0 MB | stays 0 MB | 0 MB |
 | IPC round trip, median | 7.52 µs | stays under 25 µs | 7.52 µs |
 | Dropouts | 1 late buffer | stays at 0 after start-up | 0 late, 0 dropped |
+
+"Now" is the latest line of the log. Chromium's chatter (see below the log)
+can add several points to both CPU columns in a given run.
 
 ## Log
 
@@ -70,6 +74,7 @@ One line per change that moved a number, newest last.
 | 2026-10-19 | #26: one renderer instead of three, no extensions or background requests, the daemon's tick slows from 100 to 4 a second while paused (debug build) | 664 MB | 10.3% | 2.4% | 317 |
 | 2026-10-19 | #26 measured again, just before the next line (debug build) | 667 MB | 14.4% | 8.5% | 1094 |
 | 2026-10-19 | #29: our code built optimized (`linux-cef-release`). The daemon process went from 7.6% to 3.7% playing, its audio thread from 5.1% to 0.3% | 609 MB | 12.3% | 8.7% | 1156 |
+| 2026-10-19 | #30: the sound output sleeps once a pause has faded out. The daemon's PipeWire thread goes from 47 wake-ups a second to none while paused | 676 MB | 4.7% | 0.6% | 36 |
 
 Two runs of the same code can differ by a few points, mostly in Chromium's
 network process: it used 2.6% in the first #29 run and 4.3% in the second.
@@ -80,15 +85,31 @@ process and in Chromium's threads inside the daemon; the network process is
 one of the ideas below. PSS came out 58 MB lower with #29, but the memory the
 processes own didn't change (428 MB, then 431 MB). The difference is in pages
 of shared files like `libcef.so`, which how we build our code shouldn't
-affect, so treat it as noise until another run shows it again.
+affect. The #30 run was back at 676 MB with 424 MB owned, so it was noise.
+
+Chromium's chatter didn't show up at all in the #30 run: the network process
+woke twice a second and CEF's threads in the daemon fewer than 20 times,
+against about 300 and 500 in the busy runs earlier that day. That, not #30,
+is most of the drop in every column; #30 only changes the paused numbers. Its
+own part is the daemon's PipeWire thread, which woke 47 times a second while
+playing and now stops while paused instead of playing silence. Without #30
+that run would have shown about 83 wake-ups a second paused instead of 36
+(worked out from the thread list, not measured separately).
 
 ## Ideas to try next
 
 Guesses, not measurements, roughly cheapest first:
 
-- **Stop the page fetching while paused.** The network process still wakes
-  about 90 times a second while paused (Shaka Player keeps loading ahead).
-- **Pause PipeWire's stream while paused**, so its audio thread sleeps too.
+- **Find what makes Chromium chatter in some runs.** In some runs the network
+  process wakes about 300 times a second and three of CEF's threads in the
+  daemon about 500 between them, playing and paused alike, which costs
+  several points of CPU (`footprint.py --threads 5` shows it). In others,
+  like the #30 run, they're nearly silent. A 3-second `strace` of the network
+  process during a quiet run found nothing to explain it, so the next step is
+  one during a busy run. One unchecked guess is the system reporting network
+  changes over and over (`ip monitor` would show that). It isn't Shaka loading
+  ahead: in a cloud Chromium, Shaka stops downloading once paused
+  ([learning/performance.md](learning/performance.md#what-the-page-does-while-paused)).
 - **A smaller JavaScript heap** for the page, which runs in the renderer
   (167 MB).
 - **A faster resampler.** Optimized, our audio code takes about 0.3% of a

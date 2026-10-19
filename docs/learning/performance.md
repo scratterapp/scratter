@@ -94,6 +94,63 @@ state. So pressing play doesn't wait for the slow timer, and pausing slows it
 down at once. The reactor has one timer, and setting it again replaces the old
 deadline, which is what makes that work.
 
+## Letting the sound output sleep too
+
+The tick wasn't the only thing awake. PipeWire runs its audio thread in our
+process, and it kept asking for a buffer every cycle while paused. With
+PipeWire's usual cycle of 1,024 frames, 48,000 frames a second is about 47
+wake-ups a second, each one writing silence. The sound card behind it stayed busy too, playing that
+silence.
+
+So now the daemon stops the sink while nothing plays (`sink->stop()`, which is
+`pw_stream_set_active(false)` on Linux) and starts it again on play. PipeWire's
+thread then sleeps, and after a few seconds of nobody playing anything,
+PipeWire's session manager suspends the sound card as well. The tone daemon in
+a cloud container went from 50 wake-ups a second while paused to 4, the
+daemon's own tick. On robbie's machine with the Widevine film, PipeWire's
+thread in the daemon (`data-loop.0`) woke 47 times a second while playing and
+was gone from the list once paused, and all the processes together woke 36
+times a second while paused.
+
+Two things had to be right for that:
+
+- **No click.** Pausing fades out over 10 ms ([fade.md](fade.md)). Stopping
+  the sink in the middle of that would cut the sound off mid-wave, which is
+  the click the fade exists to avoid. So the tick waits for
+  `AudioPath::quiet()`, which turns true once `render()` has seen the pause
+  and finished fading out. The tick runs every 250 ms while paused, so the sink
+  stops within a quarter of a second of pausing. Play runs the tick at once,
+  so the sink starts again straight away.
+- **Nothing stale on resume.** While paused, `render()` used to throw away
+  whatever the page still sent (Chromium keeps sending for a second or two
+  after a pause). With the sink stopped, `render()` isn't called at all, so
+  the ring buffer would fill with that old audio, and play would start with
+  it. Now `write_planar()` drops the page's audio itself while paused.
+
+`quiet()` compares two counters instead of reading a true/false flag.
+`set_state()` counts every change of state, and `render()` writes down the
+count it saw whenever it finishes a buffer quiet. The sink only stops when the
+count `render()` wrote down is the current one. That matters because
+`render()` runs on PipeWire's thread, and a buffer can be half done when you
+press play and pause again: that buffer saw the older count, so it can't
+trick the daemon into stopping the sink while it's still making sound. It also
+means a Stop after a long pause starts the sink again for a moment, so that
+`render()` sees the Stop and rewinds the position to 0.
+
+## What the page does while paused
+
+The first guess for the network process's wake-ups while paused (about 90 a
+second on robbie's machine, against 3 while playing) was that Shaka Player
+keeps downloading ahead. A check in a cloud Chromium says no: with Shaka
+4.11.2 playing an Opus copy of a Shaka demo film (that Chromium can't decode
+the test film's AAC), Shaka downloaded a piece every 4 seconds while playing,
+keeping about 10 seconds ahead, and nothing at all once paused. Its network
+process woke about once a second either way.
+
+So whatever wakes CEF's network process while paused, it isn't the page
+asking for more film. `footprint.py --threads` names the threads that wake up,
+which is the next clue.
+
 ## Measuring it: `tools/perf/footprint.py`
 
 It watches a daemon that's already running and prints a line per process:
@@ -129,6 +186,20 @@ Chromium's browser process, so most of its threads are Chromium's. Two are
 ours: the main thread (the reactor, named `scratterd`) and PipeWire's audio
 thread (`pw-data-loop` or `data-loop.0`, depending on PipeWire's version),
 where `render()` runs. That's how to tell our CPU from Chromium's.
+
+That list is by CPU and only for the daemon. `--threads 5` adds every
+process's five threads that woke most often, under its line in the table, by
+name (`/proc/PID/task/TID/comm`):
+
+```
+daemon                              2916      9.4      5.2      1.9    4.3        146  no
+  scratterd                                                                        99
+  pw-data-loop                                                                     47
+```
+
+That's the tone daemon playing through PipeWire. Chromium names its threads
+too, like `Chrome_IOThread` or `ThreadPoolForeg` (Linux keeps only the first
+15 letters).
 
 ## Results
 
@@ -234,3 +305,5 @@ number, and the ideas to try next.
 - What a wake-up is and why an idle program should have few.
 - Reading CPU time, context switches and open files from `/proc`.
 - What a debug build costs, and why it shows in the audio path first.
+- Stopping a sound stream without a click, and why a counter beats a flag
+  when another thread may be halfway through its work.

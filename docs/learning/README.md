@@ -521,6 +521,17 @@ started so far get a section here; the rest are summarized after them.
   an idle program should rarely wake up, and what a debug build costs.
 - **Read:** [performance.md](performance.md).
 
+### Quiet while paused (shared)
+
+- **How:** once a pause has faded out (`AudioPath::quiet()`), the daemon's
+  tick stops the sink, so PipeWire's audio thread and the sound card can
+  sleep; play starts it again at once. `write_planar()` drops the page's audio
+  while paused, since nothing empties the ring buffer then.
+  `footprint.py --threads` names the threads that still wake up.
+- **You learn:** stopping a sound stream without a click, and telling which
+  state another thread has seen by comparing counters.
+- **Read:** [performance.md](performance.md#letting-the-sound-output-sleep-too).
+
 ### Still to come in phase 3
 
 - **#4 Apple Music through MusicKit JS** (waits on the MusicKit key), **#3 the

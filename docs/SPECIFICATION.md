@@ -553,7 +553,7 @@ scratter/
 │   │   ├── main_amctl.cpp             # Every request the daemon handles, over IPC; status from telemetry
 │   │   └── amctl_args.hpp             # Command-line parsing, and which command sends each opcode
 │   ├── perf/
-│   │   └── footprint.py               # Linux-only Python script: memory (RSS, PSS), CPU, wake-ups and GPU use of a running daemon, per process, and its busiest threads
+│   │   └── footprint.py               # Linux-only Python script: memory (RSS, PSS), CPU, wake-ups and GPU use of a running daemon, per process, and its busiest threads (by wake-ups for every process with --threads)
 │   ├── soak/
 │   │   └── soak.py                    # Linux-only Python script: plays for hours, logs memory per process each minute
 │   └── test_page/

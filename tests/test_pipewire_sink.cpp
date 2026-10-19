@@ -75,6 +75,12 @@ TEST_CASE("the PipeWire sink calls the render callback between start and stop",
     // Nothing after stop() returns.
     std::this_thread::sleep_for(100ms);
     CHECK(counters.calls.load() == calls);
+
+    // And it starts again, the way the daemon restarts it after a pause.
+    REQUIRE(sink->start());
+    std::this_thread::sleep_for(300ms);
+    REQUIRE(sink->stop());
+    CHECK(counters.calls.load() > calls);
 }
 
 TEST_CASE("bad formats are rejected before touching PipeWire", "[audio][pipewire]") {
