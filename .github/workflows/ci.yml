@@ -100,14 +100,20 @@ jobs:
           if-no-files-found: ignore
 
   # Builds the daemon with CEF (the linux-cef preset) so the CEF host keeps
-  # compiling. It uses Google's prebuilt CEF of the same version as ours: that
-  # one can't decode AAC, but it builds and links the same. Nothing here plays
-  # anything; the hand test on a machine with our AAC build does that.
+  # compiling, in a debug build and in the optimized one we measure and listen
+  # with (linux-cef-release). It uses Google's prebuilt CEF of the same version
+  # as ours: that one can't decode AAC, but it builds and links the same.
+  # Nothing here plays anything; the hand test on a machine with our AAC build
+  # does that.
   linux-cef-build:
-    name: Linux build (linux-cef)
+    name: Linux build (${{ matrix.preset }})
     needs: changes
     if: needs.changes.outputs.linux == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [linux-cef, linux-cef-release]
     env:
       CEF_VERSION: 150.0.22
     steps:
@@ -148,12 +154,12 @@ jobs:
           tar -xjf "$name" -C linux64 --strip-components=1
           rm "$name" index.json
       - name: Configure
-        run: cmake --preset linux-cef -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_C_COMPILER=clang-20
+        run: cmake --preset ${{ matrix.preset }} -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_C_COMPILER=clang-20
       - name: Build
-        run: cmake --build --preset linux-cef
+        run: cmake --build --preset ${{ matrix.preset }}
       - name: Test
         # The usual tests, with a daemon that links CEF but plays the tone.
-        run: dbus-run-session -- ctest --preset linux-cef
+        run: dbus-run-session -- ctest --preset ${{ matrix.preset }}
 
   windows-build:
     name: Windows build
