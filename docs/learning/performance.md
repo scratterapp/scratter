@@ -7,6 +7,8 @@ about checking those promises, and about the first changes made to get closer.
 
 ## Where we stood before this change
 
+(The [results](#results) further down have the numbers after it.)
+
 | Goal | Measured | Verdict |
 | --- | --- | --- |
 | IPC round trip under 25 µs | 7.52 µs median (`bench/ipc_ping_pong`, 2026-10-14) | meets |
@@ -121,14 +123,47 @@ Under the table it holds the totals against the goals. Without `sudo` the PSS
 and GPU columns say `?` for sandboxed processes. `sudo` is fine here: the
 script only reads `/proc`, it doesn't start or change anything.
 
+## Results
+
+`footprint.py` on robbie's machine, 2026-10-19, `linux-cef` debug build,
+`--test-film` (the Widevine film), before and after this change:
+
+| | before (main) | after |
+| --- | --- | --- |
+| Processes | 14 | 12 |
+| Renderers | 3 | 1 |
+| Memory really used (PSS) | 693 MB | 664 MB |
+| Memory the processes own | 498 MB | 424 MB |
+| CPU while playing, all processes | 9.8% of a core | 10.3% |
+| CPU while paused | not measured | 2.4% |
+| Wake-ups per second while paused | not measured | 317 (the daemon's own tick: 4) |
+| Video memory | 0 MB | 0 MB |
+
+Where that leaves the goals:
+
+- **IPC and dropouts: met**, as before.
+- **Video memory: met.** The daemon and Chromium's GPU process open the
+  graphics card (`/dev/dri`) but hold no video memory, because `--disable-gpu`
+  means nothing is drawn on it.
+- **Memory: about 6 times the goal.** 664 MB against 115 MB. Our own code is a
+  few MB of that; the rest is Chromium. The biggest parts are the daemon
+  process (CEF's browser side, 175 MB), the renderer running the page and
+  Shaka Player (167 MB), and Widevine (101 MB).
+- **CPU: about 20 times the goal while playing, 5 times while paused.**
+  Decoding and moving audio through Chromium's processes costs a few percent
+  of a core; nearly all of it is in Chromium, not in our code.
+
 ## What's left
 
-Even with every process trimmed, a headless Chromium playing a stream costs
-far more than 115 MB; the 115 MB was written before we knew how much of the
-budget Chromium would take. We'll have the real PSS numbers from robbie's
-machine first, then decide whether to aim for a new target or for bigger
-changes (one renderer instead of a spare, a smaller JavaScript heap, pausing
-PipeWire's stream while paused so its thread sleeps too).
+The 115 MB and 0.5% goals were written before we knew what a hidden Chromium
+costs. Chromium is the price of Widevine, and there's no Widevine without it, so
+those goals can't be met as written. The honest options are to set new goals
+from these measurements, or to look for bigger savings: a smaller JavaScript
+heap for the page, pausing PipeWire's stream while paused so its thread sleeps
+too, or stopping the page's network fetches while paused (the network process
+still wakes about 90 times a second then). Running Chromium's GPU and audio
+parts inside the daemon is off the table unless a later CEF fixes the shutdown
+crash.
 
 ## What you learn
 
