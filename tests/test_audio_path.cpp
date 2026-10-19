@@ -211,13 +211,14 @@ TEST_CASE("pause throws away what the page sends and refills on play", "[audio_p
     audio->render(out);
     CHECK(loudest(out) > 0.0f);
 
-    // The page keeps sending for a while after the pause; none of it is kept
-    // once the fade-out is over.
+    // The page keeps sending for a while after the pause; none of it is kept.
+    // write_planar() drops it without counting it as dropped, because while
+    // the daemon has the sink stopped, nothing else would empty the ring.
     audio->set_state(PlaybackState::Paused);
     for (int i = 0; i <= kFadeBuffers; ++i) {
         audio->render(out);
     }
-    audio->write_planar(channels, page.size());
+    CHECK(audio->write_planar(channels, page.size()) == 0);
     audio->render(out);
     CHECK(loudest(out) == 0.0f);
 
@@ -232,6 +233,42 @@ TEST_CASE("pause throws away what the page sends and refills on play", "[audio_p
     CHECK(loudest(out) > 0.0f);
     CHECK(audio->late_buffers() == 0);
     CHECK(audio->dropped_frames() == 0);
+}
+
+TEST_CASE("quiet() turns true once a pause has faded out, and false on play", "[audio_path]") {
+    Fixture f;
+    f.render(4);
+    CHECK_FALSE(f.audio->quiet()); // playing
+
+    f.audio->set_state(PlaybackState::Paused);
+    CHECK_FALSE(f.audio->quiet()); // render() hasn't seen the pause yet
+    f.render(kFadeBuffers + 1);    // fade out, then one silent buffer
+    CHECK(f.audio->quiet());
+    f.audio->set_state(PlaybackState::Paused); // the same again changes nothing
+    CHECK(f.audio->quiet());
+
+    // The daemon starts the sink again as soon as this turns false.
+    f.audio->set_state(PlaybackState::Playing);
+    CHECK_FALSE(f.audio->quiet());
+    f.render();
+    CHECK_FALSE(f.audio->quiet());
+}
+
+TEST_CASE("a stop after a pause isn't quiet until render() has rewound", "[audio_path]") {
+    Fixture f;
+    f.render(4);
+    f.audio->set_state(PlaybackState::Paused);
+    f.render(kFadeBuffers + 1);
+    REQUIRE(f.audio->quiet());
+    REQUIRE(f.audio->position_frames() > 0);
+
+    // By now the daemon has stopped the sink. The stop has to start it again,
+    // so that render() sees it and rewinds the position.
+    f.audio->set_state(PlaybackState::Stopped);
+    CHECK_FALSE(f.audio->quiet());
+    f.audio->render(f.out);
+    CHECK(f.audio->quiet());
+    CHECK(f.audio->position_frames() == 0);
 }
 
 TEST_CASE("a fade lasts 10 ms", "[audio_path]") {

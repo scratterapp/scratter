@@ -16,7 +16,8 @@ Always the same way, so the numbers compare:
   test film, left playing for a minute first.
 - **Memory, CPU, wake-ups, GPU:** `sudo python3 tools/perf/footprint.py` in a
   second terminal (30 seconds), then `./build/linux-cef/amctl pause` and the
-  same again for the paused numbers.
+  same again for the paused numbers. Adding `--threads 5` names the threads
+  behind the wake-ups without changing the numbers.
 - **IPC:** `./build/linux-release/bench/ipc_ping_pong` (release build).
 
 [`learning/performance.md`](learning/performance.md) explains what each number
@@ -75,9 +76,11 @@ Guesses, not measurements, roughly cheapest first:
   daemon, in PipeWire's audio thread, for every sample. In a debug build it
   runs unoptimized, so some of the daemon's 5.6% while playing may be ours.
   A release build of the `linux-cef` preset would show how much.
-- **Stop the page fetching while paused.** The network process still wakes
-  about 90 times a second while paused (Shaka Player keeps loading ahead).
-- **Pause PipeWire's stream while paused**, so its audio thread sleeps too.
+- **Find what wakes the network process while paused.** It wakes about 90
+  times a second paused and 3 playing. It isn't Shaka loading ahead: in a
+  cloud Chromium, Shaka stops downloading once paused
+  ([learning/performance.md](learning/performance.md#what-the-page-does-while-paused)).
+  `footprint.py --threads` shows which threads it is.
 - **A smaller JavaScript heap** for the page, which runs in the renderer
   (167 MB).
 - **Ask CEF's forum about the shutdown crash.** Running Chromium's GPU and

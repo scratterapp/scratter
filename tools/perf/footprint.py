@@ -3,6 +3,7 @@
 
     tools/perf/footprint.py                 watch the running scratterd for 30 s
     tools/perf/footprint.py --seconds 60    watch longer
+    tools/perf/footprint.py --threads 5     also name each process's 5 busiest threads
     sudo python3 tools/perf/footprint.py    also see what sandboxed processes use
 
 Start the daemon first (in another terminal window), let it play for a minute,
@@ -19,7 +20,8 @@ prints, for each one:
     process asked for itself. The soak test watches the same number.
   - CPU: share of one CPU core used while watching. 100% is one core flat out.
   - wakeups/s: how often its threads were switched in, per second. Each one
-    costs a little power, so an idle player wants few.
+    costs a little power, so an idle player wants few. With --threads N, the
+    N threads that woke most are listed under each process, by name.
   - GPU: whether it has the graphics card open (/dev/dri), and how much video
     memory it holds if the driver says (amdgpu and i915/xe do).
 
@@ -52,9 +54,15 @@ def parse_arguments():
     parser.add_argument(
         "--seconds", type=float, default=30.0, help="how long to measure CPU (default 30)"
     )
+    parser.add_argument(
+        "--threads", type=int, default=0, metavar="N",
+        help="also show each process's N busiest threads (default 0)"
+    )
     args = parser.parse_args()
     if args.seconds <= 0:
         parser.error("--seconds must be more than 0")
+    if args.threads < 0:
+        parser.error("--threads can't be below 0")
     return args
 
 
@@ -166,6 +174,25 @@ def context_switches(pid: int) -> dict[str, int] | None:
     return counts
 
 
+def busiest_threads(pid: int, before: dict[str, int], after: dict[str, int], elapsed: float,
+                    count: int) -> list[tuple[str, float]]:
+    """The `count` threads that woke most, as (name, wake-ups per second).
+
+    Threads with the same name are added together; Chromium runs several
+    "ThreadPoolForeg" workers, for example. Linux keeps only the first 15
+    letters of a thread's name.
+    """
+    by_name: dict[str, int] = {}
+    for tid, n in after.items():
+        try:
+            name = Path(f"/proc/{pid}/task/{tid}/comm").read_text().strip()
+        except OSError:
+            continue  # it ended just now
+        by_name[name] = by_name.get(name, 0) + n - before.get(tid, 0)
+    busiest = sorted(by_name.items(), key=lambda item: item[1], reverse=True)[:count]
+    return [(name, n / elapsed) for name, n in busiest if n > 0]
+
+
 def gpu_use(pid: int) -> tuple[bool, int] | None:
     """(has the GPU open, video memory in KiB), or None if we may not look.
 
@@ -264,6 +291,10 @@ def main():
         wakeups_text = "?" if wakeups is None else f"{wakeups:.0f}"
         print(f"{kind:<32} {pid:>7} {mb(rss):>8} {mb(pss):>8} {mb(own):>8} "
               f"{cpu:>6.1f} {wakeups_text:>10}  {gpu_text}")
+        if args.threads and wakeups is not None:
+            for name, rate in busiest_threads(pid, switches_before[pid], switches, elapsed,
+                                              args.threads):
+                print(f"  {name:<30} {'':>41} {rate:>10.0f}")
 
     print("-" * len(header))
     pss_total = mb(totals["pss"]) + ("+" if not pss_complete else "")
