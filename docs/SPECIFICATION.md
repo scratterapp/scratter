@@ -43,6 +43,8 @@ This specification defines a decoupled, dual-binary native architecture modeled 
 |**Catalog JSON Deserialization**|12 ms – 45 ms (`V8 JSON.parse` + GC pauses)|Less than 0.8 ms (zero GC pauses)|`simdjson` On-Demand SIMD vector parsing directly over reusable `libcurl` ring buffers.|
 |**Audio Callback Jitter**|Unbounded (Subject to JS/IPC congestion)|Wait-free ($O(1)$ bounded, zero syscalls)|Cache-line isolated SPSC ring buffer in `mlock`ed physical RAM with adaptive PI clock-drift resampling.|
 
+These are design targets, written before anything was measured. With Chromium inside the daemon for Widevine, the measured baseline on 2026-10-19 was 693 MB and about 10% of one CPU core while playing. [`BENCHMARKS.md`](BENCHMARKS.md) has the measurements, the nearer goals and the progress towards them.
+
 ## 2. High-Level Process & Data Flow Topology
 
 Plaintext
@@ -479,7 +481,7 @@ scratter/
 │   ├── FindCEF.cmake                  # Our AAC-enabled CEF build in third_party/cef/ as CEF::CEF, when AM_WITH_CEF is on (never the Widevine CDM)
 │   ├── CompilerWarnings.cmake         # -Wall -Wextra -Wpedantic -Werror -Wconversion, no exceptions/RTTI
 │   └── Sanitizers.cmake               # ASan+UBSan / TSan flags applied to every target
-├── docs/                              # OVERVIEW, ARCHITECTURE, SPECIFICATION, RATIONALE, COLLABORATION, SETUP; learning/, windows/START_HERE.md
+├── docs/                              # OVERVIEW, ARCHITECTURE, SPECIFICATION, RATIONALE, COLLABORATION, SETUP, BENCHMARKS; learning/, windows/START_HERE.md
 ├── .github/                           # CODEOWNERS, PR template, CI (path-filtered per platform)
 ├── src/
 │   ├── common/                        # Target: am_common (header-only INTERFACE library - zero OS/CEF deps)

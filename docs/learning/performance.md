@@ -157,13 +157,9 @@ Where that leaves the goals:
 
 The 115 MB and 0.5% goals were written before we knew what a hidden Chromium
 costs. Chromium is the price of Widevine, and there's no Widevine without it, so
-those goals can't be met as written. The honest options are to set new goals
-from these measurements, or to look for bigger savings: a smaller JavaScript
-heap for the page, pausing PipeWire's stream while paused so its thread sleeps
-too, or stopping the page's network fetches while paused (the network process
-still wakes about 90 times a second then). Running Chromium's GPU and audio
-parts inside the daemon is off the table unless a later CEF fixes the shutdown
-crash.
+those goals can't be met as written. [`../BENCHMARKS.md`](../BENCHMARKS.md)
+keeps the dated baseline, nearer goals, a log of each change that moved a
+number, and the ideas to try next.
 
 ## What you learn
 
