@@ -107,7 +107,10 @@ So now the daemon stops the sink while nothing plays (`sink->stop()`, which is
 thread then sleeps, and after a few seconds of nobody playing anything,
 PipeWire's session manager suspends the sound card as well. The tone daemon in
 a cloud container went from 50 wake-ups a second while paused to 4, the
-daemon's own tick.
+daemon's own tick. On robbie's machine with the Widevine film, PipeWire's
+thread in the daemon (`data-loop.0`) woke 47 times a second while playing and
+was gone from the list once paused, and all the processes together woke 36
+times a second while paused.
 
 Two things had to be right for that:
 
