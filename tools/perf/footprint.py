@@ -23,6 +23,10 @@ prints, for each one:
   - GPU: whether it has the graphics card open (/dev/dri), and how much video
     memory it holds if the driver says (amdgpu and i915/xe do).
 
+Under the table it lists the daemon's busiest threads, to tell the CPU our
+own code uses (the reactor, and render() on PipeWire's audio thread) from
+Chromium's.
+
 PSS and GPU need the same access as a debugger. Chromium's sandboxed processes
 refuse that to normal users, so without sudo those columns show "?" for them.
 sudo only reads /proc here; it doesn't start or change anything.
@@ -145,6 +149,38 @@ def cpu_ticks(pid: int) -> int | None:
     return int(fields[11]) + int(fields[12]) if fields else None
 
 
+def thread_cpu_ticks(pid: int) -> dict[str, tuple[str, int]]:
+    """Each thread's name and CPU time so far, in clock ticks, by thread id.
+
+    A thread's /proc/PID/task/TID/stat looks like the process's, with the
+    thread's own name in the parentheses.
+    """
+    threads = {}
+    try:
+        tids = os.listdir(f"/proc/{pid}/task")
+    except OSError:
+        return threads
+    for tid in tids:
+        try:
+            stat = Path(f"/proc/{pid}/task/{tid}/stat").read_text()
+        except OSError:
+            continue  # it ended just now
+        name = stat[stat.index("(") + 1 : stat.rindex(")")]
+        fields = stat[stat.rindex(")") + 2 :].split()
+        threads[tid] = (name, int(fields[11]) + int(fields[12]))
+    return threads
+
+
+def thread_note(name: str, main_thread: bool) -> str:
+    """Which of the daemon's threads run our code. The rest are Chromium's,
+    or PipeWire's setup thread (am-audio), which sleeps while playing."""
+    if main_thread:
+        return "the reactor: our main thread (IPC, telemetry, media keys)"
+    if "data-loop" in name:  # pw-data-loop or data-loop.0, by PipeWire version
+        return "PipeWire's audio thread: our render() runs here"
+    return ""
+
+
 def context_switches(pid: int) -> dict[str, int] | None:
     """Times each thread of the process was switched in so far, by thread id.
 
@@ -207,6 +243,7 @@ def main():
 
     ticks_before = {pid: cpu_ticks(pid) for pid in pids}
     switches_before = {pid: context_switches(pid) for pid in pids}
+    threads_before = thread_cpu_ticks(daemon_pid)
     started = time.monotonic()
     print(f"watching {DAEMON_NAME} (pid {daemon_pid}) and {len(pids) - 1} processes it "
           f"started for {args.seconds:.0f} s...", flush=True)
@@ -269,6 +306,19 @@ def main():
     pss_total = mb(totals["pss"]) + ("+" if not pss_complete else "")
     print(f"{'total':<32} {'':>7} {mb(totals['rss']):>8} {pss_total:>8} "
           f"{mb(totals['own']):>8} {totals['cpu']:>6.1f} {totals['wakeups']:>10.0f}")
+    print()
+
+    # Threads that started while we watched count from 0, like wake-ups.
+    busiest = []
+    for tid, (name, ticks) in thread_cpu_ticks(daemon_pid).items():
+        cpu = 100 * (ticks - threads_before.get(tid, (name, 0))[1]) / TICKS_PER_SECOND / elapsed
+        busiest.append((cpu, name, tid == str(daemon_pid)))
+    busiest.sort(reverse=True)
+    print("busiest threads in the daemon process:")
+    print(f"  {'CPU %':>6}  thread")
+    for cpu, name, main_thread in busiest[:8]:
+        if cpu > 0:
+            print(f"  {cpu:>6.1f}  {name:<16} {thread_note(name, main_thread)}")
     print()
 
     # Against the goals in the spec (section 1) and docs/RATIONALE.md.

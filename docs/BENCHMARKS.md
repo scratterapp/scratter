@@ -10,14 +10,16 @@ are the design targets; this page is what we actually measured.
 Always the same way, so the numbers compare:
 
 - **Machine:** robbie's PC: CachyOS, 6 cores, 15 GB RAM, PipeWire 1.6.9.
-- **Build:** the `linux-cef` preset (our code in a debug build; `libcef.so` is
-  a release build either way).
-- **What plays:** `./build/linux-cef/scratterd --test-film`, the Widevine
-  test film, left playing for a minute first.
+- **Build:** the `linux-cef-release` preset (our code optimized; `libcef.so`
+  is a release build either way). The first two lines of the log used the
+  `linux-cef` debug build, before that preset existed.
+- **What plays:** `./build/linux-cef-release/scratterd --test-film`, the
+  Widevine test film, left playing for a minute first.
 - **Memory, CPU, wake-ups, GPU:** `sudo python3 tools/perf/footprint.py` in a
-  second terminal (30 seconds), then `./build/linux-cef/amctl pause` and the
-  same again for the paused numbers.
+  second terminal (30 seconds), then `./build/linux-cef-release/amctl pause`
+  and the same again for the paused numbers.
 - **IPC:** `./build/linux-release/bench/ipc_ping_pong` (release build).
+- **Our audio code alone:** `./build/linux-release/bench/audio_render`.
 
 [`learning/performance.md`](learning/performance.md) explains what each number
 means.
@@ -64,22 +66,21 @@ One line per change that moved a number, newest last.
 
 | Date | Change | PSS | CPU playing | CPU paused | Wake-ups paused |
 | --- | --- | --- | --- | --- | --- |
-| 2026-10-19 | Baseline (`main` at 5928323) | 693 MB | 9.8% | | |
-| 2026-10-19 | #26: one renderer instead of three, no extensions or background requests, the daemon's tick slows from 100 to 4 a second while paused | 664 MB | 10.3% | 2.4% | 317 |
+| 2026-10-19 | Baseline (`main` at 5928323, debug build) | 693 MB | 9.8% | | |
+| 2026-10-19 | #26: one renderer instead of three, no extensions or background requests, the daemon's tick slows from 100 to 4 a second while paused (debug build) | 664 MB | 10.3% | 2.4% | 317 |
 
 ## Ideas to try next
 
 Guesses, not measurements, roughly cheapest first:
 
-- **Build our code with optimizations.** The resampler runs inside the
-  daemon, in PipeWire's audio thread, for every sample. In a debug build it
-  runs unoptimized, so some of the daemon's 5.6% while playing may be ours.
-  A release build of the `linux-cef` preset would show how much.
 - **Stop the page fetching while paused.** The network process still wakes
   about 90 times a second while paused (Shaka Player keeps loading ahead).
 - **Pause PipeWire's stream while paused**, so its audio thread sleeps too.
 - **A smaller JavaScript heap** for the page, which runs in the renderer
   (167 MB).
+- **A faster resampler.** Optimized, our audio code takes about 0.3% of a
+  core (`bench/audio_render`). SIMD (working on 4 or 8 samples per
+  instruction) could cut that further, but it's a small share now.
 - **Ask CEF's forum about the shutdown crash.** Running Chromium's GPU and
   audio parts inside the daemon saved about 75 MB, but made CEF abort on exit
   ([learning/performance.md](learning/performance.md)). A newer CEF may not.
