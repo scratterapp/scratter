@@ -12,7 +12,9 @@ Always the same way, so the numbers compare:
 - **Machine:** robbie's PC: CachyOS, 6 cores, 15 GB RAM, PipeWire 1.6.9.
 - **Build:** the `linux-cef-release` preset (our code optimized; `libcef.so`
   is a release build either way). The first two lines of the log used the
-  `linux-cef` debug build, before that preset existed.
+  `linux-cef` debug build, before that preset existed. From 2026-10-20, CEF
+  itself is an official build ([learning/cef-host.md](learning/cef-host.md#building-cef-with-aac));
+  the lines before that used an unofficial one.
 - **What plays:** `./build/linux-cef-release/scratterd --test-film`, the
   Widevine test film, left playing for a minute first.
 - **Memory, CPU, wake-ups, GPU:** `sudo python3 tools/perf/footprint.py` in a
@@ -53,8 +55,8 @@ design targets.
 
 | Measure | Baseline | Goal | Now |
 | --- | --- | --- | --- |
-| Memory (PSS, playing) | 693 MB | under 500 MB | 599 MB |
-| CPU while playing | 9.8% | under 5% | 4.8% |
+| Memory (PSS, playing) | 693 MB | under 500 MB | 422 MB |
+| CPU while playing | 9.8% | under 5% | 2.7% |
 | CPU while paused | not measured | under 0.5% | 0.6% |
 | Wake-ups per second while paused | not measured | under 50 | 36 |
 | Video memory | 0 MB | stays 0 MB | 0 MB |
@@ -77,6 +79,7 @@ One line per change that moved a number, newest last.
 | 2026-10-19 | #30: the sound output sleeps once a pause has faded out. The daemon's PipeWire thread goes from 47 wake-ups a second to none while paused | 676 MB | 4.7% | 0.6% | 36 |
 | 2026-10-20 | `main` (with #30) measured again, just before the next line | 638 MB | 4.7% | | |
 | 2026-10-20 | #31: Chromium's GPU process and audio service run inside the daemon. 12 processes to 9; the memory they own goes from 421 to 344 MB | 599 MB | 4.8% | | |
+| 2026-10-20 | CEF rebuilt the official way (`is_official_build=true`, [learning/cef-host.md](learning/cef-host.md#building-cef-with-aac)): no developer checks, Chromium's own allocator settings for releases. Every process got smaller; the memory they own went from 344 to 256 MB | 422 MB | 2.7% | | |
 
 Two runs of the same code can differ by a few points, mostly in Chromium's
 network process: it used 2.6% in the first #29 run and 4.3% in the second.
@@ -117,9 +120,6 @@ Guesses, not measurements, roughly cheapest first:
 - **A faster resampler.** Optimized, our audio code takes about 0.3% of a
   core (`bench/audio_render`). SIMD (working on 4 or 8 samples per
   instruction) could cut that further, but it's a small share now.
-- **Build CEF the official way** (`is_official_build=true`). Our own CEF
-  build is unofficial, so it carries Chromium's developer checks (DCHECKs),
-  which cost CPU and some memory in every process. Takes a night's rebuild.
 - **Chromium's network service in the daemon**
   (`--enable-features=NetworkServiceInProcess2`), up to about 50 MB, at the
   cost of the sandbox around the code that reads data from the internet
