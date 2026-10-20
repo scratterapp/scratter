@@ -53,8 +53,8 @@ design targets.
 
 | Measure | Baseline | Goal | Now |
 | --- | --- | --- | --- |
-| Memory (PSS, playing) | 693 MB | under 500 MB | 676 MB |
-| CPU while playing | 9.8% | under 5% | 4.7% |
+| Memory (PSS, playing) | 693 MB | under 500 MB | 599 MB |
+| CPU while playing | 9.8% | under 5% | 4.8% |
 | CPU while paused | not measured | under 0.5% | 0.6% |
 | Wake-ups per second while paused | not measured | under 50 | 36 |
 | Video memory | 0 MB | stays 0 MB | 0 MB |
@@ -75,6 +75,8 @@ One line per change that moved a number, newest last.
 | 2026-10-19 | #26 measured again, just before the next line (debug build) | 667 MB | 14.4% | 8.5% | 1094 |
 | 2026-10-19 | #29: our code built optimized (`linux-cef-release`). The daemon process went from 7.6% to 3.7% playing, its audio thread from 5.1% to 0.3% | 609 MB | 12.3% | 8.7% | 1156 |
 | 2026-10-19 | #30: the sound output sleeps once a pause has faded out. The daemon's PipeWire thread goes from 47 wake-ups a second to none while paused | 676 MB | 4.7% | 0.6% | 36 |
+| 2026-10-20 | `main` (with #30) measured again, just before the next line | 638 MB | 4.7% | | |
+| 2026-10-20 | #31: Chromium's GPU process and audio service run inside the daemon. 12 processes to 9; the memory they own goes from 421 to 344 MB | 599 MB | 4.8% | | |
 
 Two runs of the same code can differ by a few points, mostly in Chromium's
 network process: it used 2.6% in the first #29 run and 4.3% in the second.
@@ -115,6 +117,10 @@ Guesses, not measurements, roughly cheapest first:
 - **A faster resampler.** Optimized, our audio code takes about 0.3% of a
   core (`bench/audio_render`). SIMD (working on 4 or 8 samples per
   instruction) could cut that further, but it's a small share now.
-- **Ask CEF's forum about the shutdown crash.** Running Chromium's GPU and
-  audio parts inside the daemon saved about 75 MB, but made CEF abort on exit
-  ([learning/performance.md](learning/performance.md)). A newer CEF may not.
+- **Build CEF the official way** (`is_official_build=true`). Our own CEF
+  build is unofficial, so it carries Chromium's developer checks (DCHECKs),
+  which cost CPU and some memory in every process. Takes a night's rebuild.
+- **Chromium's network service in the daemon**
+  (`--enable-features=NetworkServiceInProcess2`), up to about 50 MB, at the
+  cost of the sandbox around the code that reads data from the internet
+  ([learning/performance.md](learning/performance.md#what-else-could-go)).
