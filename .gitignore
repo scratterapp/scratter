@@ -11,6 +11,7 @@ compile_commands.json
 
 # Bundled/proprietary runtime assets
 third_party/cef/*
+cef_binary_*
 [Ww]idevine[Cc]dm/
 *widevinecdm*
 
