@@ -98,16 +98,20 @@ The detector only exists in **unofficial** builds. Chromium's build has a
 switch, `is_official_build`, that Google and CEF turn on for what they ship:
 it turns on the strongest optimizations and leaves out the checks meant for
 Chromium's own developers (`DCHECK`s, "debug checks", and this detector among
-them). Our CEF build (`build_cef_with_aac.sh`) left it off, so it has them.
+them). Our first CEF build left it off, so it had them.
 CEF's official builds would never have crashed.
 
 So the daemon turns the detector off with
 `--disable-features=PartitionAllocDanglingPtr`. That hides nothing of ours:
 the pointer is Chromium's, and a release build would never check it.
 
-It also means our CEF build pays for those developer checks everywhere, in
-every process. Rebuilding CEF with `is_official_build=true` is the way to find
-out how much; the [ideas list](../BENCHMARKS.md#ideas-to-try-next) has it.
+It also meant our CEF build paid for those developer checks everywhere, in
+every process. Rebuilt with `is_official_build=true` (the settings are in
+[cef-host.md](cef-host.md#building-cef-with-aac)), the same daemon playing the
+same film went from 599 to 422 MB and from 4.8% to 2.7% of a core on robbie's
+machine, without a line of our code changing. The dangling pointer switch
+stays: it does nothing on an official build, and keeps an unofficial one
+quitting cleanly.
 
 ## What else could go
 

@@ -30,8 +30,8 @@ Files:
 
 ## Turning it on
 
-CEF only exists on a machine that built it (hours of compiling, see the
-`experiment/cef-widevine` branch's `build_cef_with_aac.sh`), so the daemon
+CEF only exists on a machine that built it (hours of compiling, see
+[below](#building-cef-with-aac)), so the daemon
 builds without it unless you ask. The `AM_WITH_CEF` CMake option does that,
 and the `linux-cef` preset turns the option on:
 
@@ -57,6 +57,38 @@ use `linux-cef-release` instead (the same commands with that name, and
 `./build/linux-cef-release/scratterd`): the same code with the compiler's
 optimizations on, which takes about 4% of a CPU core less
 ([performance.md](performance.md#debug-and-optimized-builds)).
+
+## Building CEF with AAC
+
+Google's prebuilt CEF can't decode AAC, so we build our own with CEF's build
+tool, `automate-git.py` (from the CEF repository's `tools/automate/`). It
+takes about 100 GB of disk and most of a night. The settings go in the
+`GN_DEFINES` environment variable (fish syntax here):
+
+```
+set -x GN_DEFINES 'is_official_build=true proprietary_codecs=true ffmpeg_branding=Chrome use_sysroot=true symbol_level=0 is_cfi=false use_thin_lto=false chrome_pgo_phase=0'
+python3 automate-git.py --download-dir=$HOME/cef-build/download --branch=7871 --x64-build --no-debug-build --minimal-distrib --build-target=cefsimple --no-chromium-history
+```
+
+- `proprietary_codecs` and `ffmpeg_branding=Chrome` turn AAC on.
+- `is_official_build` builds CEF the way Google and CEF ship it: optimized,
+  and without the checks meant for Chromium's own developers. Leaving it off
+  cost about 180 MB and 2 points of CPU
+  ([performance.md](performance.md#the-shutdown-crash-was-a-developer-check)).
+- `use_thin_lto=false`, `is_cfi=false` and `chrome_pgo_phase=0` switch off
+  three extras official builds normally add: link-time optimization (needs far
+  more RAM to link than a 16 GB machine has), a security check that depends on
+  it, and profile-guided optimization (needs profile files a CEF checkout
+  doesn't download). `symbol_level=0` leaves out debugging symbols.
+- `--build-target=cefsimple` builds CEF's small sample app instead of
+  `cefclient`, which needs GTK headers the build's sysroot doesn't have.
+
+To change settings on an existing checkout, add `--no-update --force-config
+--force-build --force-distrib` so it rebuilds without downloading again. The
+result lands in `chromium/src/cef/binary_distrib/` under the download folder,
+as a folder ending in `_linux64_minimal`; point `third_party/cef/linux64` at it
+with `ln -s`, then delete `build/linux-cef*` so the new `libcef.so` gets copied
+in.
 
 ## CEF is several programs, not one
 
