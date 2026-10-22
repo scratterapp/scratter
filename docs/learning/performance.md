@@ -67,7 +67,9 @@ Two more looked optional:
 
 Together they save about 75 MB. The first try made Ctrl-C end in a crash, so
 they were dropped at first; the next section is why that crash doesn't count,
-and both now run in the daemon.
+and both now run in the daemon. The cost is safety: since PR #31, Chromium's
+GPU and audio code runs unsandboxed inside the daemon, in the same process as
+the credential vault, so a bug there could reach the stored Apple Music login.
 
 Two more switches trim work rather than processes: `--disable-extensions`
 skips Chromium's built-in extensions (the PDF viewer and so on), and
