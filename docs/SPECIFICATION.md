@@ -573,6 +573,7 @@ scratter/
     ├── test_epoll_reactor.cpp         # Linux-only: watching fds with the epoll reactor
     ├── test_iocp_reactor.cpp          # Windows-only: watching handles with the IOCP reactor, over overlapped pipes
     ├── test_unix_seqpacket_ipc.cpp    # Linux-only: the SOCK_SEQPACKET IPC channel
+    ├── test_named_pipe_ipc.cpp        # Windows-only: the named pipe IPC channel
     ├── test_crc32c.cpp                # CRC32C known-answer vectors on every code path
     ├── test_ipc_framing.cpp           # FrameHeader layout, round-trip and rejection tests
     ├── test_ipc_messages.cpp          # Message bodies: round trips, wrong sizes and bad values

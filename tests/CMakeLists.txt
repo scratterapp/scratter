@@ -53,10 +53,11 @@ if(LINUX)
          test_unix_seqpacket_ipc test_mpris_controls)
 endif()
 
-# The Windows counterpart of test_epoll_reactor: watching handles with the IOCP
-# reactor, plus the Windows specifics of its wakeup and timer.
+# The Windows counterparts of test_epoll_reactor and test_unix_seqpacket_ipc:
+# watching handles with the IOCP reactor, plus the Windows specifics of its
+# wakeup and timer, and the named pipe channel.
 if(WIN32)
-    list(APPEND AM_TESTS test_iocp_reactor)
+    list(APPEND AM_TESTS test_iocp_reactor test_named_pipe_ipc)
 endif()
 
 
