@@ -5,9 +5,10 @@
 #   find_package(CEF REQUIRED)
 #
 # Looks in CEF_ROOT, which defaults to third_party/cef/linux64 (windows64 on
-# Windows). build_cef_with_aac.sh on the experiment/cef-widevine branch puts it
-# there. Any CEF "minimal" binary distribution of the same version works for
-# building; only one built with AAC plays Apple Music.
+# Windows). The "Building CEF with AAC" section of docs/learning/cef-host.md
+# says how to build it and link it there. Any CEF "minimal" binary
+# distribution of the same version works for building; only one built with
+# AAC plays Apple Music.
 #
 # Defines:
 #   CEF::CEF            an INTERFACE target: CEF's headers (as system headers,
@@ -31,8 +32,8 @@ if(NOT EXISTS "${CEF_ROOT}/cmake/cef_variables.cmake")
     set(CEF_FOUND FALSE)
     if(CEF_FIND_REQUIRED)
         message(FATAL_ERROR
-            "CEF not found in ${CEF_ROOT}. Build it with "
-            "experiments/cef_drm/build_cef_with_aac.sh (see docs/learning/cef-host.md), "
+            "CEF not found in ${CEF_ROOT}. Build it as the \"Building CEF with AAC\" "
+            "section of docs/learning/cef-host.md describes, "
             "or point CEF_ROOT at a CEF binary distribution.")
     endif()
     return()
