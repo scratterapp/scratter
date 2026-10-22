@@ -196,6 +196,64 @@ same with its watch callbacks). And `on_event()` runs at most one callback per
 event and touches nothing afterwards, because `this` may be gone. There's a
 test that does exactly this under ASan.
 
+## The Windows version
+
+`src/pal/win32/named_pipe_ipc.cpp` (#12) gets the same behavior from an
+overlapped, message-mode named pipe. Its tests, `tests/test_named_pipe_ipc.cpp`,
+are the Linux ones plus the Windows specifics. What's different:
+
+**One object per handle, for its whole life.** The IOCP reactor ties a callback
+to a handle once, in `watch()`. On the server, a pipe handle starts out
+waiting for a client (`ConnectNamedPipe`) and then *becomes* that client's
+channel. So each handle is one `PipeEnd` that knows both jobs, and the
+listener hands the same object over when it's accepted.
+
+**Several instances waiting.** A pipe instance serves one client. The listener
+keeps four waiting, so clients connecting close together don't find every
+instance taken (`ERROR_PIPE_BUSY`, which `connect()` reports as
+`resource_unavailable_try_again`, as the Linux backlog does) before the
+listener has made the next one. Only the first instance passes
+`FILE_FLAG_FIRST_PIPE_INSTANCE`, so a pipe someone else created under our name
+makes `listen()` fail with `address_in_use`.
+
+**A read always pending.** Completions report what *finished*, so there is
+always one `ReadFile` waiting, into a buffer of `kMaxFrameBytes`. Its completion
+fires the readable callback, and `receive()` hands out that message and starts
+the next `ReadFile`. A message bigger than the buffer (only another program
+could send one) comes back as `ERROR_MORE_DATA`; the channel reads the rest
+and throws it away, and `receive()` reports `message_size` once.
+
+**Not waiting for the reactor.** On Linux, `receive()` right after the other
+side's `send()` finds the message, with no reactor in between. To match that,
+`receive()`, `send()` and `accept()` check whether the pending operation has
+finished (`HasOverlappedIoCompleted`) and take its result straight away. Its
+completion packet still arrives later, so each operation counts the results it
+took early and ignores that many packets. That works because one OVERLAPPED's
+packets arrive in the order its operations finished.
+
+**Fewer packets.** `FILE_SKIP_COMPLETION_PORT_ON_SUCCESS` stops Windows queuing
+a packet for an operation that finishes at once, so only `ERROR_IO_PENDING`
+ones come through the reactor. A few things happen with no packet at all, such
+as `ConnectNamedPipe` finding the client already there (`ERROR_PIPE_CONNECTED`):
+the end posts itself an event with `Reactor::post()` so the callback still runs
+from the loop.
+
+**Security.** The pipe's owner and DACL are the current user, the same shape as
+the telemetry page, and `PIPE_REJECT_REMOTE_CLIENTS` keeps other machines out.
+`connect()` opens the pipe with `SECURITY_IDENTIFICATION`, so the daemon can
+learn who connected but can't act as them, then checks that the process
+serving the pipe (`GetNamedPipeServerProcessId`) runs as the same user. A
+process that isn't elevated may not read an elevated daemon's token, so then
+the pipe's owner decides instead: the daemon always makes the user the owner,
+and only an administrator can make someone else the owner of a pipe they
+create.
+
+**Closing.** The destructor cancels what's in flight (`CancelIoEx`) and waits
+for it before freeing the buffers. A message WriteFile already finished is in
+the pipe, and the other end still reads it before `PeerClosed`; one still
+waiting for room in a full pipe is lost, the way unsent data is lost on any
+connection that's torn down.
+
 ## Measuring it
 
 `bench/ipc_ping_pong.cpp` is the "under 25 µs" check from the spec. One thread
@@ -209,6 +267,10 @@ cmake --preset linux-release
 cmake --build --preset linux-release
 ./build/linux-release/bench/ipc_ping_pong
 ```
+
+On Windows, `windows-msvc-release` and `build\windows-msvc-release\bench\ipc_ping_pong.exe`.
+The first Windows run (kero's PC, with a Chromium build compiling in the
+background) gave medians of 9.7 to 13.4 µs.
 
 It prints min, median, p99, p99.9 and max. The median is the honest headline:
 the average gets dragged around by a few very slow round trips (the OS

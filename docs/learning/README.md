@@ -264,6 +264,10 @@ Spec: section 3.1.3, 3.2 and the Phase 1 gate in section 6.
   `FILE_FLAG_FIRST_PIPE_INSTANCE`, wired into the IOCP reactor. `<SID>` is the
   current user's security identifier. Use `Reactor::post()` for the completions
   Windows doesn't queue, like `ConnectNamedPipe` returning `ERROR_PIPE_CONNECTED`.
+- **Where it stands:** `src/pal/win32/named_pipe_ipc.cpp` is written, with
+  tests in `tests/test_named_pipe_ipc.cpp`; `amctl` drives the daemon on
+  Windows. The walkthrough is the "Windows version" part of
+  [ipc-channel.md](ipc-channel.md).
 - **You learn:** pipe security descriptors, and why neither the DACL nor
   `FIRST_PIPE_INSTANCE` stops another user from squatting on the pipe name, so
   the UI has to check who is serving the pipe.

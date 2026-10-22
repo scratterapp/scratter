@@ -21,7 +21,11 @@ Always the same way, so the numbers compare:
   second terminal (30 seconds), then `./build/linux-cef-release/amctl pause`
   and the same again for the paused numbers. Adding `--threads 5` names each
   process's threads behind the wake-ups without changing the numbers.
-- **IPC:** `./build/linux-release/bench/ipc_ping_pong` (release build).
+- **IPC:** `./build/linux-release/bench/ipc_ping_pong` (release build). On
+  Windows, `build\windows-msvc-release\bench\ipc_ping_pong.exe`; the first
+  run there (kero's PC, 2026-10-22, with a Chromium build compiling alongside)
+  gave a median of 9.7 to 13.4 µs. Windows doesn't have a baseline of its own
+  yet.
 - **Our audio code alone:** `./build/linux-release/bench/audio_render`.
 
 [`learning/performance.md`](learning/performance.md) explains what each number

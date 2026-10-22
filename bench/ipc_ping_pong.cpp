@@ -5,14 +5,16 @@
 // thread connects, then sends Pings one at a time and times how long each
 // takes to come back. Each thread runs its own Reactor, exactly as the two
 // processes will, so a round trip includes everything the real thing does:
-// encode, send, epoll wake-up, receive, validate, and the same back again.
-// Threads instead of two processes only saves the setup; the kernel path for
-// a Unix socket is the same either way.
+// encode, send, epoll or IOCP wake-up, receive, validate, and the same back
+// again. Threads instead of two processes only saves the setup; the kernel
+// path for a Unix socket or named pipe is the same either way.
 //
 //   ./build/linux-release/bench/ipc_ping_pong [round_trips]
+//   build\windows-msvc-release\bench\ipc_ping_pong.exe [round_trips]
 //
-// Build with linux-release for real numbers; debug and sanitizer builds are
-// several times slower. Exits with status 1 if the median is over 25 µs.
+// Build with linux-release or windows-msvc-release for real numbers; debug and
+// sanitizer builds are several times slower. Exits with status 1 if the median
+// is over 25 µs.
 
 #include "ipc_channel.hpp"
 #include "reactor.hpp"
