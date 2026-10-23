@@ -1,5 +1,5 @@
 diff --git a/chrome/common/media/cdm_registration.cc b/chrome/common/media/cdm_registration.cc
-index 46293c0a15..e4c09014a3 100644
+index 46293c0a15..d42206f0bc 100644
 --- a/chrome/common/media/cdm_registration.cc
 +++ b/chrome/common/media/cdm_registration.cc
 @@ -33,11 +33,13 @@
@@ -27,6 +27,15 @@ index 46293c0a15..e4c09014a3 100644
  // Create a CdmInfo for a Widevine CDM, using |version|, |cdm_library_path|, and
  // |capability|.
  std::unique_ptr<content::CdmInfo> CreateWidevineCdmInfo(
+@@ -83,7 +85,7 @@ std::unique_ptr<content::CdmInfo> CreateCdmInfoFromWidevineDirectory(
+   // Library should be inside a platform specific directory.
+   auto cdm_library_path =
+       media::GetPlatformSpecificDirectory(cdm_base_path)
+-          .Append(base::GetNativeLibraryName(kWidevineCdmLibraryName));
++          .AppendASCII(base::GetNativeLibraryName(kWidevineCdmLibraryName));
+   if (!base::PathExists(cdm_library_path)) {
+     DLOG(ERROR) << __func__ << " no directory: " << cdm_library_path;
+     return nullptr;
 @@ -101,7 +103,15 @@ std::unique_ptr<content::CdmInfo> CreateCdmInfoFromWidevineDirectory(
  }
  #endif  // (BUILDFLAG(BUNDLE_WIDEVINE_CDM) ||
