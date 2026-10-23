@@ -70,3 +70,4 @@ Sanitizer presets are available as `linux-asan` (AddressSanitizer + UBSan) and
 - [docs/learning/](docs/learning/README.md): how to do each roadmap item and what it teaches
 - [docs/SETUP.md](docs/SETUP.md): installing dependencies
 - [LEGAL.md](LEGAL.md): notice
+- [docs/release-checklist.md](docs/release-checklist.md): what has to be true before any public release
