@@ -90,6 +90,24 @@ as a folder ending in `_linux64_minimal`; point `third_party/cef/linux64` at it
 with `ln -s`, then delete `build/linux-cef*` so the new `libcef.so` gets copied
 in.
 
+### Our patch to Chromium (Windows)
+
+A Windows build needs one small patch of ours,
+`third_party/cef-patches/widevine-cdm-dir.patch`, so Chromium can register the
+installed Widevine CDM there ([below](#pointing-cef-at-widevine-without-copying-it)).
+It only adds Windows code, so a Linux build can skip it. `automate-git.py`
+resets Chromium's files when it updates the checkout, so apply the patch after
+that step and before building:
+
+```
+python3 automate-git.py <the options above> --no-build --no-distrib
+git -C <download folder>/chromium/src apply <repo>/third_party/cef-patches/widevine-cdm-dir.patch
+python3 automate-git.py <the options above> --no-update --force-build --force-distrib
+```
+
+On Windows, run these from `cmd` with `py -3` in place of `python3`, and set
+`GN_DEFINES` without `use_sysroot=true`, which is Linux-only.
+
 ## CEF is several programs, not one
 
 Chromium splits a browser into processes so a crash or an attack in one part
@@ -174,6 +192,17 @@ own, so the daemon passes `--disable-component-update`. That makes keeping
 Widevine current the system package's job: Google revokes old versions, and a
 revoked one is refused every license
 ([license-request.md](license-request.md)).
+
+Windows Chromium ignores the hint file. There it registers Widevine only
+through that same updater, which `--disable-component-update` turns off along
+with the downloads. So our CEF build carries a patch
+(`third_party/cef-patches/widevine-cdm-dir.patch`) that registers the folder
+passed as `--widevine-cdm-dir`, the way Linux registers the hinted one, and
+the daemon passes that switch on every platform (Linux ignores it). On
+Windows the folder is usually the copy Chrome keeps next to its own program,
+`Program Files\Google\Chrome\Application\<version>\WidevineCdm`
+(`src/pal/win32/browser_files.cpp`). The patch doesn't touch the CDM or how
+it checks the program loading it, so VMP is still an open question.
 
 The profile folder is `~/.cache/scratter/browser` (from the product
 name). It holds cookies, the browser cache, the hint file, and `cef.log`,

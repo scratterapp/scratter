@@ -61,7 +61,8 @@ constexpr auto kCloseTimeout = 5s;
 // downloading Widevine. Writing it ourselves points CEF at the copy a browser
 // already installed; nothing is copied or downloaded. Chromium loads the CDM
 // at startup, before the sandbox closes, so this has to happen before
-// CefInitialize(). On other systems Chromium ignores the file.
+// CefInitialize(). Windows Chromium ignores the file; there the host passes
+// the folder as a switch instead (HostApp below).
 std::expected<void, std::string> point_chromium_at_widevine(const std::filesystem::path& profile,
                                                             const std::filesystem::path& cdm) {
     std::string escaped; // the folder as a JSON string
@@ -277,8 +278,8 @@ class PageClient final : public CefClient,
 // Browser-process settings and the first page.
 class HostApp final : public CefApp, public CefBrowserProcessHandler {
   public:
-    HostApp(CefRefPtr<PageClient> client, std::string_view url)
-        : client_(std::move(client)), url_(url) {}
+    HostApp(CefRefPtr<PageClient> client, std::string_view url, std::filesystem::path cdm)
+        : client_(std::move(client)), url_(url), cdm_(std::move(cdm)) {}
 
     CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
 
@@ -319,6 +320,11 @@ class HostApp final : public CefApp, public CefBrowserProcessHandler {
         // Chromium's updater would download Widevine and other components on
         // its own. We only use what's already installed (spec 3.1.1).
         command_line->AppendSwitch("disable-component-update");
+        // On Windows, where Chromium otherwise only registers Widevine through
+        // that updater, our CEF build registers the installed CDM named here
+        // (third_party/cef-patches/widevine-cdm-dir.patch). Linux uses the
+        // hint file instead and ignores the switch.
+        command_line->AppendSwitchWithValue("widevine-cdm-dir", CefString(cdm_.native()));
         // Don't ask the desktop keyring for a password to encrypt cookies.
         command_line->AppendSwitchWithValue("password-store", "basic");
     }
@@ -332,6 +338,7 @@ class HostApp final : public CefApp, public CefBrowserProcessHandler {
   private:
     CefRefPtr<PageClient> client_;
     std::string url_;
+    std::filesystem::path cdm_;
 
     IMPLEMENT_REFCOUNTING(HostApp);
 };
@@ -408,7 +415,10 @@ std::expected<CefHost, std::string> CefHost::start(const CefHostOptions& options
     static char* argv[] = {program.data(), nullptr};
     const CefMainArgs main_args = pal::cef_main_args(1, argv);
 
-    if (!CefInitialize(main_args, settings, new HostApp(impl->client, options.clear_film ? kClearFilmUrl : kTestFilmUrl), nullptr)) {
+    if (!CefInitialize(
+            main_args, settings,
+            new HostApp(impl->client, options.clear_film ? kClearFilmUrl : kTestFilmUrl, cdm),
+            nullptr)) {
         return std::unexpected("CEF didn't start (exit code " + std::to_string(CefGetExitCode()) +
                                "). Its log is " + (*profile / "cef.log").string());
     }
