@@ -561,6 +561,10 @@ scratter/
 ├── bench/                             # Hand-run benchmarks, not in ctest
 │   ├── ipc_ping_pong.cpp              # IPC round-trip latency (target: median under 25 µs)
 │   └── audio_render.cpp               # CPU our audio code (write_planar, render) takes per second of audio
+├── third_party/
+│   ├── cef/                           # Our CEF build goes here (linux64/, windows64/); ignored by git
+│   └── cef-patches/                   # Our patches to Chromium, applied before building CEF
+│       └── widevine-cdm-dir.patch     # Windows: register the installed Widevine CDM named by --widevine-cdm-dir
 └── tests/                             # Catch2 v3 (FetchContent); one executable per file
     ├── test_sanity.cpp                # Trivial test proving the framework and sanitizers run
     ├── test_spsc_concurrency.cpp      # TSan multi-threaded ring buffer stress test
