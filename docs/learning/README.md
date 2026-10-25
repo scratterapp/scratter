@@ -63,6 +63,9 @@ Deeper write-ups for finished pieces:
 - [license-request.md](license-request.md): how a Widevine license is asked
   for, how we found Google had revoked our Widevine (#21), and reading a
   protobuf by hand.
+- [hardening.md](hardening.md): the compiler and linker flags that turn many
+  memory bugs into a crash instead of a takeover, and how to check a binary has
+  them.
 
 ## How to work an issue
 
