@@ -30,6 +30,20 @@
 // the film" so the soak test (tools/soak/soak.py) can tell a refused license
 // from a fault of ours.
 //
+// Shaka Player comes from jsdelivr with an integrity hash: Chromium refuses to
+// run the file unless its SHA-384 matches, so a broken-into CDN can't put its
+// own script in our page. A new Shaka version needs a new hash. Take it from
+// the npm package, not from the CDN, after checking the package against npm's
+// own record:
+//
+//   curl -fsSL https://registry.npmjs.org/shaka-player/VERSION | jq -r .dist.integrity
+//   curl -fsSLO https://registry.npmjs.org/shaka-player/-/shaka-player-VERSION.tgz
+//   echo "sha512-$(openssl dgst -sha512 -binary shaka-player-VERSION.tgz | base64 -w0)"
+//   tar -xzf shaka-player-VERSION.tgz package/dist/shaka-player.compiled.js
+//   echo "sha384-$(openssl dgst -sha384 -binary package/dist/shaka-player.compiled.js | base64 -w0)"
+//
+// The first and third lines must print the same thing; the last one is the hash.
+//
 // The daemon drives the page through three functions, amPlay(), amPause() and
 // amStop(). The page prints what it's doing to its console, and the daemon
 // copies those lines to its own output with a "page:" in front.
@@ -48,7 +62,9 @@ inline constexpr std::string_view kTestFilmPage = R"html(<!doctype html>
 <meta charset="utf-8">
 <title>Widevine test film</title>
 <video id="film" loop></video>
-<script src="https://cdn.jsdelivr.net/npm/shaka-player@4.11.2/dist/shaka-player.compiled.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/shaka-player@4.11.2/dist/shaka-player.compiled.js"
+        integrity="sha384-9Ggzd10pFFpeKcDGCcHkCH+qpmRonKnNcMzC5lCtdQ9zJkocFw/o4Yv0Np8QcfdH"
+        crossorigin="anonymous"></script>
 <script>
 // ?clear asks for Google's unencrypted copy of the same film.
 const clear = location.search === '?clear';
