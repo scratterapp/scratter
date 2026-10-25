@@ -1,0 +1,12 @@
+# Dependabot opens a PR when an action in .github/workflows has a newer
+# version, keeping the commit pins in ci.yml current. It also watches GitHub's
+# advisory database and says when a pinned version has a known security hole.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
