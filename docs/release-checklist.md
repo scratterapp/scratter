@@ -69,6 +69,42 @@ These have to be settled before the first public binary.
 - [ ] **Readable contrast.** Text against its background meets at least 4.5:1
   (the WCAG AA level) in the default theme, and the UI stays usable when scaled up.
 
+## Security
+
+The October 2026 security audit found these. Most need code that doesn't exist
+yet (Apple Music in the daemon, `src/net/`), so they're checks for then.
+
+- [ ] **CEF is current.** The release's CEF is built from the newest stable
+  CEF branch, at most two weeks behind Chrome's latest security update, and the
+  release notes name the version. Chromium fixes security bugs every week or
+  two, so plan to put out a new build after each Chrome security release.
+- [ ] **The GPU decision is made.** Since PR #31 the daemon runs Chromium's GPU
+  and audio code unsandboxed, in the same process as the login
+  (`--in-process-gpu`, `AudioServiceOutOfProcess` off). Before a release that
+  plays Apple Music, either put the GPU back in its own process or write down
+  why we keep it.
+- [ ] **The browser is fenced in.** The page may only navigate to Apple's
+  hosts (no `file://`), popups are blocked or limited to Apple's sign-in,
+  permission requests are refused except what Widevine needs, there are no
+  downloads, no remote debugging port and no `--ignore-certificate-errors`.
+- [ ] **No secrets in logs.** Only expected lines from the page's console reach
+  the daemon's log, and a full session's log (daemon, `cef.log`) doesn't contain
+  the Music-User-Token or the developer token.
+- [ ] **Network code is strict.** libcurl verifies TLS certificates, only talks
+  to Apple's hosts, and has timeouts and size limits; the JSON parser in
+  `src/net/` has a fuzzer in CI like the IPC one.
+- [ ] **The release build is hardened.** Compiler hardening flags are on
+  (`_FORTIFY_SOURCE`, `_GLIBCXX_ASSERTIONS`, stack protector, full RELRO, PIE;
+  on Windows `/guard:cf` and `/CETCOMPAT`), and `checksec --file=scratterd`
+  confirms it on the shipped binary.
+- [ ] **Crash dumps are decided.** A crash dump holds the token. Either mark
+  release builds non-dumpable or say in the privacy note where dumps go.
+- [ ] **Downloads can be checked.** Each release lists SHA-256 checksums of its
+  files, and the release tag is signed.
+- [ ] **GitHub's safety switches are on.** Secret scanning with push
+  protection, Dependabot alerts, private vulnerability reporting (which
+  `SECURITY.md` points to), and passing CI required before a merge to `main`.
+
 ## Last checks
 
 - [ ] No credentials, tokens, keys, CEF binaries or Widevine files anywhere in the
