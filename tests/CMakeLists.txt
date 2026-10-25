@@ -7,8 +7,8 @@ set(CATCH_CONFIG_DISABLE_EXCEPTIONS ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
     Catch2
     GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-    GIT_TAG v3.9.1
-    GIT_SHALLOW TRUE
+    # v3.9.1, by commit: a tag can be moved to other code, a commit can't.
+    GIT_TAG 644821ce28cb25d7992a4d0375b1d83214392592
     SYSTEM
 )
 FetchContent_MakeAvailable(Catch2)

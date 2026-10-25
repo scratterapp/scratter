@@ -482,7 +482,7 @@ scratter/
 │   ├── CompilerWarnings.cmake         # -Wall -Wextra -Wpedantic -Werror -Wconversion, no exceptions/RTTI
 │   └── Sanitizers.cmake               # ASan+UBSan / TSan flags applied to every target
 ├── docs/                              # OVERVIEW, ARCHITECTURE, SPECIFICATION, RATIONALE, COLLABORATION, SETUP, BENCHMARKS, release-checklist; assets/ (logo, banner), learning/, windows/START_HERE.md
-├── .github/                           # CODEOWNERS, PR template, CI (path-filtered per platform)
+├── .github/                           # CODEOWNERS, PR template, CI (path-filtered per platform, actions pinned by commit), Dependabot
 ├── src/
 │   ├── common/                        # Target: am_common (header-only INTERFACE library - zero OS/CEF deps)
 │   │   ├── app_name.hpp               # kAppName / kDaemonName from AM_APP_NAME (project name)
