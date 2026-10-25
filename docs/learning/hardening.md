@@ -20,7 +20,7 @@ whatever code the attacker chose. Each flag below blocks one step of that.
 | Flag | What it does | Protects |
 | --- | --- | --- |
 | `-fstack-protector-strong` | Puts a secret value (the *canary*) between local arrays and the return address, and checks it before returning. A write that runs over the array changes the canary, and the program aborts with "stack smashing detected". | The return address |
-| `-D_FORTIFY_SOURCE=3` | Swaps `memcpy`, `strcpy`, `snprintf` and friends for versions that know the size of the buffer they write to (`__memcpy_chk`) and abort if it's too small. Only in Release builds: it needs the optimizer to work out sizes. | Buffers passed to C functions |
+| `-D_FORTIFY_SOURCE=3` | Swaps `memcpy`, `strcpy`, `snprintf` and friends for versions that know the size of the buffer they write to (`__memcpy_chk`) and abort if it's too small. Only in optimized builds (Release, RelWithDebInfo, MinSizeRel): it needs the optimizer to work out sizes. | Buffers passed to C functions |
 | `-D_GLIBCXX_ASSERTIONS` | `std::vector`, `std::span`, `std::array` and `std::string` check the index in `operator[]`, and `front()` and `back()` check for empty. Out of range aborts instead of reading or writing past the end. | Our own C++ indexing |
 | `-fstack-clash-protection` | A function that needs a huge stack area touches it one page at a time, so it can't jump past the guard page below the stack into other memory. | The stack's edge |
 | `-fcf-protection=full` | Intel CET: every place an indirect jump may land is marked, and the CPU keeps a second, hidden copy of return addresses (the *shadow stack*). x86-64 only. | Jumps and returns |

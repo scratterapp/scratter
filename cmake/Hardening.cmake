@@ -9,8 +9,10 @@
 #   _FORTIFY_SOURCE=3          memcpy, strcpy, snprintf and friends check the
 #                              size of the buffer they write to, when the
 #                              compiler can work it out. Needs optimization,
-#                              so only in Release builds; glibc warns about it
-#                              in a Debug build, and -Werror would stop there.
+#                              so only in the optimized build types (Release,
+#                              RelWithDebInfo, MinSizeRel), never in Debug or a
+#                              build with no type: Arch's glibc warns about it
+#                              without -O, and -Werror would stop there.
 #   _GLIBCXX_ASSERTIONS        std::vector, std::span, std::array and others
 #                              check the index in operator[] and abort if it's
 #                              out of range, instead of reading past the end.
@@ -56,7 +58,7 @@ endif()
 add_compile_options(
     -fstack-protector-strong
     -fstack-clash-protection
-    "$<$<NOT:$<CONFIG:Debug>>:-U_FORTIFY_SOURCE;-D_FORTIFY_SOURCE=3>"
+    "$<$<CONFIG:Release,RelWithDebInfo,MinSizeRel>:-U_FORTIFY_SOURCE;-D_FORTIFY_SOURCE=3>"
 )
 add_compile_definitions(_GLIBCXX_ASSERTIONS)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
