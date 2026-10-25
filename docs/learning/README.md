@@ -53,6 +53,8 @@ Deeper write-ups for finished pieces:
   for the ring buffer.
 - [fade.md](fade.md): fading in and out on play and pause (#1), and why a
   sudden jump in the samples sounds like a click.
+- [gapless.md](gapless.md): whether a song change can leave a gap in the
+  audio path, and why waiting for the ring buffer to refill doesn't make one.
 - [soak-test.md](soak-test.md): the 4-hour soak test (#2), reading a process's
   memory from `/proc`, and telling a leak from a cache filling up.
 - [performance.md](performance.md): how heavy the daemon is, RSS versus PSS,
