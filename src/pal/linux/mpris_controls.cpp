@@ -38,6 +38,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <expected>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -212,7 +213,14 @@ int seek(sd_bus_message* call, void* userdata, sd_bus_error*) {
         return r;
     }
     if (mpris.track) {
-        const auto target = std::max(mpris.position + microseconds{offset}, microseconds{0});
+        // Any program on the bus can send any 64-bit offset, and a sum past
+        // the largest or smallest int64 is undefined behavior in C++. With
+        // `from` 0 or more, only a forward seek can go over, so stop at the
+        // end of the range instead.
+        const std::int64_t from = std::max<std::int64_t>(mpris.position.count(), 0);
+        const std::int64_t max = std::numeric_limits<std::int64_t>::max();
+        const std::int64_t to = offset > 0 && from > max - offset ? max : from + offset;
+        const microseconds target{std::max<std::int64_t>(to, 0)};
         mpris.request({.kind = MediaRequest::Kind::Seek, .position = target});
     }
     return sd_bus_reply_method_return(call, nullptr);

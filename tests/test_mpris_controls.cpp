@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -347,6 +348,31 @@ TEST_CASE("Seek, SetPosition and Volume turn into the header's requests", "[mpri
     CHECK(h.requests[3].kind == Kind::SetVolume);
     CHECK(h.requests[3].volume_percent == 25);
     CHECK(h.requests[4].volume_percent == 100);
+}
+
+TEST_CASE("a Seek by the largest or smallest offset doesn't overflow", "[mpris]") {
+    Harness h("seek-limits");
+    if (!h.controls) {
+        return;
+    }
+    h.controls->set_track(
+        {.title = "t", .artist = "", .album = "", .artwork_url = "", .length = 3min});
+    h.controls->set_position(10s);
+
+    std::vector<bool> answered;
+    REQUIRE(h.run_client([&](const Client& c) {
+        for (const std::int64_t offset :
+             {std::numeric_limits<std::int64_t>::max(), std::numeric_limits<std::int64_t>::min()}) {
+            answered.push_back(sd_bus_call_method(c.bus, c.bus_name.c_str(), kPath, kPlayer, "Seek",
+                                                  nullptr, nullptr, "x", offset) >= 0);
+        }
+    }));
+    CHECK(answered == std::vector<bool>(2, true));
+
+    // linux-asan's UndefinedBehaviorSanitizer aborts here if the sum overflows.
+    REQUIRE(h.requests.size() == 2);
+    CHECK(h.requests[0].position == std::chrono::microseconds::max());
+    CHECK(h.requests[1].position == 0s);
 }
 
 TEST_CASE("a name that's already taken is refused", "[mpris]") {
