@@ -475,6 +475,7 @@ Plaintext
 scratter/
 ├── CLAUDE.md / AGENTS.md              # Start here: ownership, rules, build/test (AGENTS.md points to CLAUDE.md)
 ├── LEGAL.md                           # Notice: unofficial, not affiliated with Apple
+├── SECURITY.md                        # How to report a vulnerability, and what counts as one
 ├── CMakeLists.txt                     # Root build definition, C++23 flags, sanitizer options
 ├── CMakePresets.json                  # Configure/build/test presets: linux-debug/-asan/-tsan/-fuzz/-release/-cef/-cef-release, windows-msvc-debug/-release
 ├── cmake/
