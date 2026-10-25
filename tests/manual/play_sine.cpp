@@ -1,8 +1,9 @@
 // Plays a 440 Hz sine through the ring buffer and the platform AudioSink, and
 // counts late buffers (underruns). This is the Phase 2 "does it actually make
-// sound" check (issue #19). It's not run by ctest because it needs speakers and ears.
+// sound" check (issues #19 and #14). It's not run by ctest because it needs speakers and ears.
 //
 //   ./build/linux-debug/tests/manual/play_sine [seconds]
+//   .\build\windows-msvc-debug\tests\manual\play_sine.exe [seconds]
 //
 // To check the audio thread makes no syscalls once it's running:
 //

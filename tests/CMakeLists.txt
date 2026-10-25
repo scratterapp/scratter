@@ -41,24 +41,23 @@ set(AM_TESTS
     test_credential_vault
     test_media_controls
     test_reactor
+    test_realtime
 )
 
-# These need a platform implementation, and only Linux has one so far.
-# Move test_realtime into the list above once the Windows side of #18 (#14)
-# lands; it tests behavior the platforms share. test_epoll_reactor,
-# test_pipewire_sink and test_unix_seqpacket_ipc stay Linux-only, and so does
-# test_mpris_controls, which talks D-Bus to the MPRIS code. test_browser_files
-# checks Linux paths and file modes.
+# Platform-specific tests. test_epoll_reactor, test_pipewire_sink and
+# test_unix_seqpacket_ipc are Linux-only, and so is test_mpris_controls, which
+# talks D-Bus to the MPRIS code. test_browser_files checks Linux paths and file
+# modes.
 if(LINUX)
-    list(APPEND AM_TESTS test_epoll_reactor test_realtime test_pipewire_sink
-         test_unix_seqpacket_ipc test_mpris_controls test_browser_files)
+    list(APPEND AM_TESTS test_epoll_reactor test_pipewire_sink test_unix_seqpacket_ipc
+         test_mpris_controls test_browser_files)
 endif()
 
-# The Windows counterparts of test_epoll_reactor and test_unix_seqpacket_ipc:
-# watching handles with the IOCP reactor, plus the Windows specifics of its
-# wakeup and timer, and the named pipe channel.
+# The Windows counterparts of test_epoll_reactor, test_unix_seqpacket_ipc and
+# test_pipewire_sink: watching handles with the IOCP reactor, plus the Windows
+# specifics of its wakeup and timer, the named pipe channel and the WASAPI sink.
 if(WIN32)
-    list(APPEND AM_TESTS test_iocp_reactor test_named_pipe_ipc)
+    list(APPEND AM_TESTS test_iocp_reactor test_named_pipe_ipc test_wasapi_sink)
 endif()
 
 
@@ -139,18 +138,18 @@ if(LINUX)
                              ENVIRONMENT "XDG_RUNTIME_DIR=${soak_dir}/runtime")
     endif()
 
-    # Not a ctest test: plays a sine through the speakers (see the file).
-    add_executable(play_sine manual/play_sine.cpp)
-    target_link_libraries(play_sine PRIVATE am_pal am_common)
-    am_enable_warnings(play_sine)
-    set_target_properties(play_sine PROPERTIES RUNTIME_OUTPUT_DIRECTORY manual)
-
     # Not a ctest test: saves a dummy secret so you can see it in Seahorse.
     add_executable(vault_demo manual/vault_demo.cpp)
     target_link_libraries(vault_demo PRIVATE am_pal am_common)
     am_enable_warnings(vault_demo)
     set_target_properties(vault_demo PROPERTIES RUNTIME_OUTPUT_DIRECTORY manual)
 endif()
+
+# Not a ctest test: plays a sine through the speakers (see the file).
+add_executable(play_sine manual/play_sine.cpp)
+target_link_libraries(play_sine PRIVATE am_pal am_common)
+am_enable_warnings(play_sine)
+set_target_properties(play_sine PROPERTIES RUNTIME_OUTPUT_DIRECTORY manual)
 
 # libFuzzer targets. libFuzzer ships with Clang and supplies its own main(), so
 # these can't be Catch2 tests. Use the linux-fuzz preset, which turns this on

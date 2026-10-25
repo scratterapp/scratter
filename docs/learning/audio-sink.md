@@ -134,6 +134,58 @@ At the end it prints one line, like `10.0 s played, 465 buffers, 0 late`.
 those asks found the ring buffer short, so part of the buffer had to be filled
 with silence (an underrun). Anything above zero is a click you could hear.
 
+## The Windows side (#14)
+
+`src/pal/win32/wasapi_sink.cpp` is a WASAPI shared-mode stream in event mode.
+Some things worth knowing when you read it:
+
+- **One thread, ours, does all the WASAPI work.** It sets the stream up while
+  `open()` waits, runs the render loop, and does `Start`/`Stop` when `start()`
+  and `stop()` hand it a request through an event and wait for the answer.
+  COM objects then live on one thread, whatever apartment the caller's thread
+  is in (CEF can make the main thread single-threaded). It also makes the
+  "not running after `stop()`" promise simple: the thread handles a stop request
+  between two renders, so it can't be inside one when `stop()` returns. No
+  atomics needed, unlike the PipeWire sink.
+- **The loop** waits on two events: the request event, then WASAPI's buffer
+  event, which fires once per engine period. On a buffer event it asks how much
+  is still queued (`GetCurrentPadding`), fills the rest with the render
+  callback (`GetBuffer` / `ReleaseBuffer`), and waits again.
+- **Two ways to open the stream.** `IAudioClient3::InitializeSharedAudioStream`
+  runs at the engine's smallest period, which can be 3 ms instead of the usual
+  10 ms if the driver offers it. It only takes the mix format's rate and channel
+  count, so that path runs at the mix rate, and `format()` reports it (the
+  daemon asks CEF for that rate). If the channel counts differ (a 5.1 mix, say),
+  the sink uses plain `IAudioClient::Initialize` with `AUTOCONVERTPCM`, and
+  Windows converts our stereo at 48 kHz to whatever the device runs.
+- **MMCSS.** The thread calls `AvSetMmThreadCharacteristicsW(L"Pro Audio")`,
+  which has the Multimedia Class Scheduler raise its priority for as long as it
+  runs. That's Windows' version of rtkit, and it needs no admin rights.
+- **Memory pinning** is `VirtualLock` (`mmcss_priority.cpp`). Windows only lets
+  a process lock as much as its minimum working set, which starts small, so
+  when it says no (`ERROR_WORKING_SET_QUOTA`), the code raises the working set
+  by the block's size and tries again.
+- **Not yet:** following the default device. When you switch outputs or unplug
+  headphones, WASAPI invalidates the stream and the sink goes quiet, where
+  PipeWire would move the stream for us. Exclusive mode is #13.
+
+### Listening to it, and counting glitches
+
+```powershell
+cmake --build --preset windows-msvc-debug
+.\build\windows-msvc-debug\tests\manual\play_sine.exe 10
+```
+
+`play_sine` counts our underruns. To see the audio engine's own view, record
+an ETW trace with WPR's audio-glitch profile from an elevated shell, and open
+it in Windows Performance Analyzer:
+
+```powershell
+wpr -start Audio
+.\build\windows-msvc-debug\tests\manual\play_sine.exe 60
+wpr -stop sine.etl
+```
+
 ## Read more
 
 - Ross Bencina, "Real-time audio programming 101: time waits for nothing"
