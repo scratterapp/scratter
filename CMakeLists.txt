@@ -21,6 +21,7 @@ option(AM_WITH_CEF "Build the daemon with CEF from third_party/cef/ (see cmake/F
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
 include(Sanitizers)
+include(Hardening)
 
 add_library(am_common INTERFACE)
 target_include_directories(am_common INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/src")

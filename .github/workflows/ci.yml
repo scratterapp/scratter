@@ -160,6 +160,18 @@ jobs:
       - name: Test
         # The usual tests, with a daemon that links CEF but plays the tone.
         run: dbus-run-session -- ctest --preset ${{ matrix.preset }}
+      - name: Check hardening
+        # The only Release build in CI, so the only one with every flag from
+        # cmake/Hardening.cmake (FORTIFY_SOURCE needs optimization). Each grep
+        # fails the step if its mark is missing (docs/learning/hardening.md).
+        if: matrix.preset == 'linux-cef-release'
+        run: |
+          daemon=build/linux-cef-release/scratterd
+          readelf -hW "$daemon" | grep -q 'Position-Independent Executable'
+          readelf -lW "$daemon" | grep -q GNU_RELRO
+          readelf -dW "$daemon" | grep -q BIND_NOW
+          nm -D "$daemon" | grep -q __stack_chk_fail
+          nm -D "$daemon" | grep -q '_chk@'
 
   windows-build:
     name: Windows build
