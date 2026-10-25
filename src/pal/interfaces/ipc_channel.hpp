@@ -71,7 +71,17 @@
 // to a daemon running as the same user.
 //
 // Linux creates the socket file with mode 0600 in $XDG_RUNTIME_DIR, a
-// directory only that user can enter.
+// directory only that user can enter, and checks the rest itself:
+//
+//   - listen() and connect() fail with permission_denied when $XDG_RUNTIME_DIR
+//     isn't owned by the current user or lets anyone else in (it should be
+//     0700), and with not_a_directory when it isn't a directory. The daemon
+//     refuses to start rather than put its socket somewhere shared.
+//   - accept() asks the kernel which user the client runs as (SO_PEERCRED),
+//     and fails with permission_denied if it isn't the current user. That
+//     client is hung up on; the next accept() moves on to the next one.
+//   - connect() asks the same about the daemon, and fails with
+//     permission_denied like the Windows check below.
 //
 // Windows has one pipe namespace for the whole machine, so it needs more:
 //
@@ -136,11 +146,13 @@ class IpcChannel {
     //   bad endpoint name                invalid_argument
     //   endpoint too long                filename_too_long
     //
-    // Windows has one more: permission_denied, when the process serving the pipe
-    // runs as another user (see "Security").
+    // Both have one more: permission_denied, when the process serving the
+    // endpoint runs as another user (see "Security").
     //
     // Linux also fails with no_such_file_or_directory when $XDG_RUNTIME_DIR is
-    // unset (listen() too), rather than falling back to a shared directory.
+    // unset, and with permission_denied or not_a_directory when it isn't a
+    // private directory of ours (listen() too), rather than falling back to a
+    // shared one.
     //
     // `endpoint` is a short name such as kDaemonEndpoint, made of letters, digits,
     // '-', '_' and '.'. Each platform turns it into a real address: Linux uses
@@ -204,6 +216,8 @@ class IpcListener {
 
     // Hands over one waiting connection, or std::nullopt when nobody is
     // waiting (the "would block" case). Call it until it returns nullopt.
+    // permission_denied means a client running as another user was turned
+    // away (Linux only, see "Security"); others may still be waiting.
     [[nodiscard]] std::expected<std::optional<IpcChannel>, std::error_code> accept();
 
     // Called on the reactor thread when accept() may have a connection.

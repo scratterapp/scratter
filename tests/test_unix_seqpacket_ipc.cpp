@@ -4,6 +4,12 @@
 // channel and the accepted server channel. Each test points $XDG_RUNTIME_DIR at
 // a fresh temporary directory, so tests don't see each other's socket files or
 // a real daemon.
+//
+// The tests that need a second user (a runtime dir owned by someone else, a
+// client or daemon running as someone else) need root to switch users. Run as
+// anyone else, they print AM_TEST_SKIPPED and pass, which ctest reports as
+// Skipped (Catch2's SKIP() needs exceptions, which this project builds without).
+// Run them with sudo to exercise them: sudo ./build/linux-debug/tests/test_unix_seqpacket_ipc
 
 #include "ipc_channel.hpp"
 #include "reactor.hpp"
@@ -12,9 +18,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <array>
@@ -22,6 +31,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <ios>
 #include <optional>
 #include <span>
 #include <string>
@@ -58,6 +68,72 @@ struct TempRuntimeDir {
 
     [[nodiscard]] std::string socket_file() const { return path + "/" + kEndpoint + ".sock"; }
 };
+
+// The user the "other user" tests become: nobody, which every Linux system has.
+constexpr uid_t kOtherUser = 65534;
+constexpr gid_t kOtherGroup = 65534;
+
+bool can_switch_users() { return ::geteuid() == 0; }
+
+// The socket address of `path`, for the child processes below, which use the
+// raw socket calls instead of the code under test.
+sockaddr_un address_of(const std::string& path) {
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    std::memcpy(address.sun_path, path.c_str(), path.size() + 1);
+    return address;
+}
+
+// Child process (after fork()): becomes the other user and returns the exit
+// code for _exit(). Only plain system calls from here on.
+bool become_other_user() { return ::setgid(kOtherGroup) == 0 && ::setuid(kOtherUser) == 0; }
+
+// Child: connects to `path` as the other user, then waits for the daemon's
+// side to hang up. Exit code 0 means it was hung up on.
+int connect_and_wait_for_hangup(const std::string& path) {
+    if (!become_other_user()) {
+        return 10;
+    }
+    const int fd = ::socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+    const sockaddr_un address = address_of(path);
+    if (fd < 0 || ::connect(fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) < 0) {
+        return 11;
+    }
+    const timeval limit{.tv_sec = 5, .tv_usec = 0};
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &limit, sizeof(limit));
+    char byte = 0;
+    return ::recv(fd, &byte, 1, 0) == 0 ? 0 : 12;
+}
+
+// Child: listens on `path` as the other user, writes a byte to `ready`, then
+// keeps listening until `done` is closed.
+int listen_until_done(const std::string& path, int ready, int done) {
+    if (!become_other_user()) {
+        return 10;
+    }
+    const int fd = ::socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+    const sockaddr_un address = address_of(path);
+    if (fd < 0 || ::bind(fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) < 0 ||
+        ::listen(fd, 4) < 0) {
+        return 11;
+    }
+    const char byte = 1;
+    if (::write(ready, &byte, 1) != 1) {
+        return 12;
+    }
+    char ignored = 0;
+    [[maybe_unused]] const ssize_t eof = ::read(done, &ignored, 1); // 0 once the test closes it
+    return 0;
+}
+
+// Waits for a forked child and returns its exit code, or -1 if it didn't exit.
+int exit_code_of(pid_t child) {
+    int status = 0;
+    if (::waitpid(child, &status, 0) != child || !WIFEXITED(status)) {
+        return -1;
+    }
+    return WEXITSTATUS(status);
+}
 
 template <typename Done>
 bool run_until(Reactor& reactor, Done done, std::chrono::milliseconds limit = 2000ms) {
@@ -123,6 +199,161 @@ TEST_CASE("bad endpoint names and a missing runtime dir are rejected", "[ipc]") 
     const auto no_dir = IpcListener::listen(*reactor, kEndpoint);
     REQUIRE_FALSE(no_dir.has_value());
     CHECK(no_dir.error() == std::errc::no_such_file_or_directory);
+}
+
+// $XDG_RUNTIME_DIR must be ours and closed to everyone else. Anyone who can
+// write to it could replace the socket file with their own.
+TEST_CASE("a runtime dir other users can open is refused", "[ipc]") {
+    TempRuntimeDir dir;
+    auto reactor = Reactor::create();
+    REQUIRE(reactor.has_value());
+
+    for (const mode_t mode : {0755, 0750, 0711, 0701, 0770, 0707, 0777}) {
+        INFO("mode " << std::oct << mode);
+        REQUIRE(::chmod(dir.path.c_str(), mode) == 0);
+
+        const auto listener = IpcListener::listen(*reactor, kEndpoint);
+        REQUIRE_FALSE(listener.has_value());
+        CHECK(listener.error() == std::errc::permission_denied);
+
+        const auto channel = IpcChannel::connect(*reactor, kEndpoint);
+        REQUIRE_FALSE(channel.has_value());
+        CHECK(channel.error() == std::errc::permission_denied);
+    }
+
+    REQUIRE(::chmod(dir.path.c_str(), 0700) == 0);
+    CHECK(IpcListener::listen(*reactor, kEndpoint).has_value());
+}
+
+TEST_CASE("a runtime dir that isn't a directory is refused", "[ipc]") {
+    TempRuntimeDir dir;
+    auto reactor = Reactor::create();
+    REQUIRE(reactor.has_value());
+
+    // Inside the temporary directory, so TempRuntimeDir's cleanup finds the
+    // directory empty again.
+    const std::string file = dir.path + "/not-a-dir";
+    const int fd = ::open(file.c_str(), O_CREAT | O_WRONLY | O_CLOEXEC, 0600);
+    REQUIRE(fd >= 0);
+    ::close(fd);
+    REQUIRE(::setenv("XDG_RUNTIME_DIR", file.c_str(), 1) == 0);
+    const auto on_file = IpcListener::listen(*reactor, kEndpoint);
+    REQUIRE_FALSE(on_file.has_value());
+    CHECK(on_file.error() == std::errc::not_a_directory);
+    ::unlink(file.c_str());
+
+    const std::string missing = dir.path + "/missing";
+    REQUIRE(::setenv("XDG_RUNTIME_DIR", missing.c_str(), 1) == 0);
+    const auto on_missing = IpcListener::listen(*reactor, kEndpoint);
+    REQUIRE_FALSE(on_missing.has_value());
+    CHECK(on_missing.error() == std::errc::no_such_file_or_directory);
+}
+
+// The check looks at where the socket ends up, so a symlink to a private
+// directory is fine.
+TEST_CASE("a symlink to a private runtime dir is accepted", "[ipc]") {
+    TempRuntimeDir dir;
+    auto reactor = Reactor::create();
+    REQUIRE(reactor.has_value());
+
+    const std::string link = dir.path + "-link";
+    REQUIRE(::symlink(dir.path.c_str(), link.c_str()) == 0);
+    REQUIRE(::setenv("XDG_RUNTIME_DIR", link.c_str(), 1) == 0);
+    const auto listener = IpcListener::listen(*reactor, kEndpoint);
+    CHECK(listener.has_value());
+    CHECK(IpcChannel::connect(*reactor, kEndpoint).has_value());
+    ::unlink(link.c_str());
+}
+
+TEST_CASE("a runtime dir owned by another user is refused", "[ipc]") {
+    if (!can_switch_users()) {
+        WARN("AM_TEST_SKIPPED: needs root to give the directory to another user");
+        return;
+    }
+    TempRuntimeDir dir;
+    auto reactor = Reactor::create();
+    REQUIRE(reactor.has_value());
+
+    REQUIRE(::chown(dir.path.c_str(), kOtherUser, kOtherGroup) == 0);
+    const auto listener = IpcListener::listen(*reactor, kEndpoint);
+    REQUIRE_FALSE(listener.has_value());
+    CHECK(listener.error() == std::errc::permission_denied);
+}
+
+// The socket file's 0600 already keeps other users out. This loosens it by
+// hand, as a mistake or another program might, so the other user's connect()
+// gets into the queue and only the SO_PEERCRED check in accept() is left.
+TEST_CASE("a client running as another user is turned away", "[ipc]") {
+    if (!can_switch_users()) {
+        WARN("AM_TEST_SKIPPED: needs root to run a client as another user");
+        return;
+    }
+    TempRuntimeDir dir;
+    auto reactor = Reactor::create();
+    REQUIRE(reactor.has_value());
+    auto listener = IpcListener::listen(*reactor, kEndpoint);
+    REQUIRE(listener.has_value());
+    REQUIRE(::chmod(dir.path.c_str(), 0711) == 0);
+    REQUIRE(::chmod(dir.socket_file().c_str(), 0666) == 0);
+
+    std::optional<std::error_code> refused;
+    listener->set_accept_callback([&] {
+        auto accepted = listener->accept();
+        if (!accepted) {
+            refused = accepted.error();
+        }
+    });
+
+    const pid_t child = ::fork();
+    REQUIRE(child >= 0);
+    if (child == 0) {
+        ::_exit(connect_and_wait_for_hangup(dir.socket_file()));
+    }
+
+    CHECK(run_until(*reactor, [&] { return refused.has_value(); }, 5000ms));
+    CHECK(refused == std::make_error_code(std::errc::permission_denied));
+    CHECK(exit_code_of(child) == 0); // the child saw the hang-up
+}
+
+// The other way round: a socket that another user is listening on, sitting in
+// our directory, must not be taken for the daemon.
+TEST_CASE("connect refuses a daemon running as another user", "[ipc]") {
+    if (!can_switch_users()) {
+        WARN("AM_TEST_SKIPPED: needs root to run a listener as another user");
+        return;
+    }
+    TempRuntimeDir dir;
+    auto reactor = Reactor::create();
+    REQUIRE(reactor.has_value());
+    REQUIRE(::chmod(dir.path.c_str(), 0777) == 0); // so the other user can make its socket
+
+    std::array<int, 2> ready{};
+    std::array<int, 2> done{};
+    REQUIRE(::pipe2(ready.data(), O_CLOEXEC) == 0);
+    REQUIRE(::pipe2(done.data(), O_CLOEXEC) == 0);
+    const pid_t child = ::fork();
+    REQUIRE(child >= 0);
+    if (child == 0) {
+        ::close(ready[0]);
+        ::close(done[1]);
+        ::_exit(listen_until_done(dir.socket_file(), ready[1], done[0]));
+    }
+    ::close(ready[1]);
+    ::close(done[0]);
+
+    char byte = 0;
+    REQUIRE(::read(ready[0], &byte, 1) == 1);
+    REQUIRE(::chmod(dir.path.c_str(), 0700) == 0); // private again, so only the peer check is left
+
+    const auto channel = IpcChannel::connect(*reactor, kEndpoint);
+    CHECK_FALSE(channel.has_value());
+    if (!channel) {
+        CHECK(channel.error() == std::errc::permission_denied);
+    }
+
+    ::close(done[1]);
+    ::close(ready[0]);
+    CHECK(exit_code_of(child) == 0);
 }
 
 TEST_CASE("accept() returns nullopt when nobody is waiting", "[ipc]") {

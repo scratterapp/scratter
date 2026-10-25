@@ -6,6 +6,16 @@
 // connection with a listen/accept/connect handshake. The socket file lives at
 // $XDG_RUNTIME_DIR/<endpoint>.sock with mode 0600.
 //
+// Only the same user gets in, checked three ways (see "Security" in the
+// interface header):
+//
+//   - listen() and connect() refuse a $XDG_RUNTIME_DIR that isn't a directory
+//     we own with no access for anyone else (check_runtime_dir).
+//   - accept() asks the kernel which user is on the other end (SO_PEERCRED)
+//     and turns away anyone who isn't us.
+//   - connect() asks the same about the listener, so a socket another user
+//     created can't pose as the daemon.
+//
 // Every socket is non-blocking. The reactor watches it (level-triggered epoll)
 // and this file turns what epoll reports into the channel's callbacks:
 //
@@ -81,6 +91,42 @@ bool is_valid_endpoint(std::string_view endpoint) {
     return true;
 }
 
+// $XDG_RUNTIME_DIR has to be a directory that we own and that nobody else can
+// read, write or enter (logind makes it 0700). Anyone with write access to it
+// could delete our socket file and put their own in its place, and the socket
+// file's own 0600 wouldn't help. A misconfigured system (say XDG_RUNTIME_DIR
+// pointing at /tmp) is refused rather than quietly used.
+//
+// stat() follows a symlink, so a link to a private directory is fine: what
+// matters is the directory the socket ends up in.
+std::error_code check_runtime_dir(const char* dir) {
+    struct stat info {};
+    if (::stat(dir, &info) < 0) {
+        return errno_code();
+    }
+    if (!S_ISDIR(info.st_mode)) {
+        return std::make_error_code(std::errc::not_a_directory);
+    }
+    const bool ours = info.st_uid == ::geteuid();
+    const bool private_to_us = (info.st_mode & (S_IRWXG | S_IRWXO)) == 0;
+    if (!ours || !private_to_us) {
+        return std::make_error_code(std::errc::permission_denied);
+    }
+    return {};
+}
+
+// Which user is on the other end of a connected socket. The kernel wrote it
+// down when that process called connect() (for a client) or listen() (for the
+// daemon), so the other side can't lie about it.
+bool peer_is_same_user(int fd) {
+    ucred peer{};
+    socklen_t size = sizeof(peer);
+    if (::getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &size) < 0) {
+        return false;
+    }
+    return peer.uid == ::geteuid();
+}
+
 // Where the socket file for `endpoint` lives, as a socket address.
 struct SocketPath {
     sockaddr_un address;
@@ -98,6 +144,9 @@ std::expected<SocketPath, std::error_code> socket_path(std::string_view endpoint
     const char* runtime_dir = std::getenv("XDG_RUNTIME_DIR");
     if (runtime_dir == nullptr || *runtime_dir == '\0') {
         return fail(std::errc::no_such_file_or_directory);
+    }
+    if (const std::error_code problem = check_runtime_dir(runtime_dir)) {
+        return std::unexpected(problem);
     }
 
     SocketPath result{};
@@ -229,6 +278,11 @@ std::expected<IpcChannel, std::error_code> IpcChannel::connect(Reactor& reactor,
     // no socket file, ECONNREFUSED means a file but no daemon behind it.
     if (connect_to(fd.get(), where->address) < 0) {
         return std::unexpected(errno_code());
+    }
+    // The directory is ours, so only we (or root) could have made the socket.
+    // Checking who is listening costs one call and doesn't lean on that.
+    if (!peer_is_same_user(fd.get())) {
+        return fail(std::errc::permission_denied);
     }
     return Impl::open(reactor, std::move(fd));
 }
@@ -423,6 +477,13 @@ std::expected<std::optional<IpcChannel>, std::error_code> IpcListener::accept() 
     for (;;) {
         UniqueFd client(::accept4(impl_->fd, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC));
         if (client.get() >= 0) {
+            // The socket file's 0600 should already keep other users out;
+            // this holds even if someone loosens it. Returning (rather than
+            // trying the next client) lets the daemon log it. `client` closes
+            // here, so the other side sees a hang-up.
+            if (!peer_is_same_user(client.get())) {
+                return fail(std::errc::permission_denied);
+            }
             auto channel = IpcChannel::Impl::open(*impl_->reactor, std::move(client));
             if (!channel) {
                 return std::unexpected(channel.error());

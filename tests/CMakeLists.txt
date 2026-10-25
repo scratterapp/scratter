@@ -66,8 +66,11 @@ foreach(test ${AM_TESTS})
     target_link_libraries(${test} PRIVATE am_pal am_common Catch2::Catch2WithMain)
     am_enable_warnings(${test})
     # Registers each TEST_CASE as its own ctest test. PRE_TEST lists them when
-    # ctest runs instead of at build time.
-    catch_discover_tests(${test} DISCOVERY_MODE PRE_TEST)
+    # ctest runs instead of at build time. A test that can't run here (say, it
+    # needs root) prints AM_TEST_SKIPPED and returns instead of calling Catch2's
+    # SKIP(), which aborts in a no-exceptions build; ctest reports it as Skipped.
+    catch_discover_tests(${test} DISCOVERY_MODE PRE_TEST
+                         PROPERTIES SKIP_REGULAR_EXPRESSION "AM_TEST_SKIPPED")
 endforeach()
 
 if(LINUX)
@@ -127,6 +130,8 @@ if(LINUX)
     if(Python3_FOUND)
         set(soak_dir "${CMAKE_CURRENT_BINARY_DIR}/soak_smoke")
         file(MAKE_DIRECTORY "${soak_dir}/runtime")
+        # 0700: the daemon refuses a runtime dir anyone else can open.
+        file(CHMOD "${soak_dir}/runtime" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
         add_test(NAME soak_smoke
                  COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/soak/soak.py"
                          --build "$<TARGET_FILE_DIR:${AM_DAEMON_TARGET}>" --hours 0.002

@@ -28,6 +28,7 @@
 
 #include <signal.h>
 #include <spawn.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -382,6 +383,16 @@ TEST_CASE("the daemon answers commands and publishes its state", "[daemon]") {
     REQUIRE_FALSE(gone.has_value());
     CHECK(gone.error() == std::errc::no_such_file_or_directory);
     CHECK(!std::filesystem::exists(dir.path / (name + ".sock")));
+}
+
+// $XDG_RUNTIME_DIR has to be private: anyone who can write to it could swap
+// the socket for their own. The daemon must refuse to start rather than use it.
+TEST_CASE("the daemon refuses a runtime dir other users can open", "[daemon]") {
+    RuntimeDir dir;
+    REQUIRE(::chmod(dir.path.c_str(), 0755) == 0);
+
+    Daemon daemon(unique_name() + "-open-dir");
+    CHECK(daemon.wait_for_exit(10s) == 1); // kExitSetupFailed
 }
 
 TEST_CASE("amctl drives the daemon", "[daemon][amctl]") {
