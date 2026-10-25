@@ -208,7 +208,7 @@ TEST_CASE("a runtime dir other users can open is refused", "[ipc]") {
     auto reactor = Reactor::create();
     REQUIRE(reactor.has_value());
 
-    for (const mode_t mode : {0755, 0750, 0711, 0701, 0770, 0707, 0777}) {
+    for (const mode_t mode : {0755u, 0750u, 0711u, 0701u, 0770u, 0707u, 0777u}) {
         INFO("mode " << std::oct << mode);
         REQUIRE(::chmod(dir.path.c_str(), mode) == 0);
 
