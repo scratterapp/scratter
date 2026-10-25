@@ -561,6 +561,10 @@ scratter/
 ├── bench/                             # Hand-run benchmarks, not in ctest
 │   ├── ipc_ping_pong.cpp              # IPC round-trip latency (target: median under 25 µs)
 │   └── audio_render.cpp               # CPU our audio code (write_planar, render) takes per second of audio
+├── third_party/
+│   ├── cef/                           # Our CEF build goes here (linux64/, windows64/); ignored by git
+│   └── cef-patches/                   # Our patches to Chromium, applied before building CEF
+│       └── widevine-cdm-dir.patch     # Windows: register the installed Widevine CDM named by --widevine-cdm-dir
 └── tests/                             # Catch2 v3 (FetchContent); one executable per file
     ├── test_sanity.cpp                # Trivial test proving the framework and sanitizers run
     ├── test_spsc_concurrency.cpp      # TSan multi-threaded ring buffer stress test
@@ -587,6 +591,7 @@ scratter/
     ├── test_credential_vault.cpp      # CredentialVault contract (skips where there's no vault or no keyring running)
     ├── test_media_controls.cpp        # MediaControls contract, daemon side (skips where there's no media control service)
     ├── test_mpris_controls.cpp        # Linux-only: plays the desktop's side of MPRIS over D-Bus (skips with no session bus)
+    ├── test_browser_files.cpp         # Linux-only: where the browser profile goes, and that it's private (0700)
     ├── tsan.supp                      # TSan suppressions for GLib (libsecret's D-Bus thread), used by the linux-tsan preset
     ├── manual/play_sine.cpp           # Not in ctest: plays 440 Hz through the sink, counts late buffers
     ├── manual/vault_demo.cpp          # Not in ctest: saves a dummy secret to look at in Seahorse, then deletes it

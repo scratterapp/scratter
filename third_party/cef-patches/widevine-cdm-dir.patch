@@ -1,0 +1,79 @@
+diff --git a/chrome/common/media/cdm_registration.cc b/chrome/common/media/cdm_registration.cc
+index 46293c0a15..d42206f0bc 100644
+--- a/chrome/common/media/cdm_registration.cc
++++ b/chrome/common/media/cdm_registration.cc
+@@ -33,11 +33,13 @@
+ #if BUILDFLAG(ENABLE_WIDEVINE)
+ #include "components/cdm/common/cdm_manifest.h"
+ #include "third_party/widevine/cdm/widevine_cdm_common.h"  // nogncheck
+-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
++#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_WIN)
+ #include "base/native_library.h"
++#include "media/cdm/cdm_paths.h"  // nogncheck
++#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_WIN)
++#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+ #include "chrome/common/chrome_paths.h"
+ #include "chrome/common/media/component_widevine_cdm_hint_file_linux.h"
+-#include "media/cdm/cdm_paths.h"  // nogncheck
+ #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+ #endif  // BUILDFLAG(ENABLE_WIDEVINE)
+ 
+@@ -62,7 +64,7 @@ using Robustness = content::CdmInfo::Robustness;
+ #if BUILDFLAG(ENABLE_WIDEVINE)
+ #if (BUILDFLAG(BUNDLE_WIDEVINE_CDM) ||            \
+      BUILDFLAG(ENABLE_WIDEVINE_CDM_COMPONENT)) && \
+-    (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS))
++    (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_WIN))
+ // Create a CdmInfo for a Widevine CDM, using |version|, |cdm_library_path|, and
+ // |capability|.
+ std::unique_ptr<content::CdmInfo> CreateWidevineCdmInfo(
+@@ -83,7 +85,7 @@ std::unique_ptr<content::CdmInfo> CreateCdmInfoFromWidevineDirectory(
+   // Library should be inside a platform specific directory.
+   auto cdm_library_path =
+       media::GetPlatformSpecificDirectory(cdm_base_path)
+-          .Append(base::GetNativeLibraryName(kWidevineCdmLibraryName));
++          .AppendASCII(base::GetNativeLibraryName(kWidevineCdmLibraryName));
+   if (!base::PathExists(cdm_library_path)) {
+     DLOG(ERROR) << __func__ << " no directory: " << cdm_library_path;
+     return nullptr;
+@@ -101,7 +103,15 @@ std::unique_ptr<content::CdmInfo> CreateCdmInfoFromWidevineDirectory(
+ }
+ #endif  // (BUILDFLAG(BUNDLE_WIDEVINE_CDM) ||
+         // BUILDFLAG(ENABLE_WIDEVINE_CDM_COMPONENT)) && (BUILDFLAG(IS_LINUX) ||
+-        // BUILDFLAG(IS_CHROMEOS))
++        // BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_WIN))
++
++#if BUILDFLAG(ENABLE_WIDEVINE_CDM_COMPONENT) && BUILDFLAG(IS_WIN)
++// Scratter: an embedder that runs with --disable-component-update can name an
++// installed Widevine CDM folder (the one with manifest.json) with this switch,
++// and it is registered directly, the way Linux registers the hinted CDM.
++// Nothing is downloaded or copied.
++constexpr char kWidevineCdmDirSwitch[] = "widevine-cdm-dir";
++#endif
+ 
+ #if BUILDFLAG(BUNDLE_WIDEVINE_CDM) && \
+     (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS))
+@@ -245,6 +255,23 @@ void AddSoftwareSecureWidevine(std::vector<content::CdmInfo>* cdms) {
+       cdms->push_back(*hinted_widevine);
+     }
+   }
++#elif BUILDFLAG(IS_WIN) && BUILDFLAG(ENABLE_WIDEVINE_CDM_COMPONENT)
++  // Without the switch, Component Update registers Widevine as usual.
++  const base::CommandLine* command_line =
++      base::CommandLine::ForCurrentProcess();
++  if (command_line->HasSwitch(kWidevineCdmDirSwitch)) {
++    const base::FilePath dir =
++        command_line->GetSwitchValuePath(kWidevineCdmDirSwitch);
++    std::unique_ptr<content::CdmInfo> widevine =
++        CreateCdmInfoFromWidevineDirectory(dir);
++    if (widevine) {
++      VLOG(1) << "Registering Widevine " << widevine->capability->version
++              << " from " << dir;
++      cdms->push_back(*widevine);
++    } else {
++      LOG(WARNING) << "No usable Widevine CDM in " << dir;
++    }
++  }
+ #endif  // BUILDFLAG(IS_ANDROID)
+ }
+ 
