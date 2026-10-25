@@ -50,7 +50,7 @@ refuses it unless:
 
 - it is a directory (otherwise `not_a_directory`),
 - its owner is us (`st_uid == geteuid()`), and
-- the group and "everyone else" bits are all zero (`st_mode & 077 == 0`).
+- the group and "everyone else" bits are all zero (`(st_mode & 077) == 0`).
 
 Either of the last two failing gives `permission_denied`. The daemon then exits
 with a message saying what the folder should look like, and amctl (or am-ui)
