@@ -520,12 +520,12 @@ scratter/
 │   │       ├── iocp_reactor.cpp       # IOCP + PostQueuedCompletionStatus + timer in the wait timeout
 │   │       ├── named_pipe_ipc.cpp     # Overlapped message-mode Named Pipes
 │   │       ├── win32_shm.cpp          # CreateFileMappingW + MapViewOfFile
-│   │       ├── wasapi_sink.cpp        # WASAPI shared low-latency + exclusive mode
-│   │       ├── mmcss_priority.cpp     # MMCSS "Pro Audio" + VirtualLock
+│   │       ├── wasapi_sink.cpp        # WASAPI shared low-latency (IAudioClient3), MMCSS "Pro Audio" thread; exclusive mode to come
+│   │       ├── mmcss_priority.cpp     # VirtualLock (the MMCSS call is in wasapi_sink.cpp)
 │   │       ├── dpapi_vault.cpp        # DPAPI + Credential Manager
 │   │       ├── console_shutdown.cpp   # SetConsoleCtrlHandler, onto the reactor thread through Reactor::wake()
 │   │       ├── smtc_controls.cpp      # C++/WinRT SystemMediaTransportControls
-│   │       ├── browser_files.cpp      # CEF profile folder and installed Widevine on Windows (stub for now)
+│   │       ├── browser_files.cpp      # CEF profile folder and installed Widevine on Windows
 │   │       └── cef_main_args.cpp      # CefMainArgs from GetModuleHandleW(nullptr)
 │   ├── net/                           # Target: am_net (Static Library - Async HTTP & JSON)
 │   │   ├── curl_reactor_bridge.cpp    # Binds curl_multi_socket_action to pal::Reactor
@@ -580,6 +580,7 @@ scratter/
     ├── fuzz_ipc_framing.cpp           # libFuzzer target for the frame parser and body decoders (linux-fuzz preset)
     ├── test_realtime.cpp              # lock_memory / unlock_memory
     ├── test_pipewire_sink.cpp         # Linux-only: PipeWire sink (passes with a warning if no daemon)
+    ├── test_wasapi_sink.cpp           # Windows-only: WASAPI sink (passes with a warning if no output device)
     ├── test_audio_path.cpp            # The daemon's render callback: play, pause, stop, fades, volume, underruns, CEF's planar input
     ├── test_daemon.cpp                # Linux-only: starts the daemon binary, drives it directly and with amctl
     ├── test_amctl_args.cpp            # amctl's argument parsing
