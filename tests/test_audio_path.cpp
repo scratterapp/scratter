@@ -348,3 +348,91 @@ TEST_CASE("stop fades out too", "[audio_path]") {
     CHECK(biggest_jump(page.heard) < 0.01f);
     CHECK(page.audio->position_frames() == 0);
 }
+
+// A page playing two tracks back to back in real time, the way CEF sends
+// audio: a 512-frame packet every 512 frames of time, while the sound card
+// asks for `sink_frames` at a time on its own schedule. Track one is a
+// constant 0.5 for a second, track two a constant 0.3. Between them the page
+// can go quiet for `break_frames` and send nothing at all, the way Chromium
+// would if its audio stream stopped and started again at the track change.
+//
+// Returns the longest stretch of silence render() wrote once the music had
+// started, in frames. The tracks never touch zero, so any silence is a gap.
+struct TrackChange {
+    std::size_t longest_silence = 0;
+    std::uint64_t late_buffers = 0;
+    float last_sample = 0.0f;
+};
+
+TrackChange play_track_change(std::size_t sink_frames, std::size_t break_frames) {
+    auto audio = std::make_unique<AudioPath>(kRate);
+    std::vector<float> packet(AudioPath::kPacketFrames);
+    std::vector<float> out(sink_frames * AudioPath::kChannels);
+    const std::size_t track_frames = kRate; // one second
+    std::size_t sent = 0;
+    bool started = false;
+    std::size_t silence = 0;
+    TrackChange result;
+
+    for (std::size_t now = 0; now < 3 * kRate; ++now) {
+        const bool on_break = now >= track_frames && now < track_frames + break_frames;
+        if (now % AudioPath::kPacketFrames == 0 && !on_break) {
+            std::ranges::fill(packet, sent < track_frames ? 0.5f : 0.3f);
+            const float* channels[] = {packet.data(), packet.data()};
+            sent += audio->write_planar(channels, packet.size());
+        }
+        if (now % sink_frames == sink_frames - 1) {
+            audio->render(out);
+            for (std::size_t i = 0; i < out.size(); i += AudioPath::kChannels) {
+                const bool quiet = std::abs(out[i]) < 1e-3f;
+                started = started || !quiet;
+                silence = started && quiet ? silence + 1 : 0;
+                result.longest_silence = std::max(result.longest_silence, silence);
+            }
+        }
+    }
+    result.late_buffers = audio->late_buffers();
+    result.last_sample = out[out.size() - AudioPath::kChannels];
+    return result;
+}
+
+TEST_CASE("a page that keeps sending plays into the next track without a gap", "[audio_path]") {
+    for (std::size_t sink_frames : {256u, 1024u}) {
+        INFO("sound card buffer " << sink_frames << " frames");
+        const auto heard = play_track_change(sink_frames, 0);
+        CHECK(heard.longest_silence == 0);
+        CHECK(heard.late_buffers == 0);
+        CHECK(std::abs(heard.last_sample - 0.3f) < 1e-4f); // track two is playing
+    }
+}
+
+TEST_CASE("a short break between tracks is hidden by the ring buffer", "[audio_path]") {
+    // The ring holds about 85 ms ahead of the sound card, so a page that goes
+    // quiet for 50 ms at the track change is never heard: the sound card plays
+    // what's left of track one while the page catches up.
+    for (std::size_t sink_frames : {256u, 1024u}) {
+        INFO("sound card buffer " << sink_frames << " frames");
+        const auto heard = play_track_change(sink_frames, kRate * 50 / 1000);
+        CHECK(heard.longest_silence == 0);
+        CHECK(heard.late_buffers == 0);
+        CHECK(std::abs(heard.last_sample - 0.3f) < 1e-4f);
+    }
+}
+
+TEST_CASE("a long break between tracks is heard as long as it lasts, no longer", "[audio_path]") {
+    // A 200 ms break empties the ring, and render() waits for ~85 ms of track
+    // two before it plays again. That wait doesn't make the gap longer: it
+    // starts when the page does, and the 85 ms it waits are the 85 ms the
+    // ring had covered at the start of the break. What's left over is at most
+    // one sound card buffer and one packet, from the two running on their own
+    // schedules.
+    constexpr std::size_t kBreak = kRate * 200 / 1000;
+    for (std::size_t sink_frames : {256u, 1024u}) {
+        INFO("sound card buffer " << sink_frames << " frames");
+        const auto heard = play_track_change(sink_frames, kBreak);
+        CHECK(heard.late_buffers == 1);
+        CHECK(heard.longest_silence >= kBreak - AudioPath::kPacketFrames);
+        CHECK(heard.longest_silence <= kBreak + sink_frames + AudioPath::kPacketFrames);
+        CHECK(std::abs(heard.last_sample - 0.3f) < 1e-4f);
+    }
+}
