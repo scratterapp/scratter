@@ -47,6 +47,15 @@ std::expected<std::filesystem::path, std::error_code> browser_profile_dir() {
     if (error) {
         return std::unexpected(error);
     }
+    // The profile holds the browser's cookies, Apple Music's login among them,
+    // so only its owner may look inside (0700). create_directories() leaves it
+    // readable by every user (0755 with the usual umask), and a folder made by
+    // an older build keeps that, so this runs every time.
+    std::filesystem::permissions(dir, std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace, error);
+    if (error) {
+        return std::unexpected(error);
+    }
     return dir;
 }
 

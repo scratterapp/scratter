@@ -47,10 +47,11 @@ set(AM_TESTS
 # Move test_realtime into the list above once the Windows side of #18 (#14)
 # lands; it tests behavior the platforms share. test_epoll_reactor,
 # test_pipewire_sink and test_unix_seqpacket_ipc stay Linux-only, and so does
-# test_mpris_controls, which talks D-Bus to the MPRIS code.
+# test_mpris_controls, which talks D-Bus to the MPRIS code. test_browser_files
+# checks Linux paths and file modes.
 if(LINUX)
     list(APPEND AM_TESTS test_epoll_reactor test_realtime test_pipewire_sink
-         test_unix_seqpacket_ipc test_mpris_controls)
+         test_unix_seqpacket_ipc test_mpris_controls test_browser_files)
 endif()
 
 # The Windows counterparts of test_epoll_reactor and test_unix_seqpacket_ipc:
