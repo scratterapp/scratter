@@ -22,8 +22,12 @@
 #                              (cef_helper_main.cpp says why).
 #   -fstack-clash-protection   a huge stack allocation can't jump over the
 #                              guard page into other memory.
-#   -fcf-protection            Intel CET: indirect jumps and returns must land
-#                              where the compiler said they may. x86-64 only.
+#   -fcf-protection            marks the program ready for Intel CET (checked
+#                              jumps and a shadow stack of return addresses).
+#                              x86-64 only. On Linux today it's mostly for
+#                              later: the kernel doesn't check jumps (IBT) for
+#                              programs, and glibc only turns the shadow stack
+#                              on when told to.
 #   PIE                        the program loads at a random address each run
 #                              (ASLR), so an attacker can't know where code is.
 #   -z relro -z now            the table of library function addresses is
@@ -37,7 +41,8 @@
 #   /guard:cf                  Control Flow Guard: indirect calls must go to
 #                              the start of a real function.
 #   /CETCOMPAT                 marks the program as working with the CPU's
-#                              shadow stack, so Windows can turn it on.
+#                              shadow stack, so Windows can turn it on. x64
+#                              only, like -fcf-protection.
 
 option(AM_HARDENING "Build with compiler and linker hardening flags" ON)
 
@@ -49,9 +54,18 @@ include(CheckPIESupported)
 check_pie_supported()
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# Intel CET (-fcf-protection, /CETCOMPAT) only exists on x86-64.
+set(_am_x86_64 FALSE)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
+    set(_am_x86_64 TRUE)
+endif()
+
 if(MSVC)
     add_compile_options(/guard:cf)
-    add_link_options(/guard:cf /CETCOMPAT)
+    add_link_options(/guard:cf)
+    if(_am_x86_64)
+        add_link_options(/CETCOMPAT)
+    endif()
     return()
 endif()
 
@@ -61,7 +75,7 @@ add_compile_options(
     "$<$<CONFIG:Release,RelWithDebInfo,MinSizeRel>:-U_FORTIFY_SOURCE;-D_FORTIFY_SOURCE=3>"
 )
 add_compile_definitions(_GLIBCXX_ASSERTIONS)
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
+if(_am_x86_64)
     add_compile_options(-fcf-protection=full)
 endif()
 add_link_options(-Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack)

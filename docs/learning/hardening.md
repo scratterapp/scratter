@@ -23,14 +23,14 @@ whatever code the attacker chose. Each flag below blocks one step of that.
 | `-D_FORTIFY_SOURCE=3` | Swaps `memcpy`, `strcpy`, `snprintf` and friends for versions that know the size of the buffer they write to (`__memcpy_chk`) and abort if it's too small. Only in optimized builds (Release, RelWithDebInfo, MinSizeRel): it needs the optimizer to work out sizes. | Buffers passed to C functions |
 | `-D_GLIBCXX_ASSERTIONS` | `std::vector`, `std::span`, `std::array` and `std::string` check the index in `operator[]`, and `front()` and `back()` check for empty. Out of range aborts instead of reading or writing past the end. | Our own C++ indexing |
 | `-fstack-clash-protection` | A function that needs a huge stack area touches it one page at a time, so it can't jump past the guard page below the stack into other memory. | The stack's edge |
-| `-fcf-protection=full` | Intel CET: every place an indirect jump may land is marked, and the CPU keeps a second, hidden copy of return addresses (the *shadow stack*). x86-64 only. | Jumps and returns |
+| `-fcf-protection=full` | Marks the program ready for Intel CET: every place an indirect jump may land is marked, so the CPU can refuse others, and the CPU can keep a second, hidden copy of return addresses (the *shadow stack*). x86-64 only. On Linux this is mostly groundwork for now: the kernel doesn't enforce the jump check for programs, and glibc leaves the shadow stack off unless it's told to turn it on. | Jumps and returns, once enforced |
 | PIE (`-pie`) | The program loads at a random address each run (ASLR), so an attacker doesn't know where its code is. | Guessing addresses |
 | `-z relro -z now` | The table of addresses of library functions (the GOT) is filled in at startup and then made read-only, so a write can't redirect `free()` to something else. | Library calls |
 | `-z noexecstack` | The stack can hold data but not runnable code. | Code injected on the stack |
 
 On Windows, MSVC already does the PIE, non-executable stack and canary parts by
 default (`/DYNAMICBASE`, `/NXCOMPAT`, `/GS`). We add `/guard:cf` (Control Flow
-Guard, like CET's jump check) and `/CETCOMPAT` (lets Windows turn on the shadow
+Guard, like CET's jump check) and, on x64, `/CETCOMPAT` (lets Windows turn on the shadow
 stack).
 
 ## What it costs
@@ -57,7 +57,7 @@ daemon (`Check hardening` in `.github/workflows/ci.yml`).
 readelf -hW build/linux-release/scratterd | grep Type     # DYN (Position-Independent Executable file)
 readelf -dW build/linux-release/scratterd | grep FLAGS    # BIND_NOW, and NOW PIE
 nm -D build/linux-release/scratterd | grep _chk           # __stack_chk_fail, __memcpy_chk
-readelf -nW build/linux-release/scratterd | grep x86      # IBT, SHSTK
+readelf -nW build/linux-release/scratterd | grep x86      # IBT, SHSTK: the CET-ready marks
 ```
 
 `checksec --file=build/linux-release/scratterd` (from the `checksec` package)
