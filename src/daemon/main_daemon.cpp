@@ -185,6 +185,11 @@ int main(int argc, char** argv) {
         }
         std::fprintf(stderr, "couldn't listen on %s: %s\n", name,
                      listener.error().message().c_str());
+        if (listener.error() == std::errc::permission_denied ||
+            listener.error() == std::errc::not_a_directory) {
+            std::fprintf(stderr, "the folder for the socket ($XDG_RUNTIME_DIR on Linux) must "
+                                 "be yours and closed to everyone else (mode 0700)\n");
+        }
         return kExitSetupFailed;
     }
 

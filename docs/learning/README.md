@@ -33,6 +33,9 @@ Deeper write-ups for finished pieces:
   SetVolume, CommandAck...) and how wire formats get versioned (#48).
 - [ipc-channel.md](ipc-channel.md): the IPC channel interface (#11), messages vs
   streams.
+- [ipc-socket-checks.md](ipc-socket-checks.md): who may talk to the daemon,
+  checking the runtime folder's owner and mode, and asking the kernel who is on
+  the other end of a socket with `SO_PEERCRED`.
 - [audio-sink.md](audio-sink.md): the audio sink and memory pinning
   interfaces (#18), and the PipeWire sink (#19).
 - [drift-controller.md](drift-controller.md): the clock-drift controller and resampler (#21).
@@ -259,7 +262,8 @@ Spec: section 3.1.3, 3.2 and the Phase 1 gate in section 6.
   median and 99th percentile, not just the average. Target is under 25 µs per
   round trip.
 - **You learn:** Unix domain sockets, `sun_path`'s 108-byte limit, checking the
-  peer with `SO_PEERCRED`, and how to benchmark honestly.
+  peer with `SO_PEERCRED` ([ipc-socket-checks.md](ipc-socket-checks.md)), and
+  how to benchmark honestly.
 - **Read:** `man 7 unix`.
 
 ### #12 Windows: message-mode named pipe (kero)

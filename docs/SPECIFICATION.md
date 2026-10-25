@@ -338,7 +338,7 @@ The other opcodes get bodies when the code that needs them is written. Until the
     
 - **Message Boundary Guarantees:**
     
-    - **Linux:** Uses `socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)` bound to `$XDG_RUNTIME_DIR/scratterd.sock` (permissions `0600`). `SOCK_SEQPACKET` enforces atomic record boundaries in the kernel—each `recvmsg()` returns exactly one complete frame, eliminating userspace stream-reassembly state machines.
+    - **Linux:** Uses `socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)` bound to `$XDG_RUNTIME_DIR/scratterd.sock` (permissions `0600`). The daemon refuses to start unless `$XDG_RUNTIME_DIR` is a directory owned by the current user with no group or other access (`0700`), and both ends check the other's uid with `SO_PEERCRED`, dropping a peer that runs as another user. `SOCK_SEQPACKET` enforces atomic record boundaries in the kernel—each `recvmsg()` returns exactly one complete frame, eliminating userspace stream-reassembly state machines.
         
     - **Windows:** Uses `CreateNamedPipeW(L"\\\\.\\pipe\\scratterd.<SID>", PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, ...)`, where `<SID>` is the current user's security identifier: Windows has one pipe namespace for the whole machine, so each user gets a pipe of their own. `PIPE_TYPE_MESSAGE` provides the exact Windows equivalent of `SOCK_SEQPACKET`. The pipe's DACL keeps other users out of the daemon, but any user can create the name first, so the UI checks that the process serving the pipe runs as the current user (see "Security" in `src/pal/interfaces/ipc_channel.hpp`).
         

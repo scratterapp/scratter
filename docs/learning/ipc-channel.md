@@ -115,8 +115,11 @@ handle closes, so they don't have this problem.
 
 Anyone who can connect can tell the daemon what to play, and later, the daemon
 holds your Apple Music login. So only the same user may connect. On Linux the
-socket file is mode `0600` inside `$XDG_RUNTIME_DIR`, which is already private
-to you.
+socket file is mode `0600` inside `$XDG_RUNTIME_DIR`, and the code checks that
+folder really is yours and private before using it. On top of that, `accept()`
+asks the kernel which user each client runs as (`SO_PEERCRED`) and turns away
+anyone else, and `connect()` does the same for the daemon.
+[ipc-socket-checks.md](ipc-socket-checks.md) goes through all three.
 
 Windows has one pipe namespace for the whole machine, so the pipe's name ends
 in your SID (your user's security identifier) and the pipe gets a security
@@ -138,7 +141,8 @@ letters, digits, `-`, `_`, `.`, so `../` tricks are impossible), reads
 the path in `sun_path`, a fixed 108-byte array, so a longer path is refused
 with `filename_too_long` instead of being cut short. With no `$XDG_RUNTIME_DIR`
 it refuses outright rather than falling back to `/tmp`, which other users can
-see into.
+see into, and it also refuses a folder that isn't ours or that anyone else can
+open (`check_runtime_dir()`).
 
 **Listening.** `socket()` with `SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC`
 (`CLOEXEC` stops the fd leaking into CEF's child processes). Then `bind()`
@@ -150,7 +154,8 @@ order matters: nobody can connect until `listen()`, so there's no moment where
 the file has looser permissions and someone can get in.
 
 **Accepting.** `accept4()` with the same non-blocking flags, in a loop until
-`EAGAIN` ("nobody waiting", returned as `std::nullopt`). Each new fd becomes an
+`EAGAIN` ("nobody waiting", returned as `std::nullopt`). A client running as
+another user is hung up on and reported as `permission_denied`. Each new fd becomes an
 `IpcChannel` via `IpcChannel::Impl::open()`, which registers it with the reactor.
 
 **Sending.** One `send()` call. On a `SOCK_SEQPACKET` socket the kernel takes

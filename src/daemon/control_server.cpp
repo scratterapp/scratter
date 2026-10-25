@@ -26,6 +26,10 @@ void ControlServer::accept_clients() {
     for (;;) {
         auto accepted = listener_.accept();
         if (!accepted) {
+            if (accepted.error() == std::errc::permission_denied) {
+                std::fprintf(stderr, "turned away a client running as another user\n");
+                continue; // others may be waiting
+            }
             std::fprintf(stderr, "accepting a client failed: %s\n",
                          accepted.error().message().c_str());
             return;

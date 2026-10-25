@@ -303,6 +303,13 @@ std::unique_ptr<Connection> connect(const Arguments& args) {
         } else {
             std::fprintf(stderr, "couldn't connect to %s: %s\n", args.name.c_str(),
                          channel.error().message().c_str());
+            if (channel.error() == std::errc::permission_denied ||
+                channel.error() == std::errc::not_a_directory) {
+                std::fprintf(stderr,
+                             "either the daemon runs as another user, or the folder for the "
+                             "socket ($XDG_RUNTIME_DIR on Linux) isn't yours and closed to "
+                             "everyone else (mode 0700)\n");
+            }
         }
         return nullptr;
     }
