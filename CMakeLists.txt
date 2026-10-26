@@ -73,6 +73,13 @@ if(AM_WITH_CEF)
     add_executable(${AM_CEF_HELPER_TARGET} src/daemon/cef_host/cef_helper_main.cpp)
     target_link_libraries(${AM_CEF_HELPER_TARGET} PRIVATE am_pal_cef CEF::CEF)
     am_enable_warnings(${AM_CEF_HELPER_TARGET})
+    if(MSVC AND AM_HARDENING)
+        # The helper runs CEF's renderers, and V8 isn't shadow-stack safe: with
+        # /CETCOMPAT from Hardening.cmake the renderer dies with fast fail 0x39
+        # (a shadow-stack violation) about 40 s into the test film. The daemon
+        # keeps it.
+        target_link_options(${AM_CEF_HELPER_TARGET} PRIVATE /CETCOMPAT:NO)
+    endif()
     add_dependencies(${AM_DAEMON_TARGET} ${AM_CEF_HELPER_TARGET})
 
     am_cef_copy_runtime(${AM_DAEMON_TARGET})

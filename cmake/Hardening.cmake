@@ -42,7 +42,8 @@
 #                              the start of a real function.
 #   /CETCOMPAT                 marks the program as working with the CPU's
 #                              shadow stack, so Windows can turn it on. x64
-#                              only, like -fcf-protection.
+#                              only, like -fcf-protection. The CEF helper
+#                              opts out (root CMakeLists.txt says why).
 
 option(AM_HARDENING "Build with compiler and linker hardening flags" ON)
 
