@@ -29,7 +29,7 @@ This specification defines a decoupled, dual-binary native architecture modeled 
 
 1. **`scratterd` (Resident Media & DRM Daemon):** A headless background service that encapsulates an off-screen Chromium Embedded Framework (CEF) runtime strictly for Widevine L3 EME license negotiation and stream decryption, tapping decoded 32-bit float Pulse-Code Modulation (PCM) frames directly into a lock-free Single-Producer Single-Consumer (SPSC) ring buffer that feeds the native OS audio subsystem (`PipeWire` on Linux; Low-Latency `WASAPI` on Windows) and exposes OS media transport controls (`MPRIS v2` / `SMTC`).
     
-2. **`am-ui` (Detachable Native Frontend):** A stateless, hardware-accelerated Dear ImGui client (`Vulkan`/`OpenGL` on Linux; `DirectX 11` on Windows) coupled with an asynchronous `libcurl` + `simdjson` metadata engine. `am-ui` communicates with `scratterd` over a zero-copy-aligned local Control Plane and reads real-time playback telemetry from a lock-free shared-memory page, allowing the GUI process to terminate and relaunch in less than 5 milliseconds without interrupting active audio playback.
+2. **`am-ui` (Detachable Native Frontend):** A stateless, hardware-accelerated Dear ImGui client (drawn through SDL3's renderer: `OpenGL`/`Vulkan` on Linux, `Direct3D` on Windows) coupled with an asynchronous `libcurl` + `simdjson` metadata engine. `am-ui` communicates with `scratterd` over a zero-copy-aligned local Control Plane and reads real-time playback telemetry from a lock-free shared-memory page, allowing the GUI process to terminate and relaunch in less than 5 milliseconds without interrupting active audio playback.
     
 
 ### Quantitative Target Benchmarks vs. Monolithic Electron Baselines
@@ -56,8 +56,8 @@ Plaintext
 |                                                                                                   |
 |  +----------------------------------------+          +-----------------------------------------+  |
 |  | Dear ImGui Presentation Engine         |          | Asynchronous Metadata Engine            |  |
-|  | - Vulkan / OpenGL3 (Linux)             |          | - libcurl multi_socket API              |  |
-|  | - DirectX 11 (Windows)                 |          | - simdjson On-Demand (AVX2 / NEON)      |  |
+|  | - SDL3 + SDL_Renderer:                 |          | - libcurl multi_socket API              |  |
+|  |   OpenGL/Vulkan, Direct3D (Windows)    |          | - simdjson On-Demand (AVX2 / NEON)      |  |
 |  | - Event-driven frame throttling        |          | - Arena-allocated catalog models        |  |
 |  +-------------------+--------------------+          +--------------------+--------------------+  |
 |                      |                                                    |                       |
@@ -439,9 +439,9 @@ Because `am-ui` can be closed at any time, OS media integration resides inside `
 
 - **Render Loop Discipline:** To prevent typical game-loop GPU waste, `am-ui` operates an **Adaptive Event-Driven Render Loop**:
     
-    - **Idle / Minimized:** Unmaps the high-frequency spectrum widget and blocks inside `WaitEventsTimeout(250ms)` (0.1% CPU, 0% GPU).
+    - **Idle / Minimized:** Unmaps the high-frequency spectrum widget and blocks inside `SDL_WaitEventTimeout(250ms)` (0.1% CPU, 0% GPU).
         
-    - **Active Window (No Spectrum):** Renders on user input events or 1 Hz progress bar ticks.
+    - **Active Window (No Spectrum):** Renders on user input events (two frames per event, so ImGui can settle hover and layout) or 1 Hz progress bar ticks while playing. With nothing playing it sleeps until the next event. `src/client/frame_pacer.hpp` holds these rules.
         
     - **Active Window (Spectrum/Lyrics Enabled):** Locks to display VSync (60/120/144 Hz), reading the `SeqLock` shared memory telemetry page in less than 50 nanoseconds per frame.
         
@@ -463,7 +463,9 @@ Where both platforms can store the same members, there is a simpler form of the 
 |**Physical RAM Pinning**|`mlock(ptr, len)` (faults pages in up front)|`VirtualLock(ptr, len)` (after adjusting `SetProcessWorkingSetSizeEx`)|
 |**Credential Vault**|`libsecret-1` (`org.freedesktop.secrets` over D-Bus)|DPAPI (`CryptProtectData`) + Windows Credential Manager (`wincred.h`)|
 |**Desktop Media Controls**|`sd-bus` (`org.mpris.MediaPlayer2.Player`)|C++/WinRT `SystemMediaTransportControls` + `ITaskbarList3`|
-|**Graphics Backend**|`Vulkan 1.3` (primary) / `OpenGL 3.3 Core` (fallback) via `GLFW` or `SDL3`|`DirectX 11.1` with DXGI Flip-Model Swapchain (`DXGI_SWAP_EFFECT_FLIP_DISCARD`)|
+|**Window, Input & Graphics (`am-ui` only)**|Not in the PAL. `am-ui` uses SDL3, which picks Wayland or X11 and draws through `SDL_Renderer` with OpenGL or Vulkan|Not in the PAL. The same SDL3 code; `SDL_Renderer` draws with Direct3D 11 or 12|
+
+The window and graphics row is the exception to this section: SDL3 already hides the platform, so `am-ui` has no platform code and needs no PAL interface (issue #35). Dear ImGui draws through its `imgui_impl_sdl3` and `imgui_impl_sdlrenderer3` backends. If a measurement ever shows `SDL_Renderer` is too slow, or a view needs custom shaders, a hand-written Vulkan or DirectX backend can replace it; that touches only `src/client/main_client.cpp`.
 
 ## 5. Repository Layout & Entry-Point Architecture ("Where to Start")
 
@@ -481,6 +483,7 @@ scratter/
 ├── cmake/
 │   ├── FindCEF.cmake                  # Our AAC-enabled CEF build in third_party/cef/ as CEF::CEF, when AM_WITH_CEF is on (never the Widevine CDM)
 │   ├── CompilerWarnings.cmake         # -Wall -Wextra -Wpedantic -Werror -Wconversion, no exceptions/RTTI
+│   ├── EmbedFile.cmake                # am_embed_file(): compiles a file (am-ui's fonts) into a program as a byte array
 │   ├── Hardening.cmake                # Stack protector, FORTIFY_SOURCE, bounds-checked std containers, PIE, full RELRO (MSVC: /guard:cf, /CETCOMPAT)
 │   └── Sanitizers.cmake               # ASan+UBSan / TSan flags applied to every target
 ├── docs/                              # OVERVIEW, ARCHITECTURE, SPECIFICATION, RATIONALE, COLLABORATION, SETUP, BENCHMARKS, release-checklist; assets/ (logo, banner), learning/, windows/START_HERE.md
@@ -546,10 +549,15 @@ scratter/
 │   │       ├── sine_generator.hpp     # 440 Hz test tone, the producer until CEF arrives
 │   │       ├── drift_controller.hpp   # EMA + PI controller: ring buffer fill -> playback ratio
 │   │       └── polyphase_resampler.hpp # 16-tap windowed-sinc resampler at that ratio (scalar for now)
-│   └── client/                        # Target: am-ui (Executable - Links am_common, am_pal, am_net, ImGui)
-│       ├── main_client.cpp            # Fast-attach entry point (<5ms startup)
+│   └── client/                        # Target: am-ui (Executable - Links am_common, am_pal, am_net, SDL3, ImGui)
+│       ├── CMakeLists.txt             # am-ui, plus SDL3 and Dear ImGui via FetchContent and the embedded fonts
+│       ├── main_client.cpp            # SDL3 window, ImGui setup and the render loop
+│       ├── frame_pacer.hpp            # When to draw and how long to sleep (adaptive render loop, 3.4.2)
+│       ├── theme.hpp / theme.cpp      # Colors, spacing and fonts
 │       ├── ui_state.cpp               # IPC command sender + SeqLock telemetry reader
+│       ├── fonts/                     # Atkinson Hyperlegible + Instrument Serif (OFL), compiled into am-ui
 │       └── views/                     # ImGui views (Library, Search, Queue, Spectrum)
+│           └── waiting_view.cpp       # Shown before anything plays
 ├── tools/                             # Small helper programs (the C++ ones link am_common + am_pal only)
 │   ├── amctl/                         # Command-line remote for the daemon, like mpc for mpd
 │   │   ├── main_amctl.cpp             # Every request the daemon handles, over IPC; status from telemetry
@@ -590,6 +598,7 @@ scratter/
     ├── test_audio_path.cpp            # The daemon's render callback: play, pause, stop, fades, volume, underruns, CEF's planar input
     ├── test_daemon.cpp                # Linux-only: starts the daemon binary, drives it directly and with amctl
     ├── test_amctl_args.cpp            # amctl's argument parsing
+    ├── test_frame_pacer.cpp           # am-ui's render loop rules: when to draw, how long to sleep
     ├── test_credential_vault.cpp      # CredentialVault contract (skips where there's no vault or no keyring running)
     ├── test_media_controls.cpp        # MediaControls contract, daemon side (skips where there's no media control service)
     ├── test_mpris_controls.cpp        # Linux-only: plays the desktop's side of MPRIS over D-Bus (skips with no session bus)
@@ -605,7 +614,7 @@ Layout rules that follow from this tree:
 - Platform code lives only under `src/pal/linux/` and `src/pal/win32/`, behind a contract in `src/pal/interfaces/`. `src/daemon/`, `src/client/`, `src/common/`, `src/net/` and `tools/` contain no platform conditionals. The OS media bridges (Section 3.4.1) run inside `scratterd` but are implemented as `media_controls.hpp` plus `mpris_controls.cpp` / `smtc_controls.cpp`, not as a daemon subdirectory.
 - `am_common` stays a header-only `INTERFACE` library while every file in it is a header.
 - CEF is linked only into `scratterd`; `am-ui` never links it.
-- The `am-ui` graphics backend (Vulkan/OpenGL on Linux, DirectX 11 on Windows, Section 4) has no home yet. It is client-only and must not go into `am_pal`, which the daemon links, so it needs its own location; this is an open decision.
+- The `am-ui` window and graphics backend live inside SDL3 (Section 4), so `am-ui` has no platform code and nothing of it goes into `am_pal`, which the daemon links.
 
 
 ### Exact Bootstrap Order (Where to Write the First Line of Code)
@@ -685,7 +694,7 @@ These are out of scope on purpose, to keep the project a player. Don't add them,
 
 ### Phase 5: Detachable `am-ui` Frontend & Production Profiling
 
-- **Deliverables:** Hardware-accelerated Dear ImGui client (`Vulkan`/`DX11`), adaptive idle frame throttling, 64-band FFT spectrum visualizer reading the `SeqLock` telemetry page, and sub-5ms attach/detach lifecycle.
+- **Deliverables:** Hardware-accelerated Dear ImGui client (SDL3 + `SDL_Renderer`), adaptive idle frame throttling, 64-band FFT spectrum visualizer reading the `SeqLock` telemetry page, and sub-5ms attach/detach lifecycle.
     
 - **Verification Gate:**
     

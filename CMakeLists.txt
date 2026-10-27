@@ -96,12 +96,8 @@ target_include_directories(amctl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tools")
 target_link_libraries(amctl PRIVATE am_pal am_common)
 am_enable_warnings(amctl)
 
-add_executable(am-ui
-    src/client/main_client.cpp
-    src/client/ui_state.cpp
-)
-target_link_libraries(am-ui PRIVATE am_net am_pal am_common)
-am_enable_warnings(am-ui)
+# The app window, am-ui. Its CMakeLists.txt also fetches SDL3 and Dear ImGui.
+add_subdirectory(src/client)
 
 enable_testing()
 add_subdirectory(tests)

@@ -42,6 +42,7 @@ set(AM_TESTS
     test_media_controls
     test_reactor
     test_realtime
+    test_frame_pacer
 )
 
 # Platform-specific tests. test_epoll_reactor, test_pipewire_sink and
@@ -174,3 +175,12 @@ if(AM_BUILD_FUZZERS)
         add_test(NAME ${fuzzer} COMMAND ${fuzzer} -runs=100000)
     endforeach()
 endif()
+
+# Opens the app window with SDL's offscreen video driver and software renderer
+# (no screen or GPU needed, so it runs in CI), draws a few frames and quits. Under
+# linux-asan that also checks start-up and shutdown leak nothing. Without
+# SDL_FRAMEBUFFER_ACCELERATION=0 the offscreen driver copies frames out through
+# Mesa's EGL, which leaks a little of its own memory and fails that check.
+add_test(NAME am_ui_opens_and_closes COMMAND am-ui --frames 5)
+set_tests_properties(am_ui_opens_and_closes PROPERTIES
+                     ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen;SDL_RENDER_DRIVER=software;SDL_FRAMEBUFFER_ACCELERATION=0")
