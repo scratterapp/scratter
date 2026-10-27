@@ -87,8 +87,11 @@ jobs:
           sudo apt-get update
           # pkg-config, PipeWire, libsecret and libsystemd headers because
           # configuring the project looks for them (the PipeWire sink, the
-          # keyring vault and the media keys).
+          # keyring vault and the media keys). The X11 and Wayland ones too:
+          # SDL3's configure stops if it finds neither, even though this job
+          # only builds the fuzzer.
           sudo apt-get install --no-install-recommends -y clang-20 libclang-rt-20-dev ninja-build pkg-config libpipewire-0.3-dev libsecret-1-dev libsystemd-dev
+          sudo apt-get install --no-install-recommends -y libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl-dev libgl-dev libdecor-0-dev
       - name: Configure
         run: cmake --preset linux-fuzz -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_C_COMPILER=clang-20
       - name: Build
