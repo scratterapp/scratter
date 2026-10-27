@@ -45,9 +45,6 @@ Deeper write-ups for finished pieces:
   of the IPC conversation and parsing a command line without exceptions.
 - [amctl-parity.md](amctl-parity.md): amctl doing everything am-ui will (`ping`,
   `toggle`, `watch`, `--json`), and a test that keeps it that way.
-- [daemon-link.md](daemon-link.md): am-ui's connection to the daemon (#36), a
-  second thread with its own event loop, sharing state behind a mutex, and
-  treating a missing daemon as normal.
 - [credential-vault.md](credential-vault.md): the login storage interface (#52),
   and using `std::expected<std::optional<T>>` for "worked, worked but empty, failed".
 - [keyring-vault.md](keyring-vault.md): the Linux vault (#53), D-Bus and how
@@ -548,19 +545,6 @@ started so far get a section here; the rest are summarized after them.
   state another thread has seen by comparing counters.
 - **Read:** [performance.md](performance.md#letting-the-sound-output-sleep-too).
 
-### #36 The window's connection to the daemon (shared)
-
-- **What was done:** `am_client_core` (`src/client/daemon_link.*`,
-  `ui_state.*`): `DaemonLink` runs its own thread and reactor, says hello,
-  sends play/pause/stop/toggle/volume, matches each answer by `seq_id`, follows
-  `PlaybackStateEvent`s, and reconnects every second when the daemon is gone
-  or misbehaves. `TelemetryReader` reads the page once per frame and remaps it
-  for each new daemon. No window yet; that's #35.
-- **You learn:** threads sharing data, mutexes and why the audio rule doesn't
-  forbid them here, deadlock from calling out while holding a lock, waking
-  another thread's event loop, one timer serving several deadlines.
-- **Read:** [daemon-link.md](daemon-link.md).
-
 ### Still to come in phase 3
 
 - **#4 Apple Music through MusicKit JS** (waits on the MusicKit key), **#3 the
@@ -606,4 +590,3 @@ Where each idea first shows up, so you can jump to the issue that teaches it.
 | Two-way interfaces, events on one thread, desktop media keys | #55, #56, #9 |
 | Browser processes, stack canaries, sandboxes, optional dependencies | #76 |
 | Clicks, fades | #1 |
-| Threads sharing state, mutexes, deadlock, cross-thread wakeups | #36 |

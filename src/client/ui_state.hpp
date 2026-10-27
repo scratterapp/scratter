@@ -85,7 +85,9 @@ struct DaemonState {
     std::uint64_t position_micros = 0; // where playback was when the event was sent
 
     // The newest answer to a command, for "couldn't pause: ..." under the
-    // controls. Empty until the first command finishes.
+    // controls. Empty until the first command finishes. Only the newest is
+    // kept: when several finish together, the earlier ones are overwritten,
+    // so don't count on seeing every id here.
     std::optional<CommandResult> last_result;
 
     // The connection thread only wakes the window when something changed.

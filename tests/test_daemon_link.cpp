@@ -24,6 +24,7 @@
 #include <signal.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <functional>
@@ -52,7 +53,7 @@ using am::test::unique_name;
 struct Window {
     std::mutex mutex;
     std::condition_variable woken;
-    int wakes = 0;
+    std::atomic<int> wakes = 0; // read by the test outside `mutex`
 
     DaemonLink::WakeCallback callback() {
         return [this] {
