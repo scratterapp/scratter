@@ -16,6 +16,7 @@
 // kill, and the daemon needs the Linux reactor, socket and shared memory.
 
 #include "amctl/amctl_args.hpp"
+#include "daemon_process.hpp"
 #include "common/ipc_messages.hpp"
 #include "common/telemetry_shm.hpp"
 #include "ipc_channel.hpp"
@@ -45,8 +46,6 @@
 #include <thread>
 #include <vector>
 
-extern char** environ;
-
 namespace {
 
 using namespace std::chrono_literals;
@@ -55,85 +54,9 @@ using am::pal::IoStatus;
 using am::pal::IpcChannel;
 using am::pal::Reactor;
 using am::pal::ShmMapping;
-
-// A temporary $XDG_RUNTIME_DIR for this test process and the daemons it starts.
-struct RuntimeDir {
-    std::filesystem::path path;
-
-    RuntimeDir() {
-        std::string templ = (std::filesystem::temp_directory_path() / "am-daemon-XXXXXX").string();
-        REQUIRE(::mkdtemp(templ.data()) != nullptr);
-        path = templ;
-        REQUIRE(::setenv("XDG_RUNTIME_DIR", path.c_str(), 1) == 0);
-    }
-    ~RuntimeDir() {
-        std::error_code ignored;
-        std::filesystem::remove_all(path, ignored);
-    }
-};
-
-// A failed REQUIRE aborts the test process (no exceptions, so no destructors
-// run). Without this, the daemon child would keep running, and ctest would
-// wait forever for it to close the output it inherited.
-volatile pid_t g_daemon_to_kill = -1;
-
-extern "C" void kill_daemon_on_abort(int) {
-    if (g_daemon_to_kill > 0) {
-        ::kill(g_daemon_to_kill, SIGKILL);
-    }
-    ::signal(SIGABRT, SIG_DFL);
-    ::raise(SIGABRT);
-}
-
-// A daemon child process. The destructor kills it if the test didn't stop it.
-struct Daemon {
-    pid_t pid = -1;
-
-    explicit Daemon(const std::string& name) {
-        std::vector<std::string> args = {AM_DAEMON_PATH, "--name", name, "--no-audio"};
-        std::vector<char*> argv;
-        for (auto& arg : args) {
-            argv.push_back(arg.data());
-        }
-        argv.push_back(nullptr);
-        REQUIRE(::posix_spawn(&pid, AM_DAEMON_PATH, nullptr, nullptr, argv.data(), environ) == 0);
-        if (g_daemon_to_kill <= 0) { // the first one; a second exits on its own
-            g_daemon_to_kill = pid;
-            ::signal(SIGABRT, kill_daemon_on_abort);
-        }
-    }
-    ~Daemon() {
-        if (pid > 0) {
-            ::kill(pid, SIGKILL);
-            ::waitpid(pid, nullptr, 0);
-            exited();
-        }
-    }
-    void exited() {
-        if (g_daemon_to_kill == pid) {
-            g_daemon_to_kill = -1;
-        }
-        pid = -1;
-    }
-
-    // Waits for the process to exit and returns its exit code, or nothing if
-    // it didn't exit within `timeout` or was killed by a signal.
-    std::optional<int> wait_for_exit(std::chrono::milliseconds timeout) {
-        const auto deadline = std::chrono::steady_clock::now() + timeout;
-        while (std::chrono::steady_clock::now() < deadline) {
-            int status = 0;
-            if (::waitpid(pid, &status, WNOHANG) == pid) {
-                exited();
-                if (WIFEXITED(status)) {
-                    return WEXITSTATUS(status);
-                }
-                return std::nullopt;
-            }
-            std::this_thread::sleep_for(10ms);
-        }
-        return std::nullopt;
-    }
-};
+using am::test::Daemon;
+using am::test::RuntimeDir;
+using am::test::unique_name;
 
 // The client side: one connection to the daemon, plus helpers to send a
 // request and wait for a particular message back.
@@ -272,8 +195,6 @@ std::string read_file(const std::filesystem::path& path) {
     std::ifstream in(path);
     return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
-
-std::string unique_name() { return "am-test-daemon-" + std::to_string(::getpid()); }
 
 } // namespace
 

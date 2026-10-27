@@ -57,7 +57,9 @@ interface in `src/pal/interfaces/`, the Linux reactor, IPC
 socket, shared memory, PipeWire sink, keyring vault, MPRIS media controls and signal handling in
 `src/pal/linux/`, and the drift controller and resampler in `src/daemon/audio_engine/`.
 Still stubs: CEF on Windows, Apple Music itself (#4), the Windows vault, the Windows media controls (SMTC), `src/net/`, the
-ALSA sink and `am-ui` (whose `main()` returns 0). On Windows, `src/pal/win32/` holds stubs that fail with
+ALSA sink and `am-ui`'s window (whose `main()` returns 0). Its connection to the daemon is
+real: `am_client_core` (`src/client/daemon_link.hpp`, `ui_state.hpp`) connects on its own
+thread, sends commands, follows the state, reconnects, and reads the telemetry page. On Windows, `src/pal/win32/` holds stubs that fail with
 "not supported" so the daemon links; kero's issues replace them. It configures,
 builds and passes its tests on Linux and Windows. Catch2 (via `FetchContent`) and,
 on Linux, PipeWire, libsecret and libsystemd's sd-bus (system packages via `pkg-config`) are the only

@@ -123,6 +123,15 @@ if(LINUX)
     am_enable_warnings(test_daemon)
     catch_discover_tests(test_daemon DISCOVERY_MODE PRE_TEST)
 
+    # am-ui's connection to the daemon (src/client/), against the real daemon.
+    add_executable(test_daemon_link test_daemon_link.cpp)
+    target_link_libraries(test_daemon_link PRIVATE am_client_core Catch2::Catch2WithMain)
+    target_compile_definitions(test_daemon_link PRIVATE
+        AM_DAEMON_PATH="$<TARGET_FILE:${AM_DAEMON_TARGET}>")
+    add_dependencies(test_daemon_link ${AM_DAEMON_TARGET})
+    am_enable_warnings(test_daemon_link)
+    catch_discover_tests(test_daemon_link DISCOVERY_MODE PRE_TEST)
+
     # A few seconds of the soak test (tools/soak/soak.py) against the tone with
     # no sound card, so the script keeps working with the daemon it measures.
     # The real run is hours long and by hand (docs/learning/soak-test.md).
