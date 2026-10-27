@@ -2,7 +2,7 @@
 
 // What the window shows before there is anything to play: a title, a line
 // about the daemon, and a record drawn in the background. The now-playing
-// view (#37) takes over once the daemon connection (#36) exists.
+// view (#37) takes over and shows what the daemon connection (#36) reports.
 
 #include "client/theme.hpp"
 

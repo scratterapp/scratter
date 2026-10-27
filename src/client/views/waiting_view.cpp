@@ -82,7 +82,7 @@ void draw_waiting_view(const Fonts& fonts) {
     ImGui::TextUnformatted("Nothing playing");
     ImGui::PopFont();
 
-    // A hollow dot: not connected. #36 fills it in.
+    // A hollow dot: not connected. #37 fills it in.
     ImGui::SetCursorPosX(margin);
     ImGui::PushFont(fonts.display_italic, kBodySize * 1.6f);
     const ImVec2 line = ImGui::GetCursorScreenPos();

@@ -1,5 +1,5 @@
 // am-ui: the app window. For now it opens an empty window and closes cleanly;
-// it doesn't talk to the daemon yet (that's #36). SDL3 makes the window and
+// it doesn't use the daemon connection yet (that's #37). SDL3 makes the window and
 // reads input, Dear ImGui decides what goes in it, and SDL_Renderer draws it
 // with whatever the machine has (OpenGL or Vulkan on Linux, Direct3D on
 // Windows), so there is no platform code here.
