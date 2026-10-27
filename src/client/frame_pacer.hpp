@@ -1,7 +1,7 @@
 #pragma once
 
 // Decides when am-ui draws a frame and how long it may sleep in between (spec
-// section 3.4.2, docs/learning/app-window.md). A music player's window spends
+// section 3.4.2). A music player's window spends
 // most of its life showing the same picture, so drawing 60 times a second
 // would burn CPU and battery for nothing. The rules:
 //

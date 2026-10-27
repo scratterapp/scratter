@@ -5,7 +5,6 @@
 // near-black background, paper-colored text, and one loud color (vermilion,
 // like a record label) kept for the thing that matters on screen. Body text is
 // Atkinson Hyperlegible, made for readability; titles use Instrument Serif.
-// docs/learning/app-window.md has the reasoning.
 
 #include <imgui.h>
 

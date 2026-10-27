@@ -2,8 +2,7 @@
 // it doesn't talk to the daemon yet (that's #36). SDL3 makes the window and
 // reads input, Dear ImGui decides what goes in it, and SDL_Renderer draws it
 // with whatever the machine has (OpenGL or Vulkan on Linux, Direct3D on
-// Windows), so there is no platform code here. docs/learning/app-window.md
-// walks through it.
+// Windows), so there is no platform code here.
 //
 //   am-ui              open the window
 //   am-ui --frames N   draw N frames as fast as possible, then quit. The tests

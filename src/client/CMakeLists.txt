@@ -2,7 +2,7 @@
 # SDL_Renderer, which picks OpenGL or Vulkan on Linux and Direct3D on Windows by
 # itself), and Dear ImGui lays out the widgets. Both come in with FetchContent,
 # pinned by commit like Catch2 in tests/CMakeLists.txt, so CI, Arch and Windows
-# build the same code. docs/learning/app-window.md explains the pieces.
+# build the same code.
 include(FetchContent)
 
 # Only the parts of SDL a window needs. Audio stays off on purpose: the daemon

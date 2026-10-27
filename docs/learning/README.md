@@ -56,8 +56,6 @@ Deeper write-ups for finished pieces:
   for the ring buffer.
 - [fade.md](fade.md): fading in and out on play and pause (#1), and why a
   sudden jump in the samples sounds like a click.
-- [app-window.md](app-window.md): the app window (#35), SDL3 and Dear ImGui,
-  immediate-mode UI, a render loop that sleeps, and how the window got its look.
 - [gapless.md](gapless.md): whether a song change can leave a gap in the
   audio path, and why waiting for the ring buffer to refill doesn't make one.
 - [soak-test.md](soak-test.md): the 4-hour soak test (#2), reading a process's
@@ -547,19 +545,6 @@ started so far get a section here; the rest are summarized after them.
   state another thread has seen by comparing counters.
 - **Read:** [performance.md](performance.md#letting-the-sound-output-sleep-too).
 
-### #35 The app window (shared)
-
-- **How:** `am-ui` opens a window with SDL3 and draws it with Dear ImGui through
-  SDL's own renderer, so the window needs no platform code. `FramePacer`
-  (`src/client/frame_pacer.hpp`) decides when to draw: after an event, every
-  frame while something animates, never while hidden, and otherwise the loop
-  sleeps in `SDL_WaitEventTimeout()`. `theme.cpp` sets the colors, spacing and
-  the two embedded fonts. CMake fetches SDL3 and ImGui by commit.
-- **You learn:** immediate-mode UI, why a sleeping process costs no CPU
-  (blocked vs ready, OSTEP chapter 4), shutting things down in the right order
-  with RAII, high-DPI scaling, and compiling a file into a program.
-- **Read:** [app-window.md](app-window.md).
-
 ### Still to come in phase 3
 
 - **#4 Apple Music through MusicKit JS** (waits on the MusicKit key), **#3 the
@@ -570,10 +555,9 @@ started so far get a section here; the rest are summarized after them.
   reactor, `simdjson` On-Demand parsing into an arena allocator, MPRIS over sd-bus
   (Linux) and SMTC (Windows). You learn: async HTTP without threads, SIMD
   parsing, arena allocation, D-Bus. Spec 3.3.1, 3.3.2, 3.4.1.
-- **Phase 5, the rest of the UI** (#36 to #44). The connection to the daemon on
-  its own thread, the now-playing view reading the SeqLock page every frame,
-  seeking, the spectrum, and the desktop entry. You learn: handing work between
-  threads, and keeping a UI in step with a process it doesn't control. Spec 3.4.2.
+- **Phase 5, the UI.** Dear ImGui on Vulkan (Linux) or DirectX 11 (Windows),
+  reading the SeqLock page every frame, idling when nothing changes. You learn:
+  immediate-mode UI and GPU swapchains. Spec 3.4.2.
 
 ---
 
@@ -606,4 +590,3 @@ Where each idea first shows up, so you can jump to the issue that teaches it.
 | Two-way interfaces, events on one thread, desktop media keys | #55, #56, #9 |
 | Browser processes, stack canaries, sandboxes, optional dependencies | #76 |
 | Clicks, fades | #1 |
-| Immediate-mode UI, event-driven render loops, blocked vs ready, embedding files | #35 |
