@@ -96,11 +96,20 @@ target_include_directories(amctl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tools")
 target_link_libraries(amctl PRIVATE am_pal am_common)
 am_enable_warnings(amctl)
 
-add_executable(am-ui
-    src/client/main_client.cpp
+# am-ui's connection to the daemon and its telemetry reader, kept apart from
+# the window so tests can use it without a screen. No graphics library here.
+find_package(Threads REQUIRED)
+add_library(am_client_core STATIC
+    src/client/daemon_link.cpp
     src/client/ui_state.cpp
 )
-target_link_libraries(am-ui PRIVATE am_net am_pal am_common)
+target_link_libraries(am_client_core PUBLIC am_pal am_common Threads::Threads)
+am_enable_warnings(am_client_core)
+
+add_executable(am-ui
+    src/client/main_client.cpp
+)
+target_link_libraries(am-ui PRIVATE am_client_core am_net am_pal am_common)
 am_enable_warnings(am-ui)
 
 enable_testing()

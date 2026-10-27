@@ -548,7 +548,8 @@ scratter/
 │   │       └── polyphase_resampler.hpp # 16-tap windowed-sinc resampler at that ratio (scalar for now)
 │   └── client/                        # Target: am-ui (Executable - Links am_common, am_pal, am_net, ImGui)
 │       ├── main_client.cpp            # Fast-attach entry point (<5ms startup)
-│       ├── ui_state.cpp               # IPC command sender + SeqLock telemetry reader
+│       ├── daemon_link.hpp/.cpp       # Connection thread: hello, commands, state events, reconnects (library am_client_core)
+│       ├── ui_state.hpp/.cpp          # DaemonState, plus the once-per-frame SeqLock telemetry reader (am_client_core)
 │       └── views/                     # ImGui views (Library, Search, Queue, Spectrum)
 ├── tools/                             # Small helper programs (the C++ ones link am_common + am_pal only)
 │   ├── amctl/                         # Command-line remote for the daemon, like mpc for mpd
@@ -589,6 +590,8 @@ scratter/
     ├── test_wasapi_sink.cpp           # Windows-only: WASAPI sink (passes with a warning if no output device)
     ├── test_audio_path.cpp            # The daemon's render callback: play, pause, stop, fades, volume, underruns, CEF's planar input
     ├── test_daemon.cpp                # Linux-only: starts the daemon binary, drives it directly and with amctl
+    ├── test_daemon_link.cpp           # Linux-only: am-ui's DaemonLink against the real daemon (kill, restart) and a broken one
+    ├── daemon_process.hpp             # Starting a daemon child with a private $XDG_RUNTIME_DIR, for both daemon tests
     ├── test_amctl_args.cpp            # amctl's argument parsing
     ├── test_credential_vault.cpp      # CredentialVault contract (skips where there's no vault or no keyring running)
     ├── test_media_controls.cpp        # MediaControls contract, daemon side (skips where there's no media control service)
