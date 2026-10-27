@@ -549,12 +549,13 @@ scratter/
 │   │       ├── sine_generator.hpp     # 440 Hz test tone, the producer until CEF arrives
 │   │       ├── drift_controller.hpp   # EMA + PI controller: ring buffer fill -> playback ratio
 │   │       └── polyphase_resampler.hpp # 16-tap windowed-sinc resampler at that ratio (scalar for now)
-│   └── client/                        # Target: am-ui (Executable - Links am_common, am_pal, am_net, SDL3, ImGui)
+│   └── client/                        # Target: am-ui (Executable - Links am_client_core, am_common, am_pal, am_net, SDL3, ImGui)
 │       ├── CMakeLists.txt             # am-ui, plus SDL3 and Dear ImGui via FetchContent and the embedded fonts
 │       ├── main_client.cpp            # SDL3 window, ImGui setup and the render loop
 │       ├── frame_pacer.hpp            # When to draw and how long to sleep (adaptive render loop, 3.4.2)
 │       ├── theme.hpp / theme.cpp      # Colors, spacing and fonts
-│       ├── ui_state.cpp               # IPC command sender + SeqLock telemetry reader
+│       ├── daemon_link.hpp/.cpp       # Connection thread: hello, commands, state events, reconnects (library am_client_core)
+│       ├── ui_state.hpp/.cpp          # DaemonState, plus the once-per-frame SeqLock telemetry reader (am_client_core)
 │       ├── fonts/                     # Atkinson Hyperlegible + Instrument Serif (OFL), compiled into am-ui
 │       └── views/                     # ImGui views (Library, Search, Queue, Spectrum)
 │           └── waiting_view.cpp       # Shown before anything plays
@@ -597,6 +598,8 @@ scratter/
     ├── test_wasapi_sink.cpp           # Windows-only: WASAPI sink (passes with a warning if no output device)
     ├── test_audio_path.cpp            # The daemon's render callback: play, pause, stop, fades, volume, underruns, CEF's planar input
     ├── test_daemon.cpp                # Linux-only: starts the daemon binary, drives it directly and with amctl
+    ├── test_daemon_link.cpp           # Linux-only: am-ui's DaemonLink against the real daemon (kill, restart) and a broken one
+    ├── daemon_process.hpp             # Starting a daemon child with a private $XDG_RUNTIME_DIR, for both daemon tests
     ├── test_amctl_args.cpp            # amctl's argument parsing
     ├── test_frame_pacer.cpp           # am-ui's render loop rules: when to draw, how long to sleep
     ├── test_credential_vault.cpp      # CredentialVault contract (skips where there's no vault or no keyring running)
