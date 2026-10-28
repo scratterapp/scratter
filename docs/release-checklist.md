@@ -35,7 +35,9 @@ These have to be settled before the first public binary.
   Name it `THIRD_PARTY_NOTICES.md` or similar and ship it next to the binaries.
 - [ ] **Fonts can be redistributed.** Any font bundled with `am-ui` has a license
   that allows shipping it (the OFL, used by most Google Fonts, does; many system
-  and commercial fonts don't). Dear ImGui's built-in font is fine.
+  and commercial fonts don't). Dear ImGui's built-in font is fine. Today that's
+  Atkinson Hyperlegible and Instrument Serif, both OFL: their license texts are in
+  `src/client/fonts/` and go in the notices file.
 - [ ] **Images and icons are ours or licensed.** The logo and icons in
   `docs/assets/` and the `.desktop` icon are our own work. No Apple logo, no
   Apple Music icon, no album art bundled in the release.

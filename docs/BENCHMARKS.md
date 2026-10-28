@@ -105,6 +105,20 @@ playing and now stops while paused instead of playing silence. Without #30
 that run would have shown about 83 wake-ups a second paused instead of 36
 (worked out from the thread list, not measured separately).
 
+## The app window (am-ui)
+
+Its own table, since the window comes and goes and its numbers don't add to the
+daemon's. Measured with the window open and the mouse off it, CPU from
+`/proc/<pid>/stat` over 30 s, memory from `/proc/<pid>/smaps_rollup`.
+
+| Date | Change | CPU idle | PSS | Where |
+| --- | --- | --- | --- | --- |
+| 2026-10-27 | #35: the first window, redrawn only after an event (debug build) | 0.0% (no frames drawn) | 102 MB | Cloud container: Xvfb and Mesa's software renderer, no GPU. Most of the memory is Mesa's LLVM; expect less with a real GPU driver |
+
+While writing #35, a version that also redrew once a second used 4.8% idle on
+that software renderer. The clock tick now only runs while something plays
+(`FramePacer::set_ticking`).
+
 ## Ideas to try next
 
 Guesses, not measurements, roughly cheapest first:

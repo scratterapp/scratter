@@ -57,13 +57,16 @@ interface in `src/pal/interfaces/`, the Linux reactor, IPC
 socket, shared memory, PipeWire sink, keyring vault, MPRIS media controls and signal handling in
 `src/pal/linux/`, and the drift controller and resampler in `src/daemon/audio_engine/`.
 Still stubs: CEF on Windows, Apple Music itself (#4), the Windows vault, the Windows media controls (SMTC), `src/net/`, the
-ALSA sink and `am-ui`'s window (whose `main()` returns 0). Its connection to the daemon is
+ALSA sink and most of `am-ui`. It opens its window (SDL3 + Dear ImGui, drawn through
+`SDL_Renderer`, so no platform code; issue #35), and its connection to the daemon is
 real: `am_client_core` (`src/client/daemon_link.hpp`, `ui_state.hpp`) connects on its own
-thread, sends commands, follows the state, reconnects, and reads the telemetry page. On Windows, `src/pal/win32/` holds stubs that fail with
+thread, sends commands, follows the state, reconnects, and reads the telemetry page. The
+window doesn't show any of that yet (#37). On Windows, `src/pal/win32/` holds stubs that fail with
 "not supported" so the daemon links; kero's issues replace them. It configures,
-builds and passes its tests on Linux and Windows. Catch2 (via `FetchContent`) and,
+builds and passes its tests on Linux and Windows. Catch2, SDL3 and Dear ImGui (via `FetchContent`, pinned by commit) and,
 on Linux, PipeWire, libsecret and libsystemd's sd-bus (system packages via `pkg-config`) are the only
-third-party dependencies wired into CMake so far.
+third-party dependencies wired into CMake so far. SDL3 needs the X11 and Wayland
+development files to build its Linux video drivers (`docs/SETUP.md`).
 
 ## Who owns what
 
@@ -212,9 +215,9 @@ These aren't settled. Raise them with robbie and kero rather than picking one si
 
 - How third-party dependencies are pulled in (system packages on Arch, vcpkg on
   Windows, CMake `FetchContent`, or a mix). Catch2 uses `FetchContent` so it builds
-  with the project's sanitizer and no-exceptions flags; that doesn't decide it for
-  the other libraries.
-- GLFW or SDL3 for the Linux window.
+  with the project's sanitizer and no-exceptions flags, and SDL3 and ImGui use it
+  because Ubuntu doesn't package SDL3 and Windows has no system copy; that doesn't
+  decide it for the other libraries.
 - How we build and ship our own CEF. The prebuilt downloads can't decode AAC, so we
   build CEF with AAC turned on (spec 3.1.1). Still open: where the build runs for
   releases (it takes hours, and it needs redoing for CEF security updates) and how
@@ -222,5 +225,3 @@ These aren't settled. Raise them with robbie and kero rather than picking one si
 - Where the daemon's Apple Music developer token comes from: a token signed with
   your own Apple Developer account (ties users' activity to it, and the key must stay
   private), or the token Apple's web player uses (a clearer terms problem).
-- Where the `am-ui` graphics backend (Vulkan/OpenGL vs DirectX 11) lives. It is
-  platform code but client-only, so it can't go in `am_pal`, which the daemon links.

@@ -106,11 +106,8 @@ add_library(am_client_core STATIC
 target_link_libraries(am_client_core PUBLIC am_pal am_common Threads::Threads)
 am_enable_warnings(am_client_core)
 
-add_executable(am-ui
-    src/client/main_client.cpp
-)
-target_link_libraries(am-ui PRIVATE am_client_core am_net am_pal am_common)
-am_enable_warnings(am-ui)
+# The app window, am-ui. Its CMakeLists.txt also fetches SDL3 and Dear ImGui.
+add_subdirectory(src/client)
 
 enable_testing()
 add_subdirectory(tests)

@@ -40,6 +40,7 @@
             "inherits": "linux-asan",
             "binaryDir": "${sourceDir}/build/linux-fuzz",
             "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang",
                 "CMAKE_CXX_COMPILER": "clang++",
                 "AM_BUILD_FUZZERS": "ON"
             }

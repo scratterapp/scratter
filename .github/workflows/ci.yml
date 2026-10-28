@@ -53,12 +53,17 @@ jobs:
           # Sanitizer runtimes ship separately from clang on Ubuntu.
           # dbus gives the tests a session bus (see Test below).
           sudo apt-get install --no-install-recommends -y clang-20 libclang-rt-20-dev ninja-build pkg-config libpipewire-0.3-dev libsecret-1-dev libsystemd-dev dbus
+          # What SDL3 needs to build its X11 and Wayland drivers for am-ui
+          # (docs/SETUP.md). The test runs it with SDL's offscreen driver.
+          sudo apt-get install --no-install-recommends -y libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl-dev libgl-dev libdecor-0-dev
       - name: Allow ThreadSanitizer's memory layout
         if: matrix.preset == 'linux-tsan'
         # TSan aborts on Ubuntu's default ASLR entropy ("unexpected memory mapping").
         run: sudo sysctl vm.mmap_rnd_bits=28
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }} -DCMAKE_CXX_COMPILER=clang++-20
+        # The C compiler too, for SDL3: sanitized C and C++ must come from the
+        # same compiler.
+        run: cmake --preset ${{ matrix.preset }} -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_C_COMPILER=clang-20
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
       - name: Test
@@ -82,10 +87,13 @@ jobs:
           sudo apt-get update
           # pkg-config, PipeWire, libsecret and libsystemd headers because
           # configuring the project looks for them (the PipeWire sink, the
-          # keyring vault and the media keys).
+          # keyring vault and the media keys). The X11 and Wayland ones too:
+          # SDL3's configure stops if it finds neither, even though this job
+          # only builds the fuzzer.
           sudo apt-get install --no-install-recommends -y clang-20 libclang-rt-20-dev ninja-build pkg-config libpipewire-0.3-dev libsecret-1-dev libsystemd-dev
+          sudo apt-get install --no-install-recommends -y libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl-dev libgl-dev libdecor-0-dev
       - name: Configure
-        run: cmake --preset linux-fuzz -DCMAKE_CXX_COMPILER=clang++-20
+        run: cmake --preset linux-fuzz -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_C_COMPILER=clang-20
       - name: Build
         run: cmake --build --preset linux-fuzz --target fuzz_ipc_framing
       - name: Fuzz
@@ -126,8 +134,10 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          # libx11-dev because CEF's Linux build links X11.
+          # libx11-dev because CEF's Linux build links X11. The second line is
+          # for SDL3 (am-ui), as in linux-build.
           sudo apt-get install --no-install-recommends -y clang-20 ninja-build pkg-config libpipewire-0.3-dev libsecret-1-dev libsystemd-dev libx11-dev dbus
+          sudo apt-get install --no-install-recommends -y libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl-dev libgl-dev libdecor-0-dev
       - name: Cache CEF
         id: cache-cef
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
