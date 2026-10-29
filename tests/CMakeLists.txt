@@ -162,13 +162,14 @@ if(LINUX)
         set_tests_properties(soak_smoke PROPERTIES
                              ENVIRONMENT "XDG_RUNTIME_DIR=${soak_dir}/runtime")
     endif()
-
-    # Not a ctest test: saves a dummy secret so you can see it in Seahorse.
-    add_executable(vault_demo manual/vault_demo.cpp)
-    target_link_libraries(vault_demo PRIVATE am_pal am_common)
-    am_enable_warnings(vault_demo)
-    set_target_properties(vault_demo PROPERTIES RUNTIME_OUTPUT_DIRECTORY manual)
 endif()
+
+# Not a ctest test: saves a dummy secret so you can see it in Seahorse or
+# Credential Manager.
+add_executable(vault_demo manual/vault_demo.cpp)
+target_link_libraries(vault_demo PRIVATE am_pal am_common)
+am_enable_warnings(vault_demo)
+set_target_properties(vault_demo PROPERTIES RUNTIME_OUTPUT_DIRECTORY manual)
 
 # Not a ctest test: plays a sine through the speakers (see the file).
 add_executable(play_sine manual/play_sine.cpp)

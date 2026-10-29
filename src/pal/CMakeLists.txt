@@ -55,10 +55,10 @@ if(WIN32)
     )
     target_link_libraries(am_pal PUBLIC am_win32_headers)
 
-    # avrt has MMCSS (AvSetMmThreadCharacteristicsW) for the WASAPI sink's
-    # thread, and runtimeobject has WinRT activation for the media controls
-    # (SMTC). COM and the rest come from libraries MSVC links by default.
-    target_link_libraries(am_pal PRIVATE avrt runtimeobject)
+    # thread, runtimeobject has WinRT activation for the media controls (SMTC),
+    # and crypt32 has DPAPI (CryptProtectData) for the vault. COM, Credential
+    # Manager and the rest come from libraries MSVC links by default.
+    target_link_libraries(am_pal PRIVATE avrt runtimeobject crypt32)
 endif()
 
 if(LINUX)
