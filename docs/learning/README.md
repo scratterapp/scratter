@@ -49,6 +49,8 @@ Deeper write-ups for finished pieces:
   and using `std::expected<std::optional<T>>` for "worked, worked but empty, failed".
 - [keyring-vault.md](keyring-vault.md): the Linux vault (#53), D-Bus and how
   desktop keyrings work.
+- [dpapi-vault.md](dpapi-vault.md): the Windows vault (#10), Credential Manager
+  as the store and DPAPI as the lock.
 - [media-controls.md](media-controls.md): the media keys interface (#55), and
   designing an interface where events come in as well as go out.
 - [cef-host.md](cef-host.md): CEF inside the daemon (#76), Chromium's processes,
@@ -439,6 +441,18 @@ started so far get a section here; the rest are summarized after them.
   Secret Service API every Linux keyring speaks, and how a C library's `GError`
   maps onto `std::error_code`.
 - **Read:** [keyring-vault.md](keyring-vault.md).
+
+### #10 Windows: DPAPI + Credential Manager vault (kero)
+
+- **How:** `src/pal/win32/dpapi_vault.cpp` encrypts each secret with
+  `CryptProtectData` (the target name as entropy, never a prompt) and saves the
+  blob as a generic credential with the target `<service>/<name>`, kept on this
+  machine only. `open()` reads a target nothing is saved under, so a logon with
+  no credential store says "not supported" there. Names can't contain `/`, which
+  keeps two services from ever sharing a target.
+- **You learn:** Credential Manager and DPAPI, why a store and a lock are
+  different things, and Win32's "fill in a struct, check `GetLastError()`" style.
+- **Read:** [dpapi-vault.md](dpapi-vault.md).
 
 ### #55 Media keys interface (shared)
 

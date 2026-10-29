@@ -2,9 +2,8 @@
 
 This covers `src/pal/interfaces/credential_vault.hpp` (issue #52). It is the
 contract that `secret_vault.cpp` (#53, Linux) and `dpapi_vault.cpp` (#10,
-Windows) fill in. The Linux one is written (see
-[keyring-vault.md](keyring-vault.md)); the Windows one is still a stub that
-says "not supported".
+Windows) fill in. Both are written: see [keyring-vault.md](keyring-vault.md)
+for Linux and [dpapi-vault.md](dpapi-vault.md) for Windows.
 
 ## What it's for
 
@@ -119,11 +118,12 @@ The test file is written against the interface, not either implementation:
   `invalid_argument` (libsecret stores C strings, so a NUL would silently cut
   the token short)
 
-Right now both platforms' `open()` says `function_not_supported`, so each test
-prints a warning and stops early. That's also what will happen on a CI machine
-with no keyring daemon. On robbie's desktop, once #53 lands, the same tests run
-for real against the real keyring. #53 and #10 are done when these pass on
-their platform; nobody has to invent the test.
+The tests were written while both platforms' `open()` still said
+`function_not_supported`, so each one prints a warning and stops early when
+that happens. That's still what happens on a CI machine with no keyring
+daemon. On a desktop the same tests run for real: against the login keyring
+since #53, and against Credential Manager since #10. Neither issue had to
+invent a test.
 
 ## What's deliberately left out
 
