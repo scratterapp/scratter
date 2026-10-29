@@ -55,14 +55,17 @@ and drives it, directly, through amctl and over MPRIS.
 What's real so far: everything in `src/common/` except `arena_allocator.hpp`, every
 interface in `src/pal/interfaces/`, the Linux reactor, IPC
 socket, shared memory, PipeWire sink, keyring vault, MPRIS media controls and signal handling in
-`src/pal/linux/`, and the drift controller and resampler in `src/daemon/audio_engine/`.
-Still stubs: CEF on Windows, Apple Music itself (#4), the Windows vault, the Windows media controls (SMTC), `src/net/`, the
+`src/pal/linux/`, their Windows counterparts in `src/pal/win32/` (IOCP reactor, named
+pipe, file mapping, WASAPI sink, DPAPI vault, console Ctrl-C) plus the Windows CEF host
+(a CEF built with `third_party/cef-patches/widevine-cdm-dir.patch`, issue #8), and the
+drift controller and resampler in `src/daemon/audio_engine/`.
+Still stubs: Apple Music itself (#4), the Windows media controls (SMTC, #9), `src/net/`, the
 ALSA sink and most of `am-ui`. It opens its window (SDL3 + Dear ImGui, drawn through
 `SDL_Renderer`, so no platform code; issue #35), and its connection to the daemon is
 real: `am_client_core` (`src/client/daemon_link.hpp`, `ui_state.hpp`) connects on its own
 thread, sends commands, follows the state, reconnects, and reads the telemetry page. The
-window doesn't show any of that yet (#37). On Windows, `src/pal/win32/` holds stubs that fail with
-"not supported" so the daemon links; kero's issues replace them. It configures,
+window doesn't show any of that yet (#37). On Windows, `smtc_controls.cpp` is the last
+stub in `src/pal/win32/`: it fails with "not supported" so the daemon links. It configures,
 builds and passes its tests on Linux and Windows. Catch2, SDL3 and Dear ImGui (via `FetchContent`, pinned by commit) and,
 on Linux, PipeWire, libsecret and libsystemd's sd-bus (system packages via `pkg-config`) are the only
 third-party dependencies wired into CMake so far. SDL3 needs the X11 and Wayland

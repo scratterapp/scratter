@@ -56,8 +56,9 @@ if(WIN32)
     target_link_libraries(am_pal PUBLIC am_win32_headers)
 
     # avrt has MMCSS (AvSetMmThreadCharacteristicsW) for the WASAPI sink's
-    # thread. COM and the rest come from libraries MSVC links by default.
-    target_link_libraries(am_pal PRIVATE avrt)
+    # thread, and crypt32 has DPAPI (CryptProtectData) for the vault. COM,
+    # Credential Manager and the rest come from libraries MSVC links by default.
+    target_link_libraries(am_pal PRIVATE avrt crypt32)
 endif()
 
 if(LINUX)
