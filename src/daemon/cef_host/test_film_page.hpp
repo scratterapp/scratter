@@ -30,6 +30,10 @@
 // the film" so the soak test (tools/soak/soak.py) can tell a refused license
 // from a fault of ours.
 //
+// It also keeps where the film is in sessionStorage. If the page's renderer
+// process dies, the daemon loads the page again (cef_host.cpp, #60), and the
+// page starts the film from there and logs "carrying on from".
+//
 // Shaka Player comes from jsdelivr with an integrity hash: Chromium refuses to
 // run the file unless its SHA-384 matches, so a broken-into CDN can't put its
 // own script in our page. A new Shaka version needs a new hash. Take it from
@@ -40,7 +44,8 @@
 //   curl -fsSLO https://registry.npmjs.org/shaka-player/-/shaka-player-VERSION.tgz
 //   echo "sha512-$(openssl dgst -sha512 -binary shaka-player-VERSION.tgz | base64 -w0)"
 //   tar -xzf shaka-player-VERSION.tgz package/dist/shaka-player.compiled.js
-//   echo "sha384-$(openssl dgst -sha384 -binary package/dist/shaka-player.compiled.js | base64 -w0)"
+//   echo "sha384-$(openssl dgst -sha384 -binary package/dist/shaka-player.compiled.js | base64
+//   -w0)"
 //
 // The first and third lines must print the same thing; the last one is the hash.
 //
@@ -244,12 +249,27 @@ async function main() {
     console.log(`playing the ${kind} test film, audio ${track ? track.audioCodec : 'unknown'}`);
   });
   film.addEventListener('pause', () => console.log('paused'));
+  // Where the film is, once a second. sessionStorage lives in the browser
+  // process, so it outlives a renderer that dies, and the daemon's reload
+  // picks up from here (#60). A fresh daemon starts a fresh session.
+  let saved = -1;
+  film.addEventListener('timeupdate', () => {
+    const second = Math.floor(film.currentTime);
+    if (second !== saved) {
+      saved = second;
+      sessionStorage.setItem('film-position', String(film.currentTime));
+    }
+  });
+  const resumeAt = Number(sessionStorage.getItem('film-position')) || 0;
 
   try {
-    await player.load(manifest);
+    await player.load(manifest, resumeAt > 0 ? resumeAt : undefined);
   } catch (e) {
     console.log(`couldn't load the film: Shaka error ${e.code}`);
     return;
+  }
+  if (resumeAt > 0) {
+    console.log(`carrying on from ${resumeAt.toFixed(1)} s after the page was loaded again`);
   }
   ready = true;
   if (wanted === 'play') film.play();

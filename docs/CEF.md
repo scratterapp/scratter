@@ -277,6 +277,37 @@ playing, the daemon also calls `CefHost::set_state()`, which runs `amPlay()`,
 `amPause()` or `amStop()` in the page, so the film stops producing audio
 instead of overflowing the ring buffer.
 
+## When the renderer dies
+
+The page runs in its own renderer process, and that process can end without
+the daemon asking: it crashes, runs out of memory, or someone kills it. The
+browser object in the daemon survives with nothing in it, so the audio just
+stops. On Windows this happened 47 seconds into every test film while the
+helper was linked with `/CETCOMPAT` (V8 and the CPU's shadow stack don't
+agree; the root `CMakeLists.txt` opts the helper out).
+
+CEF tells the browser process through
+`CefRequestHandler::OnRenderProcessTerminated`, on the UI thread. `PageClient`
+logs why ("the page's renderer crashed (code -1, RESULT_CODE_KILLED)") and
+calls `Reload()` a moment later, which starts a new renderer (#60). Two things
+make that work:
+
+- **The page remembers where the film was.** It writes `film.currentTime` to
+  `sessionStorage` once a second. Session storage belongs to the tab and lives
+  in the browser process, so it outlives the renderer, and a reloaded page
+  starts the film there and logs "carrying on from 24.0 s". A new daemon is a
+  new session, so a fresh start begins at 0.
+- **It backs off.** The first reload waits 1 second. If the page dies again
+  within a minute of loading, the wait doubles: 2, 4, 8 seconds, up to a
+  minute. A renderer that crashes the moment it loads would otherwise be
+  restarted as fast as it can die.
+
+The audio comes back by itself: CEF's audio handler picks up the new
+renderer's stream without a second `OnAudioStreamStarted`. To try it, run
+`--test-film`, then kill the renderer (`taskkill /F` on the helper whose
+command line has `--type=renderer`, or `kill -9` on Linux) and watch the log
+and `amctl status --json`'s `ring_buffer_fill`.
+
 ## Shutting down
 
 `~CefHost()` asks CEF's UI thread to close the browser, waits up to 5 seconds
