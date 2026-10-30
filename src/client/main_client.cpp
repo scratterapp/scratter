@@ -1,15 +1,20 @@
-// am-ui: the app window. For now it opens an empty window and closes cleanly;
-// it doesn't use the daemon connection yet (that's #37). SDL3 makes the window and
-// reads input, Dear ImGui decides what goes in it, and SDL_Renderer draws it
-// with whatever the machine has (OpenGL or Vulkan on Linux, Direct3D on
-// Windows), so there is no platform code here.
+// am-ui: the app window. It connects to the daemon in the background
+// (daemon_link.hpp) and shows what's playing, with play/pause, stop and volume
+// (views/now_playing.cpp), or a waiting screen while the daemon isn't there.
+// Closing it only disconnects: the music keeps playing in the daemon. SDL3
+// makes the window and reads input, Dear ImGui decides what goes in it, and
+// SDL_Renderer draws it with whatever the machine has (OpenGL or Vulkan on
+// Linux, Direct3D on Windows), so there is no platform code here.
 //
 //   am-ui              open the window
 //   am-ui --frames N   draw N frames as fast as possible, then quit. The tests
 //                      use it to check that start-up and shutdown are clean.
 
+#include "client/daemon_link.hpp"
 #include "client/frame_pacer.hpp"
 #include "client/theme.hpp"
+#include "client/ui_state.hpp"
+#include "client/views/now_playing.hpp"
 #include "client/views/waiting_view.hpp"
 #include "common/app_name.hpp"
 
@@ -103,6 +108,33 @@ struct ImGuiSession {
     bool renderer_backend_started = false;
 };
 
+// Space and up/down belong to the player (space plays or pauses, up and down
+// change the volume), except while the keyboard is moving between buttons:
+// after Tab, ImGui shows a highlight on the focused item and these keys work
+// it (space presses the button, arrows move or nudge the slider) like in any
+// other app. A mouse click or Escape hides the highlight again. Returns true
+// when the key was the player's, so ImGui doesn't see it too.
+bool take_player_key(const SDL_KeyboardEvent& key, am::client::PlayerKeys& keys) {
+    const ImGuiIO& io = ImGui::GetIO();
+    if (io.NavVisible || io.WantTextInput || (key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT)) != 0) {
+        return false;
+    }
+    switch (key.key) {
+    case SDLK_SPACE:
+        // Holding space down shouldn't flicker between play and pause.
+        keys.toggle = keys.toggle || !key.repeat;
+        return true;
+    case SDLK_UP:
+        ++keys.volume_steps;
+        return true;
+    case SDLK_DOWN:
+        --keys.volume_steps;
+        return true;
+    default:
+        return false;
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -173,6 +205,28 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // The connection to the daemon runs on its own thread. When what it knows
+    // changes (a pause from the media keys, the daemon going away) it posts
+    // this event, which wakes the loop below from SDL_WaitEventTimeout, so
+    // the window can sleep while nothing happens and still follow at once.
+    // SDL_PushEvent is safe from any thread. The link is declared after `sdl`,
+    // so it stops before SDL_Quit runs.
+    const Uint32 wake_event = SDL_RegisterEvents(1);
+    auto link = am::client::DaemonLink::start({}, [wake_event] {
+        if (wake_event != 0) {
+            SDL_Event event{};
+            event.type = wake_event;
+            SDL_PushEvent(&event);
+        }
+    });
+    if (!link) {
+        std::fprintf(stderr, "am-ui: can't start the daemon connection: %s\n",
+                     link.error().message().c_str());
+        return 1;
+    }
+    am::client::TelemetryReader telemetry{std::string{am::pal::kDaemonEndpoint}};
+    am::client::NowPlayingView now_playing;
+
     am::client::FramePacer pacer;
     pacer.set_animating(options->frame_limit.has_value());
     int frames_drawn = 0;
@@ -184,8 +238,13 @@ int main(int argc, char** argv) {
         const std::int32_t wait = pacer.wait_ms(SDL_GetTicks());
         SDL_Event event;
         bool have_event = wait == 0 ? SDL_PollEvent(&event) : SDL_WaitEventTimeout(&event, wait);
+        am::client::PlayerKeys keys;
         while (have_event) {
-            ImGui_ImplSDL3_ProcessEvent(&event);
+            const bool players_key =
+                event.type == SDL_EVENT_KEY_DOWN && take_player_key(event.key, keys);
+            if (!players_key) {
+                ImGui_ImplSDL3_ProcessEvent(&event);
+            }
             if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
                 quit = true;
             }
@@ -195,6 +254,18 @@ int main(int argc, char** argv) {
         if (quit) {
             break;
         }
+
+        // A copy, so the connection thread can carry on while this frame is
+        // drawn from a state that doesn't change under it.
+        const am::client::DaemonState state = (*link)->state();
+        // Connected and the daemon has said what it's doing. Between the two
+        // the waiting view stays up, so the window never shows a made-up
+        // "stopped, volume 0" for a frame.
+        const bool connected =
+            state.status == am::client::LinkStatus::Connected && state.has_playback;
+        telemetry.update(state);
+        // The clock on screen moves once a second while music plays.
+        pacer.set_ticking(connected && state.playback == am::common::PlaybackState::Playing);
 
         constexpr SDL_WindowFlags kNotVisible =
             SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN | SDL_WINDOW_OCCLUDED;
@@ -206,7 +277,11 @@ int main(int argc, char** argv) {
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
-        am::client::draw_waiting_view(fonts);
+        if (connected) {
+            now_playing.draw(fonts, state, telemetry, **link, keys);
+        } else {
+            am::client::draw_waiting_view(fonts, state);
+        }
         ImGui::Render();
 
         SDL_SetRenderScale(renderer.get(), io.DisplayFramebufferScale.x,

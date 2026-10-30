@@ -59,6 +59,8 @@ endif()
 add_executable(am-ui
     main_client.cpp
     theme.cpp
+    views/drawing.cpp
+    views/now_playing.cpp
     views/waiting_view.cpp
 )
 target_link_libraries(am-ui PRIVATE am_client_core am_imgui am_net am_pal am_common)

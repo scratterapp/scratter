@@ -78,7 +78,9 @@ struct DaemonState {
 
     // From the newest PlaybackStateEvent. Kept after the daemon goes away, so
     // the window can show the last state greyed out. has_playback is false
-    // until the first event arrives.
+    // until the first event of the current connection arrives (a new HelloAck
+    // clears it), so the window can wait for real numbers instead of showing
+    // "stopped, volume 0" for a frame.
     bool has_playback = false;
     common::PlaybackState playback = common::PlaybackState::Stopped;
     std::uint8_t volume_percent = 0;

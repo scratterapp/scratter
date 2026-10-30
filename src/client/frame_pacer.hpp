@@ -9,7 +9,7 @@
 //   animating             draw every frame (vsync caps the rate)
 //   otherwise             draw after an event, plus once each whole second
 //                         while ticking (playing, so the progress bar's
-//                         clock moves; #37 turns that on)
+//                         clock moves; main_client.cpp turns it on)
 //
 // Dear ImGui sometimes needs a second frame to settle after input (a hover
 // highlight, a layout that changed size), so an event buys two frames.

@@ -551,14 +551,17 @@ scratter/
 │   │       └── polyphase_resampler.hpp # 16-tap windowed-sinc resampler at that ratio (scalar for now)
 │   └── client/                        # Target: am-ui (Executable - Links am_client_core, am_common, am_pal, am_net, SDL3, ImGui)
 │       ├── CMakeLists.txt             # am-ui, plus SDL3 and Dear ImGui via FetchContent and the embedded fonts
-│       ├── main_client.cpp            # SDL3 window, ImGui setup and the render loop
+│       ├── main_client.cpp            # SDL3 window, ImGui setup, the render loop and the player's keys
 │       ├── frame_pacer.hpp            # When to draw and how long to sleep (adaptive render loop, 3.4.2)
 │       ├── theme.hpp / theme.cpp      # Colors, spacing and fonts
 │       ├── daemon_link.hpp/.cpp       # Connection thread: hello, commands, state events, reconnects (library am_client_core)
 │       ├── ui_state.hpp/.cpp          # DaemonState, plus the once-per-frame SeqLock telemetry reader (am_client_core)
+│       ├── now_playing_text.hpp       # The now-playing view's words and numbers (clock, volume steps, errors)
 │       ├── fonts/                     # Atkinson Hyperlegible + Instrument Serif (OFL), compiled into am-ui
 │       └── views/                     # ImGui views (Library, Search, Queue, Spectrum)
-│           └── waiting_view.cpp       # Shown before anything plays
+│           ├── waiting_view.cpp       # Shown while the daemon isn't connected, with how to start it
+│           ├── now_playing.cpp        # What's playing, position, play/pause, stop, volume (#37)
+│           └── drawing.cpp            # The background record and app label both views share
 ├── tools/                             # Small helper programs (the C++ ones link am_common + am_pal only)
 │   ├── amctl/                         # Command-line remote for the daemon, like mpc for mpd
 │   │   ├── main_amctl.cpp             # Every request the daemon handles, over IPC; status from telemetry
@@ -602,6 +605,7 @@ scratter/
     ├── daemon_process.hpp             # Starting a daemon child with a private $XDG_RUNTIME_DIR, for both daemon tests
     ├── test_amctl_args.cpp            # amctl's argument parsing
     ├── test_frame_pacer.cpp           # am-ui's render loop rules: when to draw, how long to sleep
+    ├── test_now_playing_text.cpp      # The now-playing view's clock, volume steps and error lines
     ├── test_credential_vault.cpp      # CredentialVault contract (skips where there's no vault or no keyring running)
     ├── test_media_controls.cpp        # MediaControls contract, daemon side (skips where there's no media control service)
     ├── test_mpris_controls.cpp        # Linux-only: plays the desktop's side of MPRIS over D-Bus (skips with no session bus)
