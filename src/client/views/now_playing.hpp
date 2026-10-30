@@ -37,6 +37,11 @@ class NowPlayingView {
     std::optional<std::uint8_t> asked_volume_;
     RequestId asked_volume_id_ = 0;
 
+    // The connection the view last drew, and the newest answer from before
+    // it. Answers up to that id are hidden.
+    std::uint64_t seen_connection_ = 0;
+    RequestId results_after_ = 0;
+
     // The slider's own value while it's being dragged. The volume is only
     // sent when it's let go, not on every pixel of the drag.
     int slider_volume_ = 0;

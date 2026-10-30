@@ -258,7 +258,11 @@ int main(int argc, char** argv) {
         // A copy, so the connection thread can carry on while this frame is
         // drawn from a state that doesn't change under it.
         const am::client::DaemonState state = (*link)->state();
-        const bool connected = state.status == am::client::LinkStatus::Connected;
+        // Connected and the daemon has said what it's doing. Between the two
+        // the waiting view stays up, so the window never shows a made-up
+        // "stopped, volume 0" for a frame.
+        const bool connected =
+            state.status == am::client::LinkStatus::Connected && state.has_playback;
         telemetry.update(state);
         // The clock on screen moves once a second while music plays.
         pacer.set_ticking(connected && state.playback == am::common::PlaybackState::Playing);

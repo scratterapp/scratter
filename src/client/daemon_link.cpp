@@ -277,6 +277,9 @@ struct DaemonLink::Impl {
                 s.error = {};
                 ++s.connection_count;
                 s.daemon_name = peer_name(*body);
+                // What a daemon from before said no longer counts; this one
+                // sends its own state straight after the hello.
+                s.has_playback = false;
             });
             arm_timer();
             return true;

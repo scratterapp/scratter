@@ -79,11 +79,28 @@ void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
         state.playback == PlaybackState::Playing || state.playback == PlaybackState::Buffering;
     const common::TelemetrySnapshot& snapshot = telemetry.snapshot();
 
-    // The volume to show: what this window asked for until the daemon has
-    // answered that request, then whatever the daemon says. Request ids only
-    // go up, so an answer with a newer id means ours was answered too.
-    if (asked_volume_ && state.last_result && state.last_result->id >= asked_volume_id_) {
-        asked_volume_.reset();
+    // A new connection: answers from before it (say "couldn't pause: the
+    // daemon isn't running" from while it was down) no longer apply.
+    if (state.connection_count != seen_connection_) {
+        seen_connection_ = state.connection_count;
+        results_after_ = state.last_result ? state.last_result->id : 0;
+    }
+    const bool fresh_result = state.last_result && state.last_result->id > results_after_;
+
+    // The volume to show: what this window asked for, until the daemon's state
+    // shows it. The daemon acks a request before it sends the new state, so
+    // letting go at the ack would flick the slider back for a frame. Also let
+    // go when that request failed (the daemon won't change), or when a newer
+    // answer arrived (request ids only go up, and the state event for ours
+    // came before it).
+    if (asked_volume_) {
+        const bool answered = fresh_result && state.last_result->id >= asked_volume_id_;
+        const bool failed = answered && state.last_result->id == asked_volume_id_ &&
+                            state.last_result->outcome != CommandOutcome::Ok;
+        const bool newer = answered && state.last_result->id > asked_volume_id_;
+        if (state.volume_percent == *asked_volume_ || failed || newer) {
+            asked_volume_.reset();
+        }
     }
     const std::uint8_t volume = asked_volume_.value_or(state.volume_percent);
     auto ask_volume = [&](std::uint8_t percent) {
@@ -207,7 +224,7 @@ void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
 
     // The newest answer, when it's a no. A later command that works replaces
     // it, so it doesn't stay around once things are fine again.
-    if (state.last_result) {
+    if (fresh_result) {
         const std::string failure = command_failure_text(*state.last_result);
         if (!failure.empty()) {
             ImGui::SetCursorPosX(margin);

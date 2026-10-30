@@ -23,11 +23,11 @@ Message message_for(const DaemonState& state) {
                                      "by itself.";
     switch (state.status) {
     case LinkStatus::Connecting:
+    case LinkStatus::Connected: // connected, but its state hasn't arrived yet
         return {"Saying hello to " + daemon, "It's there; waiting for its answer."};
     case LinkStatus::Failed:
         return {"Can't reach " + daemon,
                 "Trying again every second. The error was: " + state.error.message() + "."};
-    case LinkStatus::Connected: // the now-playing view shows this one
     case LinkStatus::NotRunning:
         break;
     }
