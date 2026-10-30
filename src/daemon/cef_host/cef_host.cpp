@@ -29,6 +29,7 @@
 #include "include/cef_life_span_handler.h"
 #include "include/cef_load_handler.h"
 #include "include/cef_render_handler.h"
+#include "include/cef_request_handler.h"
 #include "include/cef_scheme.h"
 #include "include/cef_version.h"
 #include "include/wrapper/cef_closure_task.h"
@@ -55,6 +56,34 @@ using common::PlaybackState;
 // How long ~CefHost waits for the page to close before shutting CEF down
 // anyway. Closing normally takes well under a second.
 constexpr auto kCloseTimeout = 5s;
+
+// When the page's renderer dies, the page is loaded again after a wait that
+// starts at kFirstReloadDelay and doubles each time it dies again within
+// kStableAfter of loading, up to kMaxReloadDelay.
+constexpr auto kFirstReloadDelay = 1s;
+constexpr auto kMaxReloadDelay = 60s;
+constexpr auto kStableAfter = 60s;
+
+using Clock = std::chrono::steady_clock;
+
+const char* termination_name(cef_termination_status_t status) {
+    switch (status) {
+    case TS_ABNORMAL_TERMINATION:
+        return "exited with an error";
+    case TS_PROCESS_WAS_KILLED:
+        return "was killed";
+    case TS_PROCESS_CRASHED:
+        return "crashed";
+    case TS_PROCESS_OOM:
+        return "ran out of memory";
+    case TS_LAUNCH_FAILED:
+        return "couldn't start";
+    case TS_INTEGRITY_FAILURE:
+        return "failed a code integrity check";
+    default:
+        return "ended";
+    }
+}
 
 // Chromium on Linux finds a Widevine CDM it didn't bundle through a small
 // "hint" file in its profile folder, the one its own updater writes after
@@ -104,14 +133,16 @@ class PageSchemeHandlerFactory final : public CefSchemeHandlerFactory {
     IMPLEMENT_REFCOUNTING(PageSchemeHandlerFactory);
 };
 
-// The invisible browser: its audio, its console, its lifetime, and the
-// do-nothing drawing that windowless rendering asks for.
+// The invisible browser: its audio, its console, its lifetime, bringing it
+// back when its renderer dies, and the do-nothing drawing that windowless
+// rendering asks for.
 class PageClient final : public CefClient,
                          public CefAudioHandler,
                          public CefDisplayHandler,
                          public CefLifeSpanHandler,
                          public CefLoadHandler,
-                         public CefRenderHandler {
+                         public CefRenderHandler,
+                         public CefRequestHandler {
   public:
     PageClient(audio::AudioPath& audio, std::uint32_t sample_rate_hz)
         : audio_(audio), sample_rate_hz_(sample_rate_hz) {}
@@ -121,6 +152,7 @@ class PageClient final : public CefClient,
     CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
     CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
     CefRefPtr<CefRenderHandler> GetRenderHandler() override { return this; }
+    CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
 
     // --- Called on CEF's UI thread by HostApp and CefHost ---------------
 
@@ -236,9 +268,36 @@ class PageClient final : public CefClient,
             return;
         }
         loaded_ = true;
+        loaded_at_ = Clock::now();
         if (!last_script_.empty()) {
             browser->GetMainFrame()->ExecuteJavaScript(last_script_, "", 0);
         }
+    }
+
+    // --- CefRequestHandler: the renderer died ------------------------------
+
+    // UI thread. The page's renderer process ended: it crashed, ran out of
+    // memory or was killed. The browser is still there but empty, so the audio
+    // would stay off for good (#60). Load the page again; it remembers where
+    // the film was (test_film_page.hpp) and carries on from there. A page
+    // that keeps dying soon after it loads waits longer each time, so a
+    // renderer that crashes on load isn't restarted in a tight loop.
+    void OnRenderProcessTerminated(CefRefPtr<CefBrowser>, TerminationStatus status, int error_code,
+                                   const CefString& error_string) override {
+        loaded_ = false;
+        if (close_requested_) {
+            return;
+        }
+        deaths_in_a_row_ = Clock::now() - loaded_at_ < kStableAfter ? deaths_in_a_row_ + 1 : 1;
+        const auto delay =
+            std::min(kFirstReloadDelay * (1 << std::min(deaths_in_a_row_ - 1, 6)), kMaxReloadDelay);
+        const std::string why = error_string.ToString();
+        std::fprintf(stderr,
+                     "the page's renderer %s (code %d%s%s); loading the page again in %lld s\n",
+                     termination_name(status), error_code, why.empty() ? "" : ", ", why.c_str(),
+                     static_cast<long long>(delay.count()));
+        CefPostDelayedTask(TID_UI, base::BindOnce(&PageClient::reload, CefRefPtr<PageClient>(this)),
+                           std::chrono::duration_cast<std::chrono::milliseconds>(delay).count());
     }
 
     // --- CefRenderHandler: windowless rendering draws into nothing --------
@@ -248,6 +307,14 @@ class PageClient final : public CefClient,
                  int) override {}
 
   private:
+    // UI thread, kFirstReloadDelay or more after the renderer died. Reloading
+    // starts a new renderer.
+    void reload() {
+        if (browser_ && !close_requested_) {
+            browser_->Reload();
+        }
+    }
+
     void mark_closed() {
         {
             std::lock_guard lock(closed_mutex_);
@@ -266,6 +333,8 @@ class PageClient final : public CefClient,
     bool close_requested_ = false;
     bool loaded_ = false;
     std::string last_script_; // the last play/pause/stop asked for
+    Clock::time_point loaded_at_{};
+    int deaths_in_a_row_ = 0; // renderer deaths, each soon after the page loaded
 
     // Set on the UI thread, waited for on the reactor thread.
     std::mutex closed_mutex_;
