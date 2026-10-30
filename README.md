@@ -67,7 +67,8 @@ Sanitizer presets are available as `linux-asan` (AddressSanitizer + UBSan) and
 - [docs/SPECIFICATION.md](docs/SPECIFICATION.md): full technical spec and phase roadmap
 - [docs/RATIONALE.md](docs/RATIONALE.md): why this exists
 - [docs/COLLABORATION.md](docs/COLLABORATION.md): parallel platform work
-- [docs/learning/](docs/learning/README.md): how to do each roadmap item and what it teaches
+- [docs/CEF.md](docs/CEF.md): the hidden browser in the daemon, and how to build our CEF
+- [docs/BENCHMARKS.md](docs/BENCHMARKS.md): measured performance and how to measure it
 - [docs/SETUP.md](docs/SETUP.md): installing dependencies
 - [LEGAL.md](LEGAL.md): notice
 - [SECURITY.md](SECURITY.md): how to report a security problem

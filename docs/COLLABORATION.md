@@ -42,3 +42,17 @@ conditionals.
 
 Platform-only changes should use the matching CI path filter. Changes to contracts,
 top-level CMake, or `cmake/` intentionally run both platform builds.
+
+## How to work an issue
+
+1. Pick an issue from the pinned roadmap whose "blocked by" items are all closed.
+   Shared items (`src/common/`, `src/pal/interfaces/`) come before the platform items
+   that build on them.
+2. Branch from `main` with a plain name: `feature/crc32c`, `fix/ipc-frame`.
+3. Write the test first when you can. Every `tests/test_*.cpp` is its own executable;
+   add its name to `AM_TESTS` in `tests/CMakeLists.txt` once it has a `TEST_CASE`.
+4. Build and test with `linux-debug` (or `windows-msvc-debug`), then run the sanitizer
+   that matters for the change: `linux-tsan` for anything with threads, `linux-asan`
+   for anything that parses bytes or does pointer math.
+5. Open a PR. CODEOWNERS asks kero to review only when it touches Windows-only files;
+   for a shared-contract change, tag both robbie and kero yourself.

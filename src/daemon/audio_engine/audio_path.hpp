@@ -34,7 +34,6 @@
 // break shorter than the cushion is never heard. A longer break empties the
 // ring, and the 85 ms spent refilling are the 85 ms the cushion covered at
 // the start of the break, so the silence lasts as long as the break did.
-// docs/learning/gapless.md has the numbers.
 //
 // While paused or stopped, the page's audio is thrown away: write_planar()
 // drops it, and render() empties the ring buffer once it has faded out, then

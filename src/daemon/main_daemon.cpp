@@ -90,7 +90,7 @@ constexpr auto kTickInterval = 10ms;
 // Paused or stopped, nothing moves, so the daemon wakes 4 times a second
 // instead of 100. Every wake-up costs a little power, and a daemon that sits
 // paused in the background all day shouldn't keep the CPU busy
-// (docs/learning/performance.md). A command that starts playback runs the
+// (docs/BENCHMARKS.md). A command that starts playback runs the
 // tick at once, so play doesn't wait for the slow timer.
 constexpr auto kIdleTickInterval = 250ms;
 

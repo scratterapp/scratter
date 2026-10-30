@@ -178,7 +178,7 @@ jobs:
       - name: Check hardening
         # The only Release build in CI, so the only one with every flag from
         # cmake/Hardening.cmake (FORTIFY_SOURCE needs optimization). Each grep
-        # fails the step if its mark is missing (docs/learning/hardening.md).
+        # fails the step if its mark is missing.
         if: matrix.preset == 'linux-cef-release'
         run: |
           daemon=build/linux-cef-release/scratterd

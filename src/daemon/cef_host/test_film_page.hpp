@@ -22,7 +22,7 @@
 // certificate, which the server sees anyway), and the size of each license
 // that comes back. It never logs keys or the license itself. When a server
 // says no, the page prints its answer as plain text: that's how issue #21
-// found a revoked Widevine (docs/learning/license-request.md). If a license
+// found a revoked Widevine. If a license
 // is refused (Shaka error 6007) or
 // anything else goes wrong, it checks 3 seconds later whether the film is
 // still moving. Only if it stopped does the page wait 5 more seconds and load

@@ -10,7 +10,7 @@ once a minute writes one line to memory.csv:
 
   - how much memory the daemon and each kind of CEF helper process uses, and
     the total. CEF runs the page, the audio decoding and Widevine in separate
-    processes (docs/learning/cef-host.md), all started by the daemon, so a
+    processes (docs/CEF.md), all started by the daemon, so a
     leak can be in any of them.
   - how many seconds of audio the daemon played since the last line, read
     with `amctl status --json`. While playing that should be about a minute
@@ -63,7 +63,7 @@ MIN_PLAYED_SHARE = 0.9
 
 # Process kinds, in the order they appear in memory.csv. "daemon" is the daemon
 # itself (which is also CEF's browser process); the rest are CEF's helpers,
-# named after their --type= argument (see docs/learning/cef-host.md).
+# named after their --type= argument (see docs/CEF.md).
 KINDS = ["daemon", "renderer", "gpu", "utility", "zygote", "other"]
 
 

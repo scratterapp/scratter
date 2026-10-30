@@ -48,14 +48,12 @@ Later, by module:
 SDL3, Dear ImGui and CEF aren't installed from pacman: CMake fetches SDL3 and
 ImGui itself (`src/client/CMakeLists.txt`). CEF is built from source with AAC turned on (the prebuilt
 downloads can't decode Apple Music's audio) and unpacked into `third_party/cef/`
-(git-ignored). See spec section 3.1.1; the build script lives on the
-`experiment/cef-widevine` branch for now. Once it's there, the `linux-cef` preset
-builds the daemon with it, and CEF needs a Widevine CDM that a browser installed
+(git-ignored). [`CEF.md`](CEF.md) has the build recipe (spec section 3.1.1 says
+why). Once it's there, the `linux-cef` preset builds the daemon with it, and CEF needs a Widevine CDM that a browser installed
 (`chromium` plus `chromium-widevine` from the AUR, or `google-chrome`). Keep it
 updated: Google revokes old Widevine versions every few months, and a revoked
 one gets no licenses (4.10.2934.0 was refused in October 2026; 4.10.3050.0
-works). See [`learning/cef-host.md`](learning/cef-host.md) and
-[`learning/license-request.md`](learning/license-request.md).
+works).
 
 Build:
 

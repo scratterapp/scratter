@@ -1,5 +1,5 @@
 // The real CefHost, built when the AM_WITH_CEF CMake option is on. See
-// cef_host.hpp for what it does and docs/learning/cef-host.md for how CEF's
+// cef_host.hpp for what it does and docs/CEF.md for how CEF's
 // pieces fit together.
 //
 // Which thread runs what:
@@ -367,7 +367,7 @@ class HostApp final : public CefApp, public CefBrowserProcessHandler {
         command_line->AppendSwitch("disable-gpu-compositing");
         // Chromium would still start a GPU process (to composite the page in
         // software) and an audio service process. Running both on threads of
-        // the daemon instead saves about 75 MB (docs/learning/performance.md).
+        // the daemon instead saves about 75 MB (docs/BENCHMARKS.md).
         command_line->AppendSwitch("in-process-gpu");
         // One switch for both features: a second --disable-features would
         // replace the first. PartitionAllocDanglingPtr is a check for
