@@ -110,6 +110,16 @@ if(WIN32)
     # aborts in a no-exceptions build. ctest reports such a test as Skipped.
     catch_discover_tests(test_win32_shm DISCOVERY_MODE PRE_TEST
                          PROPERTIES SKIP_REGULAR_EXPRESSION "AM_TEST_SKIPPED")
+
+    # The media controls seen from the desktop's side, through Windows' own
+    # session manager (the flyout's API), which needs WinRT. Skipped the same
+    # way where there's no desktop session to find.
+    add_executable(test_smtc_controls test_smtc_controls.cpp)
+    target_link_libraries(test_smtc_controls PRIVATE am_pal am_common Catch2::Catch2WithMain
+                                                     runtimeobject)
+    am_enable_warnings(test_smtc_controls)
+    catch_discover_tests(test_smtc_controls DISCOVERY_MODE PRE_TEST
+                         PROPERTIES SKIP_REGULAR_EXPRESSION "AM_TEST_SKIPPED")
 endif()
 
 if(LINUX)

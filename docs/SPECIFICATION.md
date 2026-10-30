@@ -432,7 +432,7 @@ Because `am-ui` can be closed at any time, OS media integration resides inside `
 
 - **Linux (`MPRIS v2`):** Implemented via `sd-bus` (`libsystemd` C API) claiming bus name `org.mpris.MediaPlayer2.<kAppName>` on the session D-Bus. Implements `org.mpris.MediaPlayer2` and `org.mpris.MediaPlayer2.Player` interfaces, publishing track metadata, artwork URLs, and playback status signals (`PropertiesChanged`), and routing hardware media keys (`PlayPause`, `Next`, `Previous`, `Seek`) directly into the daemon's command dispatcher.
     
-- **Windows (`SMTC`):** Implemented via standard C++/WinRT (`winrt::Windows::Media::SystemMediaTransportControls`) attached to a hidden message-only HWND (`HWND_MESSAGE`) owned by `scratterd`, providing native Windows 11 media flyout integration, thumbnail streaming via `RandomAccessStreamReference`, and hardware media key hooks.
+- **Windows (`SMTC`):** Implemented via `Windows.Media.SystemMediaTransportControls` through the raw WinRT ABI with WRL (C++/WinRT throws, and the project builds without exceptions), attached to a hidden top-level window owned by `scratterd` on a thread of its own that pumps its messages (`GetForWindow` refuses a message-only `HWND_MESSAGE` window with `E_INVALIDARG`), providing native Windows 11 media flyout integration, thumbnail streaming via `RandomAccessStreamReference`, and hardware media key hooks.
     
 
 #### 3.4.2 Stateless Immediate-Mode Frontend (`am-ui`)
@@ -462,7 +462,7 @@ Where both platforms can store the same members, there is a simpler form of the 
 |**Real-Time Thread Priority**|`org.freedesktop.RealtimeKit1` (`MakeThreadRealtime`) or `sched_setscheduler(SCHED_FIFO)`|Multimedia Class Scheduler Service (`AvSetMmThreadCharacteristicsW(L"Pro Audio", &task_idx)`)|
 |**Physical RAM Pinning**|`mlock(ptr, len)` (faults pages in up front)|`VirtualLock(ptr, len)` (after adjusting `SetProcessWorkingSetSizeEx`)|
 |**Credential Vault**|`libsecret-1` (`org.freedesktop.secrets` over D-Bus)|DPAPI (`CryptProtectData`) + Windows Credential Manager (`wincred.h`)|
-|**Desktop Media Controls**|`sd-bus` (`org.mpris.MediaPlayer2.Player`)|C++/WinRT `SystemMediaTransportControls` + `ITaskbarList3`|
+|**Desktop Media Controls**|`sd-bus` (`org.mpris.MediaPlayer2.Player`)|WinRT `SystemMediaTransportControls` (raw ABI with WRL) + `ITaskbarList3`|
 |**Window, Input & Graphics (`am-ui` only)**|Not in the PAL. `am-ui` uses SDL3, which picks Wayland or X11 and draws through `SDL_Renderer` with OpenGL or Vulkan|Not in the PAL. The same SDL3 code; `SDL_Renderer` draws with Direct3D 11 or 12|
 
 The window and graphics row is the exception to this section: SDL3 already hides the platform, so `am-ui` has no platform code and needs no PAL interface (issue #35). Dear ImGui draws through its `imgui_impl_sdl3` and `imgui_impl_sdlrenderer3` backends. If a measurement ever shows `SDL_Renderer` is too slow, or a view needs custom shaders, a hand-written Vulkan or DirectX backend can replace it; that touches only `src/client/main_client.cpp`.
@@ -529,7 +529,7 @@ scratter/
 │   │       ├── mmcss_priority.cpp     # VirtualLock (the MMCSS call is in wasapi_sink.cpp)
 │   │       ├── dpapi_vault.cpp        # DPAPI + Credential Manager
 │   │       ├── console_shutdown.cpp   # SetConsoleCtrlHandler, onto the reactor thread through Reactor::wake()
-│   │       ├── smtc_controls.cpp      # C++/WinRT SystemMediaTransportControls
+│   │       ├── smtc_controls.cpp      # SystemMediaTransportControls (WinRT ABI with WRL), hidden window on its own thread
 │   │       ├── browser_files.cpp      # CEF profile folder and installed Widevine on Windows
 │   │       └── cef_main_args.cpp      # CefMainArgs from GetModuleHandleW(nullptr)
 │   ├── net/                           # Target: am_net (Static Library - Async HTTP & JSON)
@@ -609,6 +609,7 @@ scratter/
     ├── test_credential_vault.cpp      # CredentialVault contract (skips where there's no vault or no keyring running)
     ├── test_media_controls.cpp        # MediaControls contract, daemon side (skips where there's no media control service)
     ├── test_mpris_controls.cpp        # Linux-only: plays the desktop's side of MPRIS over D-Bus (skips with no session bus)
+    ├── test_smtc_controls.cpp         # Windows-only: the desktop's side of SMTC through Windows' session manager (skips with no desktop session)
     ├── test_browser_files.cpp         # Linux-only: where the browser profile goes, and that it's private (0700)
     ├── tsan.supp                      # TSan suppressions for GLib (libsecret's D-Bus thread), used by the linux-tsan preset
     ├── manual/play_sine.cpp           # Not in ctest: plays 440 Hz through the sink, counts late buffers

@@ -53,6 +53,8 @@ Deeper write-ups for finished pieces:
   as the store and DPAPI as the lock.
 - [media-controls.md](media-controls.md): the media keys interface (#55), and
   designing an interface where events come in as well as go out.
+- [smtc.md](smtc.md): the Windows media keys (#9), SMTC on a hidden window,
+  and getting events from WinRT threads back to the reactor.
 - [cef-host.md](cef-host.md): CEF inside the daemon (#76), Chromium's processes,
   the zygote and the "stack smashing" crash, the sandbox, and a second producer
   for the ring buffer.
@@ -483,6 +485,20 @@ started so far get a section here; the rest are summarized after them.
 - **You learn:** D-Bus objects, interfaces, methods, properties and signals, and
   how a C library's socket fits into an event loop.
 - **Read:** [mpris.md](mpris.md).
+
+### #9 Windows: SMTC media keys (kero)
+
+- **How:** `src/pal/win32/smtc_controls.cpp` gets SMTC for a hidden top-level
+  window (a message-only one is refused) that lives on a thread of its own,
+  pumping its messages. The setters post that thread what to show; SMTC's
+  button and seek events land in a queue whose pipe the reactor watches, so the
+  callback runs on the reactor thread. Raw WinRT through WRL, because C++/WinRT
+  throws. `tests/test_smtc_controls.cpp` presses the buttons through Windows'
+  session manager, on its own session only.
+- **You learn:** WinRT underneath C++/WinRT (activation factories, `HSTRING`,
+  event tokens), why a hidden window still needs a message loop, and the
+  self-pipe trick on a completion port.
+- **Read:** [smtc.md](smtc.md).
 
 ### amctl does everything the UI can (shared)
 
