@@ -39,6 +39,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.linux == 'true'
     runs-on: ubuntu-latest
+    # A normal run takes about 5 minutes. Without a limit, a test that hangs
+    # holds the job for GitHub's 6 hours.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -69,7 +72,7 @@ jobs:
       - name: Test
         # dbus-run-session starts a private D-Bus session bus for the run, so
         # the media keys (MPRIS) tests have one to talk over.
-        run: dbus-run-session -- ctest --preset ${{ matrix.preset }}
+        run: dbus-run-session -- ctest --preset ${{ matrix.preset }} --timeout 300
 
   # Phase 1 gate (spec section 6): the IPC frame parser survives 10 million
   # fuzzed inputs under ASan and UBSan. The TSan and ASan test runs in the job
@@ -123,6 +126,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.linux == 'true'
     runs-on: ubuntu-latest
+    # A normal run takes about 5 minutes. Without a limit, a test that hangs
+    # holds the job for GitHub's 6 hours.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -174,7 +180,7 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }}
       - name: Test
         # The usual tests, with a daemon that links CEF but plays the tone.
-        run: dbus-run-session -- ctest --preset ${{ matrix.preset }}
+        run: dbus-run-session -- ctest --preset ${{ matrix.preset }} --timeout 300
       - name: Check hardening
         # The only Release build in CI, so the only one with every flag from
         # cmake/Hardening.cmake (FORTIFY_SOURCE needs optimization). Each grep
@@ -193,6 +199,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.windows == 'true'
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
@@ -203,4 +210,6 @@ jobs:
       - name: Build
         run: cmake --build --preset windows-msvc-debug
       - name: Test
-        run: ctest --preset windows-msvc-debug
+        # --timeout fails a single test that runs over 5 minutes (the slowest
+        # take seconds), so a hang names the test that hung.
+        run: ctest --preset windows-msvc-debug --timeout 300
