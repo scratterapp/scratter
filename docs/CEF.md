@@ -1,8 +1,8 @@
-# The CEF host: a hidden browser inside the daemon (#76)
+# CEF: the hidden browser inside the daemon
 
-The #5 experiment proved that a CEF we build with AAC turned on can play
-Widevine-protected AAC audio and hand us the decoded sound. This is the real
-version of that experiment, inside the daemon:
+The daemon plays Widevine-protected audio through CEF, an invisible Chromium
+(issue #76). Only a CEF we build ourselves with AAC turned on can play Apple
+Music, so this file is also the build recipe. How it runs:
 
 ```
 scratterd --test-film
@@ -56,7 +56,7 @@ CEF code can't quietly stop building.
 use `linux-cef-release` instead (the same commands with that name, and
 `./build/linux-cef-release/scratterd`): the same code with the compiler's
 optimizations on, which takes about 4% of a CPU core less
-([performance.md](performance.md#debug-and-optimized-builds)).
+([BENCHMARKS.md](BENCHMARKS.md)).
 
 ## Building CEF with AAC
 
@@ -73,8 +73,7 @@ python3 automate-git.py --download-dir=$HOME/cef-build/download --branch=7871 --
 - `proprietary_codecs` and `ffmpeg_branding=Chrome` turn AAC on.
 - `is_official_build` builds CEF the way Google and CEF ship it: optimized,
   and without the checks meant for Chromium's own developers. Leaving it off
-  cost about 180 MB and 2 points of CPU
-  ([performance.md](performance.md#the-shutdown-crash-was-a-developer-check)).
+  cost about 180 MB and 2 points of CPU ([BENCHMARKS.md](BENCHMARKS.md)).
 - `use_thin_lto=false`, `is_cfi=false` and `chrome_pgo_phase=0` switch off
   three extras official builds normally add: link-time optimization (needs far
   more RAM to link than a 16 GB machine has), a security check that depends on
@@ -117,7 +116,7 @@ can't take the rest down. CEF keeps that:
 | --- | --- |
 | browser | The daemon itself. Runs CEF's UI thread and our `PageClient`. |
 | renderer | Runs the page: HTML, JavaScript, Shaka Player. |
-| GPU | Drawing. We turn the GPU off, and the little software drawing that's left runs on a thread of the daemon instead of in a process of its own ([performance.md](performance.md#the-shutdown-crash-was-a-developer-check)). |
+| GPU | Drawing. We turn the GPU off, and the little software drawing that's left runs on a thread of the daemon instead of in a process of its own (`--in-process-gpu`, about 75 MB saved). |
 | audio service | Decodes and mixes the page's sound for the browser process. Also a thread of the daemon, for the same reason. |
 | utility: CDM | Runs Google's Widevine library to decrypt the film. |
 | zygote | A template process the others are copied from (Linux only, see below). |
@@ -190,8 +189,7 @@ closes, which is why this has to happen before `CefInitialize()`.
 Chromium's updater would also download Widevine and other components on its
 own, so the daemon passes `--disable-component-update`. That makes keeping
 Widevine current the system package's job: Google revokes old versions, and a
-revoked one is refused every license
-([license-request.md](license-request.md)).
+revoked one is refused every license (4.10.2934.0 was, in October 2026).
 
 Windows Chromium ignores the hint file. There it registers Widevine only
 through that same updater, which `--disable-component-update` turns off along
@@ -270,7 +268,7 @@ throws away whatever reaches the ring buffer while paused or stopped, and on
 play waits for ~85 ms of fresh sound before it starts. The cost is skipping
 about the last 0.1 s before the pause, which you don't notice. Since #1 the
 sound also fades in over 10 ms on play and out over 10 ms on pause, so the jump
-doesn't click; see [fade.md](fade.md).
+doesn't click.
 
 ## Play, pause, stop
 
@@ -293,7 +291,7 @@ On the machine with the AAC build, open a terminal:
 
 ```sh
 git fetch origin
-git switch feature/cef-host
+git switch --detach origin/main
 cmake --preset linux-cef
 cmake --build --preset linux-cef
 ./build/linux-cef/scratterd --test-film
@@ -321,7 +319,7 @@ with a few seconds that aren't encrypted, so if you hear 3 to 10 seconds and
 then silence, the license was refused and nothing was decrypted. Look for
 `page: the license server answered` in the output: until 2026-10-18 that was
 `DRM_DEVICE_CERTIFICATE_REVOKED`, because the installed Widevine was too old
-(issue #21, [license-request.md](license-request.md)). The page logs each
+(issue #21). The page logs each
 license request and what's in it (`page: license request: ...`), each license
 that arrives (`page: license answer: ...`) and, if the film stops after an
 error, loads it again from the same spot ("page: reloading the film").
@@ -329,15 +327,3 @@ error, loads it again from the same spot ("page: reloading the film").
 `scratterd --clear-film` plays Google's unencrypted copy of the same film, to
 test everything but Widevine.
 
-## What you learn
-
-- How a Chromium-based program is really several processes, and why.
-- Stack canaries, `fork()`, and why a crash message can point at the wrong
-  culprit.
-- What a sandbox is and how Linux user namespaces make one.
-- Running a library's event loop on its own thread next to yours, and handing
-  work between threads with posted tasks.
-- A second producer for the same lock-free ring buffer, and why only one may
-  run at a time.
-- Keeping an optional, heavy dependency behind a build option so everyone else
-  can still build.

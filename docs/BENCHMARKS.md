@@ -13,7 +13,7 @@ Always the same way, so the numbers compare:
 - **Build:** the `linux-cef-release` preset (our code optimized; `libcef.so`
   is a release build either way). The first two lines of the log used the
   `linux-cef` debug build, before that preset existed. From 2026-10-20, CEF
-  itself is an official build ([learning/cef-host.md](learning/cef-host.md#building-cef-with-aac));
+  itself is an official build ([CEF.md](CEF.md#building-cef-with-aac));
   the lines before that used an unofficial one.
 - **What plays:** `./build/linux-cef-release/scratterd --test-film`, the
   Widevine test film, left playing for a minute first.
@@ -28,8 +28,24 @@ Always the same way, so the numbers compare:
   yet.
 - **Our audio code alone:** `./build/linux-release/bench/audio_render`.
 
-[`learning/performance.md`](learning/performance.md) explains what each number
-means.
+What the memory columns mean. Every CEF process maps the same `libcef.so`, and
+the parts of it in use sit in RAM once, shared by all of them, so Linux's counts
+disagree:
+
+- **RSS** is everything of one process that's in RAM, shared pages included.
+  Adding up RSS counts the shared part of `libcef.so` once per process.
+- **PSS** splits each shared page between the processes sharing it. Added up, it's
+  what the whole thing really costs the machine: the number to hold against the
+  goal. The kernel only shows it to whoever could attach a debugger, so the
+  sandboxed processes need `sudo` (the script only reads `/proc`).
+- **Own memory** (anonymous plus shared memory, what the soak test watches) is
+  what the processes asked for themselves: heaps, buffers, caches. It leaves out
+  code loaded from files, so it's a floor.
+
+**wakeups/s** is how often a process's threads were switched onto a CPU each
+second, from `/proc/PID/task/*/status`. In the daemon's thread list, two threads
+are ours: the reactor (named `scratterd`) and PipeWire's audio thread
+(`pw-data-loop` or `data-loop.0`); the rest are Chromium's.
 
 ## Baseline: 2026-10-19
 
@@ -83,7 +99,7 @@ One line per change that moved a number, newest last.
 | 2026-10-19 | #30: the sound output sleeps once a pause has faded out. The daemon's PipeWire thread goes from 47 wake-ups a second to none while paused | 676 MB | 4.7% | 0.6% | 36 |
 | 2026-10-20 | `main` (with #30) measured again, just before the next line | 638 MB | 4.7% | | |
 | 2026-10-20 | #31: Chromium's GPU process and audio service run inside the daemon. 12 processes to 9; the memory they own goes from 421 to 344 MB | 599 MB | 4.8% | | |
-| 2026-10-20 | CEF rebuilt the official way (`is_official_build=true`, [learning/cef-host.md](learning/cef-host.md#building-cef-with-aac)): no developer checks, Chromium's own allocator settings for releases. Every process got smaller; the memory they own went from 344 to 256 MB | 422 MB | 2.7% | | |
+| 2026-10-20 | CEF rebuilt the official way (`is_official_build=true`, [CEF.md](CEF.md#building-cef-with-aac)): no developer checks, Chromium's own allocator settings for releases. Every process got smaller; the memory they own went from 344 to 256 MB | 422 MB | 2.7% | | |
 
 Two runs of the same code can differ by a few points, mostly in Chromium's
 network process: it used 2.6% in the first #29 run and 4.3% in the second.
@@ -131,8 +147,8 @@ Guesses, not measurements, roughly cheapest first:
   process during a quiet run found nothing to explain it, so the next step is
   one during a busy run. One unchecked guess is the system reporting network
   changes over and over (`ip monitor` would show that). It isn't Shaka loading
-  ahead: in a cloud Chromium, Shaka stops downloading once paused
-  ([learning/performance.md](learning/performance.md#what-the-page-does-while-paused)).
+  ahead: in a cloud Chromium (Shaka 4.11.2), Shaka downloaded a piece every
+  4 seconds while playing and nothing at all once paused.
 - **A smaller JavaScript heap** for the page, which runs in the renderer
   (167 MB).
 - **A faster resampler.** Optimized, our audio code takes about 0.3% of a
@@ -140,5 +156,5 @@ Guesses, not measurements, roughly cheapest first:
   instruction) could cut that further, but it's a small share now.
 - **Chromium's network service in the daemon**
   (`--enable-features=NetworkServiceInProcess2`), up to about 50 MB, at the
-  cost of the sandbox around the code that reads data from the internet
-  ([learning/performance.md](learning/performance.md#what-else-could-go)).
+  cost of the sandbox around the code that reads data from the internet,
+  which would then sit next to the Apple Music login.

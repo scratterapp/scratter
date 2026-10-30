@@ -135,7 +135,7 @@ if(LINUX)
 
     # A few seconds of the soak test (tools/soak/soak.py) against the tone with
     # no sound card, so the script keeps working with the daemon it measures.
-    # The real run is hours long and by hand (docs/learning/soak-test.md).
+    # The real run is hours long and by hand (see the script's own help).
     find_package(Python3 COMPONENTS Interpreter)
     if(Python3_FOUND)
         set(soak_dir "${CMAKE_CURRENT_BINARY_DIR}/soak_smoke")

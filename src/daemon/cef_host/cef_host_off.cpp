@@ -10,7 +10,7 @@ struct CefHost::Impl {};
 
 std::expected<CefHost, std::string> CefHost::start(const CefHostOptions&, audio::AudioPath&) {
     return std::unexpected("this daemon was built without CEF. Build it with the linux-cef "
-                           "preset (or -DAM_WITH_CEF=ON), see docs/learning/cef-host.md");
+                           "preset (or -DAM_WITH_CEF=ON), see docs/CEF.md");
 }
 
 CefHost::CefHost(std::unique_ptr<Impl> impl) noexcept : impl_(std::move(impl)) {}

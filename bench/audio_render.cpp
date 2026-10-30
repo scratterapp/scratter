@@ -12,7 +12,7 @@
 //
 // Compare a debug build (linux-debug, linux-cef) with an optimized one
 // (linux-release, linux-cef-release): the code is the same, only the compiler
-// settings differ. docs/learning/performance.md has the numbers.
+// settings differ. docs/BENCHMARKS.md has the numbers.
 
 #include "daemon/audio_engine/audio_path.hpp"
 #include "daemon/audio_engine/sine_generator.hpp"

@@ -27,9 +27,12 @@ Read these before writing code, in this order:
 3. [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) is the full technical spec, including
    the bootstrap order (section 5) and the phase roadmap with verification gates (section 6).
 4. [`docs/RATIONALE.md`](docs/RATIONALE.md) covers why this exists versus Cider and the official app.
-5. [`docs/COLLABORATION.md`](docs/COLLABORATION.md) covers how the two platform owners work in parallel.
-6. [`docs/learning/README.md`](docs/learning/README.md) walks through how to do each roadmap
-   issue and what it teaches. The pinned roadmap issue on GitHub tracks what's done.
+5. [`docs/COLLABORATION.md`](docs/COLLABORATION.md) covers how the two platform owners work in
+   parallel, and the steps for working an issue. The pinned roadmap issue on GitHub tracks
+   what's done and what's next.
+
+For anything touching CEF, [`docs/CEF.md`](docs/CEF.md) explains how the hidden browser
+runs inside the daemon and how to build our CEF with AAC.
 
 For performance work, [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) has the measured
 baseline, the goals and how to measure; add a line to its log for every change
@@ -146,7 +149,7 @@ Sanitizer builds use the same three commands with a different preset:
   (`tests/fuzz_*.cpp`); its ctest run includes a short smoke run of each fuzzer.
 - `linux-cef` is `linux-debug` with `AM_WITH_CEF=ON`: the daemon links our CEF
   build from `third_party/cef/linux64` (see
-  [`docs/learning/cef-host.md`](docs/learning/cef-host.md)). Without it, CEF code
+  [`docs/CEF.md`](docs/CEF.md)). Without it, CEF code
   isn't compiled and `--test-film` says so.
 - `linux-cef-release` is `linux-cef` with our code optimized (a Release build).
   Use it for listening and for measuring performance (`docs/BENCHMARKS.md`): the

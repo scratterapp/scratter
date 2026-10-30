@@ -1,7 +1,7 @@
 # Our patches to CEF and Chromium
 
 Applied to the Chromium checkout before building our CEF. How and when to apply
-them: [`docs/learning/cef-host.md`](../../docs/learning/cef-host.md#our-patch-to-chromium-windows).
+them: [`docs/CEF.md`](../../docs/CEF.md#our-patch-to-chromium-windows).
 
 | Patch | Platforms | What it does |
 | --- | --- | --- |

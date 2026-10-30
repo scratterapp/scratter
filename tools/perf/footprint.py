@@ -33,7 +33,7 @@ PSS and GPU need the same access as a debugger. Chromium's sandboxed processes
 refuse that to normal users, so without sudo those columns show "?" for them.
 sudo only reads /proc here; it doesn't start or change anything.
 
-Linux only. Needs Python 3 and nothing else. docs/learning/performance.md
+Linux only. Needs Python 3 and nothing else. docs/BENCHMARKS.md
 explains the numbers.
 """
 
