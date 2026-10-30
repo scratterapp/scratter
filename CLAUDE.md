@@ -64,7 +64,7 @@ ALSA sink and most of `am-ui`. It opens its window (SDL3 + Dear ImGui, drawn thr
 `SDL_Renderer`, so no platform code; issue #35), and its connection to the daemon is
 real: `am_client_core` (`src/client/daemon_link.hpp`, `ui_state.hpp`) connects on its own
 thread, sends commands, follows the state, reconnects, and reads the telemetry page. The
-window doesn't show any of that yet (#37). On Windows, `smtc_controls.cpp` is the last
+window shows it: a now-playing view with play/pause, stop and volume (#37). On Windows, `smtc_controls.cpp` is the last
 stub in `src/pal/win32/`: it fails with "not supported" so the daemon links. It configures,
 builds and passes its tests on Linux and Windows. Catch2, SDL3 and Dear ImGui (via `FetchContent`, pinned by commit) and,
 on Linux, PipeWire, libsecret and libsystemd's sd-bus (system packages via `pkg-config`) are the only
