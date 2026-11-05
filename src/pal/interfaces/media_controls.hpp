@@ -5,7 +5,8 @@
 // controls over Bluetooth (spec section 3.4.1).
 //
 //   Linux:    MPRIS v2 over D-Bus, with sd-bus, #56
-//   Windows:  SystemMediaTransportControls (SMTC), with C++/WinRT, #9
+//   Windows:  SystemMediaTransportControls (SMTC), through the WinRT ABI with WRL
+//             (C++/WinRT throws, and we build without exceptions), #9
 //
 // They live in the daemon, not in am-ui, so the keys keep working with the UI
 // closed. Traffic goes both ways:
