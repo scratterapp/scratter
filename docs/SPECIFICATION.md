@@ -331,6 +331,8 @@ In the repo this lives in `src/common/ipc_protocol.hpp` under `am::common`, next
 | `SetVolumeReq` | `SetVolumeBody` | 1 | `volume_percent`: 0 to 100 |
 | `CommandAck`, `CommandNak` | `CommandResultBody` | 16 | `request_seq_id` (u64, the request's `seq_id`), `request_opcode` (u8), `status` (u8: 0 Ok, 1 BadRequest, 2 NotSupported, 3 Failed; Ack carries Ok, Nak the others), 6 reserved zero bytes |
 | `PlaybackStateEvent` | `PlaybackStateBody` | 16 | `position_micros` (u64), `state` (u8, the telemetry page's `PlaybackState`), `volume_percent` (u8), 6 reserved zero bytes |
+| `LoadTrackReq` | `LoadTrackBody` | 16 | `catalog_id` (u64, 0 for the test sources), `source` (u8: 0 Tone, 1 ClearFilm, 2 WidevineFilm; Catalog comes with Apple Music), 7 reserved zero bytes. A daemon built without CEF answers the films with `CommandNak` / `NotSupported`. |
+| `TrackChangedEvent` | `TrackChangedBody` | 88 | `catalog_id` (u64), `duration_micros` (u64, 0 for the tone or when not known yet), `source` (u8), 7 reserved zero bytes, `title`: 64 bytes of UTF-8, zero-padded, cut at a character boundary. Sent after each switch and right after `HelloAck`. |
 
 The other opcodes get bodies when the code that needs them is written. Until the first release, adding opcodes or bodies keeps `kProtocolVersion` at 2; after it, any change to an existing body's layout or meaning bumps it.
 
