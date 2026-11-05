@@ -1,0 +1,5 @@
+// am-ui's icon, built into am-ui.exe. The first icon in an exe is the one
+// Explorer and the taskbar show, and SDL takes the same one for the window's
+// title bar. scratter.ico comes from make-icon.ps1.
+
+1 ICON "scratter.ico"

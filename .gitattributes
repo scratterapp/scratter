@@ -12,3 +12,4 @@ CMakeLists.txt text eol=lf
 *.md text eol=lf
 *.patch text eol=lf
 *.ttf binary
+*.ico binary

@@ -125,11 +125,14 @@ that run would have shown about 83 wake-ups a second paused instead of 36
 
 Its own table, since the window comes and goes and its numbers don't add to the
 daemon's. Measured with the window open and the mouse off it, CPU from
-`/proc/<pid>/stat` over 30 s, memory from `/proc/<pid>/smaps_rollup`.
+`/proc/<pid>/stat` over 30 s, memory from `/proc/<pid>/smaps_rollup` on Linux,
+and from `Get-Process am-ui` (`TotalProcessorTime`, `WorkingSet64`,
+`PrivateMemorySize64`) on Windows, which has no PSS.
 
 | Date | Change | CPU idle | PSS | Where |
 | --- | --- | --- | --- | --- |
 | 2026-10-27 | #35: the first window, redrawn only after an event (debug build) | 0.0% (no frames drawn) | 102 MB | Cloud container: Xvfb and Mesa's software renderer, no GPU. Most of the memory is Mesa's LLVM; expect less with a real GPU driver |
+| 2026-11-04 | #42: the same window on Windows, Release build, drawn with direct3d11, connected to `scratterd --clear-film` | 0.16% playing (one redraw a second), 0.10% paused | 63 MB working set, 72 MB private | kero's Windows 11 machine, 150% display scale. CPU from the process's processor time over 30 s. The debug build uses 1.7% playing |
 
 While writing #35, a version that also redrew once a second used 4.8% idle on
 that software renderer. The clock tick now only runs while something plays

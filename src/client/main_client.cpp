@@ -225,7 +225,10 @@ int main(int argc, char** argv) {
         return 1;
     }
     am::client::TelemetryReader telemetry{std::string{am::pal::kDaemonEndpoint}};
-    am::client::NowPlayingView now_playing;
+    // Which renderer SDL picked (direct3d11 on Windows, opengl or vulkan on
+    // Linux), for the now-playing view's Details line.
+    const char* renderer_name = SDL_GetRendererName(renderer.get());
+    am::client::NowPlayingView now_playing{renderer_name != nullptr ? renderer_name : ""};
 
     am::client::FramePacer pacer;
     pacer.set_animating(options->frame_limit.has_value());
