@@ -57,9 +57,10 @@ endif()
 
 # The Windows counterparts of test_epoll_reactor, test_unix_seqpacket_ipc and
 # test_pipewire_sink: watching handles with the IOCP reactor, plus the Windows
-# specifics of its wakeup and timer, the named pipe channel and the WASAPI sink.
+# specifics of its wakeup and timer, the named pipe channel and the WASAPI sink,
+# and test_console_shutdown (Ctrl-C with a second console handler, as CEF adds).
 if(WIN32)
-    list(APPEND AM_TESTS test_iocp_reactor test_named_pipe_ipc test_wasapi_sink)
+    list(APPEND AM_TESTS test_iocp_reactor test_named_pipe_ipc test_wasapi_sink test_console_shutdown)
 endif()
 
 

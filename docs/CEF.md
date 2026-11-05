@@ -239,6 +239,10 @@ producer, so the daemon never runs both.
 Signals: Chromium normally unblocks Ctrl-C and SIGTERM and installs its own
 handlers. That would steal them from the daemon's `signalfd`
 (`shutdown_signal.hpp`), so `disable_signal_handlers = true` tells it not to.
+That setting only exists on Linux and macOS. On Windows, Chromium always adds a
+console handler that ends the process on Ctrl-C, and Windows asks the newest
+handler first. So right after starting CEF the daemon calls
+`ShutdownSignal::reclaim()`, which puts its own handler back in front.
 
 ## Audio: planar to interleaved, at the sink's rate
 
