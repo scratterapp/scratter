@@ -66,6 +66,15 @@ add_executable(am-ui
 target_link_libraries(am-ui PRIVATE am_client_core am_imgui am_net am_pal am_common)
 am_enable_warnings(am-ui)
 
+# On Windows: the icon, and in Release a GUI program (WIN32_EXECUTABLE), so
+# starting it from Explorer or the Start menu doesn't open a console window as
+# well. SDL_main.h, included in main_client.cpp, supplies the WinMain that needs.
+# Debug keeps the console, where the "am-ui: ..." error messages go.
+if(WIN32)
+    target_sources(am-ui PRIVATE "${PROJECT_SOURCE_DIR}/packaging/windows/am-ui.rc")
+    set_target_properties(am-ui PROPERTIES WIN32_EXECUTABLE $<NOT:$<CONFIG:Debug>>)
+endif()
+
 # The fonts, compiled in (fonts/README.md says where they come from).
 include(EmbedFile)
 am_embed_file(am-ui ${CMAKE_CURRENT_SOURCE_DIR}/fonts/AtkinsonHyperlegible-Regular.ttf atkinson_regular)

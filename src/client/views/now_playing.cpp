@@ -250,6 +250,11 @@ void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
         } else {
             ImGui::TextUnformatted("No telemetry page yet");
         }
+        if (!renderer_.empty()) {
+            ImGui::SetCursorPosX(margin + em);
+            const std::string drawn = "Drawn with " + renderer_;
+            ImGui::TextUnformatted(drawn.c_str());
+        }
     }
     ImGui::PopStyleColor();
 

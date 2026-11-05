@@ -550,7 +550,7 @@ scratter/
 │   │       ├── drift_controller.hpp   # EMA + PI controller: ring buffer fill -> playback ratio
 │   │       └── polyphase_resampler.hpp # 16-tap windowed-sinc resampler at that ratio (scalar for now)
 │   └── client/                        # Target: am-ui (Executable - Links am_client_core, am_common, am_pal, am_net, SDL3, ImGui)
-│       ├── CMakeLists.txt             # am-ui, plus SDL3 and Dear ImGui via FetchContent and the embedded fonts
+│       ├── CMakeLists.txt             # am-ui, plus SDL3 and Dear ImGui via FetchContent and the embedded fonts; on Windows the icon, and no console window in Release
 │       ├── main_client.cpp            # SDL3 window, ImGui setup, the render loop and the player's keys
 │       ├── frame_pacer.hpp            # When to draw and how long to sleep (adaptive render loop, 3.4.2)
 │       ├── theme.hpp / theme.cpp      # Colors, spacing and fonts
@@ -575,6 +575,8 @@ scratter/
 ├── bench/                             # Hand-run benchmarks, not in ctest
 │   ├── ipc_ping_pong.cpp              # IPC round-trip latency (target: median under 25 µs)
 │   └── audio_render.cpp               # CPU our audio code (write_planar, render) takes per second of audio
+├── packaging/
+│   └── windows/                       # am-ui.rc (the icon in am-ui.exe), scratter.ico, and make-icon.ps1, which builds it from docs/assets/scratter-logo.png
 ├── third_party/
 │   ├── cef/                           # Our CEF build goes here (linux64/, windows64/); ignored by git
 │   └── cef-patches/                   # Our patches to Chromium, applied before building CEF

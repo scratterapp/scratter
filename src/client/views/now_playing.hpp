@@ -14,6 +14,8 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <utility>
 
 namespace am::client {
 
@@ -25,12 +27,18 @@ struct PlayerKeys {
 
 class NowPlayingView {
   public:
+    // `renderer` is the name of what SDL draws with (SDL_GetRendererName:
+    // "direct3d11", "opengl", "vulkan"), shown in the Details line.
+    explicit NowPlayingView(std::string renderer) : renderer_(std::move(renderer)) {}
+
     // Fills the whole SDL window. Call between ImGui::NewFrame() and
     // ImGui::Render(), only while `state.status` is Connected.
     void draw(const Fonts& fonts, const DaemonState& state, const TelemetryReader& telemetry,
               DaemonLink& link, PlayerKeys keys);
 
   private:
+    std::string renderer_;
+
     // The volume this window last asked for, until the daemon answers. Up
     // pressed three times quickly should go up three steps, not three times
     // one step from the old value the daemon hasn't changed yet.

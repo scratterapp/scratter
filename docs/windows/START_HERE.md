@@ -155,6 +155,7 @@ Answered by #9 (`smtc_controls.cpp`):
 | #10 | DPAPI + Credential Manager vault, `dpapi_vault.cpp` | #52 (CredentialVault) |
 | #9 | SMTC media controls, `smtc_controls.cpp` | #55 (MediaControls) and #14 |
 | #8 | CEF built with AAC on Windows, `browser_files.cpp`, the CEF host on Windows | #76 (CEF host), and #14 to hear anything |
+| #42 | `am-ui` on Windows: a GUI program in Release, the app icon (`packaging/windows/`), the #37 hand test | #37 (now-playing view) |
 
 #8 and #14 can start as soon as their interface PR merges. The Linux versions are
 up as working references: POSIX shm in #35, epoll in #33, the SEQPACKET channel in
