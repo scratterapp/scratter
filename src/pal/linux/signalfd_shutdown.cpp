@@ -77,6 +77,11 @@ std::expected<ShutdownSignal, std::error_code> ShutdownSignal::watch(Reactor& re
 
 ShutdownSignal::ShutdownSignal(std::unique_ptr<Impl> impl) noexcept : impl_(std::move(impl)) {}
 
+// Nothing to take back: the signals stay blocked and reach the signalfd
+// whatever handlers are installed, and CEF is told to leave them alone
+// (CefSettings::disable_signal_handlers in cef_host.cpp).
+std::expected<void, std::error_code> ShutdownSignal::reclaim() { return {}; }
+
 ShutdownSignal::~ShutdownSignal() {
     if (!impl_) {
         return; // moved from

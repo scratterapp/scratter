@@ -14,6 +14,13 @@
 // soon as the handler returns, or after about 5 seconds if it doesn't. So for
 // that one the handler waits until the ShutdownSignal is destroyed, which in
 // the daemon is near the end of its cleanup.
+//
+// Windows asks the newest handler first, and the first one to return TRUE
+// ends the search. CEF adds one of its own when it starts (Chromium's
+// BrowserConsoleControlHandler, which ends the process without our cleanup),
+// so after that ours isn't asked at all. reclaim() adds ours again, newest
+// once more. Windows keeps a list, not a set, so the same handler can be in
+// it twice; the destructor takes out as many copies as were put in.
 
 #include "shutdown_signal.hpp"
 
@@ -85,6 +92,9 @@ BOOL WINAPI on_console_event(DWORD event) {
 struct ShutdownSignal::Impl {
     Reactor* reactor = nullptr;
     Callback on_shutdown;
+    // How many times on_console_event is in Windows' handler list: once from
+    // watch(), plus one per reclaim().
+    int handlers_added = 1;
 };
 
 std::expected<ShutdownSignal, std::error_code> ShutdownSignal::watch(Reactor& reactor,
@@ -132,6 +142,14 @@ std::expected<ShutdownSignal, std::error_code> ShutdownSignal::watch(Reactor& re
 
 ShutdownSignal::ShutdownSignal(std::unique_ptr<Impl> impl) noexcept : impl_(std::move(impl)) {}
 
+std::expected<void, std::error_code> ShutdownSignal::reclaim() {
+    if (::SetConsoleCtrlHandler(on_console_event, TRUE) == 0) {
+        return last_error();
+    }
+    ++impl_->handlers_added;
+    return {};
+}
+
 ShutdownSignal::~ShutdownSignal() {
     if (!impl_) {
         return; // moved from
@@ -146,7 +164,9 @@ ShutdownSignal::~ShutdownSignal() {
     // Lets a handler that's holding off a console close return. Done before
     // removing the handler, in case Windows waits for a running one first.
     ::SetEvent(g_released);
-    ::SetConsoleCtrlHandler(on_console_event, FALSE);
+    for (int i = 0; i < impl_->handlers_added; ++i) {
+        ::SetConsoleCtrlHandler(on_console_event, FALSE);
+    }
     impl_->reactor->set_wake_callback(nullptr);
 }
 

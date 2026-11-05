@@ -44,6 +44,15 @@ class ShutdownSignal {
     [[nodiscard]] static std::expected<ShutdownSignal, std::error_code> watch(Reactor& reactor,
                                                                               Callback on_shutdown);
 
+    // Takes the quit signals back from a library that has caught them since
+    // watch(). Call it after starting one that does. CEF on Windows does:
+    // Chromium adds its own console handler during start-up, Windows asks the
+    // newest handler first, and Chromium's ends the process on the spot,
+    // skipping the daemon's cleanup. On Linux there's nothing to take back
+    // (CefSettings::disable_signal_handlers keeps Chromium off the signals),
+    // so it returns success without doing anything.
+    [[nodiscard]] std::expected<void, std::error_code> reclaim();
+
     // Puts the default reaction back. Destroy it before the reactor, and not
     // from inside its own callback.
     ~ShutdownSignal();

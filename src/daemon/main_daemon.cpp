@@ -250,6 +250,13 @@ int main(int argc, char** argv) {
             return kExitSetupFailed;
         }
         cef.emplace(std::move(*started));
+        // On Windows, CEF has just put Chromium's own Ctrl-C handler in front
+        // of ours, and it would end the process without the cleanup below.
+        if (auto reclaimed = shutdown->reclaim(); !reclaimed) {
+            std::fprintf(stderr, "couldn't take Ctrl-C back from CEF: %s\n",
+                         reclaimed.error().message().c_str());
+            return kExitSetupFailed;
+        }
     }
 
     // 5. Telemetry. The page is built in place at the start of the shared
