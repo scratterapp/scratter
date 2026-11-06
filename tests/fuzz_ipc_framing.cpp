@@ -74,6 +74,17 @@ void check_payload(Opcode opcode, std::span<const std::byte> payload) {
     case Opcode::PlaybackStateEvent:
         check_body<PlaybackStateBody>(payload);
         break;
+    case Opcode::LoadTrackReq:
+        check_body<LoadTrackBody>(payload);
+        break;
+    case Opcode::TrackChangedEvent:
+        check_body<TrackChangedBody>(payload);
+        if (const auto body = decode_body<TrackChangedBody>(payload)) {
+            if (track_title(*body).size() > kTrackTitleBytes) {
+                std::abort();
+            }
+        }
+        break;
     case Opcode::PlayReq:
     case Opcode::PauseReq:
     case Opcode::StopReq:
