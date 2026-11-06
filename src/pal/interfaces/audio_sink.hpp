@@ -48,6 +48,18 @@ struct AudioFormat {
     std::uint32_t channels = 2;
 };
 
+// Whether we share the output device with other apps.
+//
+// Exclusive isn't bit-perfect: the drift resampler still touches every
+// sample, and the daemon asks for 48 kHz whatever the source is. What it
+// skips is the OS mixer and its resampling. A real bit-perfect path (the
+// source's own rate, resampler bypassed when nothing needs adjusting) can be
+// added later.
+enum class OutputMode : std::uint8_t {
+    Shared,    // the OS mixes us with other apps and may resample (PipeWire, WASAPI shared)
+    Exclusive, // we own the device, nothing else plays (WASAPI exclusive, later ALSA hw:)
+};
+
 class AudioSink {
   public:
     // Fills `out` with out.size() / channels frames of interleaved samples.
@@ -55,10 +67,21 @@ class AudioSink {
     using RenderCallback = std::move_only_function<void(std::span<float> out) noexcept>;
 
     // Connects to the OS audio system and sets up a stream asking for
-    // `requested`. Nothing plays until start(). The OS may pick a different
-    // rate (or channel count); format() says what it actually gave us.
+    // `requested`. Nothing plays until start().
+    //
+    // Shared: the OS may pick a different rate (or channel count); format()
+    // says what it actually gave us.
+    //
+    // Exclusive: the stream runs at exactly `requested`, or open() fails.
+    // It never falls back to shared mode on its own; the caller decides that.
+    //   - std::errc::not_supported: the device can't do this format, or this
+    //     platform has no exclusive mode yet (Linux until the ALSA sink, #7).
+    //   - std::errc::device_or_resource_busy: another app holds the device.
+    // The callback still gets floats; the sink converts them to whatever
+    // sample format the device takes. The device stays ours until the sink is
+    // destroyed, through stop() and start() too.
     [[nodiscard]] static std::expected<AudioSink, std::error_code>
-    open(const AudioFormat& requested, RenderCallback render);
+    open(const AudioFormat& requested, RenderCallback render, OutputMode mode = OutputMode::Shared);
 
     // Stops the stream if it's running, like stop(): once the destructor
     // returns, the render callback isn't running and never will again.
@@ -76,8 +99,13 @@ class AudioSink {
     // allowed.
     std::expected<void, std::error_code> stop();
 
-    // The format the OS agreed to. Valid right after open().
+    // The format the OS agreed to. Valid right after open(). In Exclusive
+    // mode it's always the format that was asked for.
     [[nodiscard]] AudioFormat format() const noexcept;
+
+    // The mode open() got: what was asked for, since it fails rather than
+    // fall back. Fills the telemetry page's exclusive_mode_active.
+    [[nodiscard]] OutputMode mode() const noexcept;
 
   private:
     struct Impl;

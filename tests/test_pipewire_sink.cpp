@@ -94,3 +94,19 @@ TEST_CASE("bad formats are rejected before touching PipeWire", "[audio][pipewire
     REQUIRE_FALSE(zero_rate);
     CHECK(zero_rate.error() == std::errc::invalid_argument);
 }
+
+TEST_CASE("a shared sink says so, and exclusive mode is refused", "[audio][pipewire]") {
+    Counters counters;
+    if (auto sink = open_silent_sink(counters)) {
+        CHECK(sink->mode() == am::pal::OutputMode::Shared);
+    } else {
+        WARN("no PipeWire daemon, not testing the shared sink: " << sink.error().message());
+    }
+
+    // PipeWire always mixes; exclusive output waits for the ALSA hw: sink (#7).
+    auto exclusive = AudioSink::open(
+        {.sample_rate_hz = 48000, .channels = 2}, [](std::span<float>) noexcept {},
+        am::pal::OutputMode::Exclusive);
+    REQUIRE_FALSE(exclusive);
+    CHECK(exclusive.error() == std::errc::not_supported);
+}

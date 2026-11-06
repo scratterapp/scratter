@@ -76,8 +76,10 @@ From the PR bodies. Answer on the PR, even after it's merged.
    the mix format's rate unless you pass `AUTOCONVERTPCM`?
 2. HRESULTs: is `system_category` (which covers the `HRESULT_FROM_WIN32` ones)
    enough, or do we want a small HRESULT error category later?
-3. Exclusive mode (#13) isn't in the interface yet. The plan is an option on
-   `open()` when we get there. OK?
+3. Exclusive mode (#13): settled on #13. `open()` takes an `OutputMode`
+   (`Shared` or `Exclusive`); exclusive fails with `not_supported` or
+   `device_or_resource_busy` instead of falling back, and `mode()` says which
+   one you got.
 
 **#30 / #31**
 

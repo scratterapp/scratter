@@ -504,7 +504,7 @@ scratter/
 │   │   │   ├── reactor.hpp            # Reactor: handle watches, wakeup, one timer
 │   │   │   ├── ipc_channel.hpp        # SeqPacket / NamedPipe framing abstraction
 │   │   │   ├── shm_mapping.hpp        # POSIX shm / Win32 FileMapping RAII wrappers
-│   │   │   ├── audio_sink.hpp         # Real-time PCM consumer (shared and bit-perfect modes)
+│   │   │   ├── audio_sink.hpp         # Real-time PCM consumer (shared and exclusive modes)
 │   │   │   ├── realtime.hpp           # Physical RAM pinning (mlock / VirtualLock)
 │   │   │   ├── shutdown_signal.hpp    # Ctrl-C / SIGTERM as a reactor callback
 │   │   │   ├── credential_vault.hpp   # Keyring / DPAPI token storage interface
