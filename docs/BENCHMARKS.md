@@ -138,6 +138,36 @@ While writing #35, a version that also redrew once a second used 4.8% idle on
 that software renderer. The clock tick now only runs while something plays
 (`FramePacer::set_ticking`).
 
+### Start-up, and closing it while music plays
+
+The spec's phase 5 gate: open and close the window 50 times while the daemon
+plays, with no glitch in the sound, and see how fast it starts. Measured with
+
+```sh
+cmake --preset linux-cef-release
+cmake --build --preset linux-cef-release
+python3 tools/relaunch/relaunch.py
+```
+
+which plays `--clear-film`, opens the window 50 times (every other one closed
+cleanly, the rest with `kill -9`) and writes `relaunch-results/<date-time>/summary.txt`.
+"Launch" is just before the script starts `am-ui`, so the times include loading
+the program; "after main()" leaves that out. Times are medians, with the
+slowest in brackets. "Glitches" are the daemon's late audio buffers and dropped
+frames while the windows came and went.
+
+| Date | Change | Launch to first frame | Launch to the daemon's state | Glitches | Where |
+| --- | --- | --- | --- | --- | --- |
+| 2026-11-07 | #43: the first measurement, Release build, 50 of 50 windows | 89 ms (127) | 128 ms (178) | 0 late, 0 dropped | Cloud container: SDL's offscreen driver and software renderer, no GPU, the tone (`--tone-length 600`) on a PipeWire null sink instead of the film. About 40 ms is creating the software renderer and about 40 ms is drawing the first frame, most of it rasterizing the fonts' glyphs. Not robbie's PC: a real GPU should be quicker at the drawing but slower to create the context |
+
+The target was 5 ms in the spec's first draft and is now 50 ms to the first
+frame and 100 ms to the daemon's state ([SPECIFICATION.md](SPECIFICATION.md),
+Phase 5). The IPC handshake and telemetry attach the 5 ms was meant for take
+well under a millisecond (the IPC round trip is 7.5 µs); the window, its GPU
+context and the fonts are nearly all of it. The new target is a proposal: the
+cloud numbers above miss it, but they come from software rendering, and the
+first run on robbie's PC with a real GPU decides whether it stays.
+
 ## Ideas to try next
 
 Guesses, not measurements, roughly cheapest first:
