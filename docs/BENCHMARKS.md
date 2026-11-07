@@ -159,14 +159,16 @@ frames while the windows came and went.
 | Date | Change | Launch to first frame | Launch to the daemon's state | Glitches | Where |
 | --- | --- | --- | --- | --- | --- |
 | 2026-11-07 | #43: the first measurement, Release build, 50 of 50 windows | 89 ms (127) | 128 ms (178) | 0 late, 0 dropped | Cloud container: SDL's offscreen driver and software renderer, no GPU, the tone (`--tone-length 600`) on a PipeWire null sink instead of the film. About 40 ms is creating the software renderer and about 40 ms is drawing the first frame, most of it rasterizing the fonts' glyphs. Not robbie's PC: a real GPU should be quicker at the drawing but slower to create the context |
+| 2026-11-07 | #43 on robbie's PC, `linux-cef-release`, `--clear-film`, 50 of 50 windows | 94 ms (121) | 99 ms (127) | 0 late, 0 dropped | robbie's PC, Hyprland (Wayland). 90 ms of the first frame is after main(): making the window, its GPU renderer and the first frame with its fonts. The daemon's state follows about 5 ms later |
 
-The target was 5 ms in the spec's first draft and is now 50 ms to the first
-frame and 100 ms to the daemon's state ([SPECIFICATION.md](SPECIFICATION.md),
-Phase 5). The IPC handshake and telemetry attach the 5 ms was meant for take
-well under a millisecond (the IPC round trip is 7.5 µs); the window, its GPU
-context and the fonts are nearly all of it. The new target is a proposal: the
-cloud numbers above miss it, but they come from software rendering, and the
-first run on robbie's PC with a real GPU decides whether it stays.
+The target was 5 ms in the spec's first draft and is now a median under
+100 ms from launch to the daemon's state, met on robbie's PC
+([SPECIFICATION.md](SPECIFICATION.md), Phase 5). The part the 5 ms was meant
+for, connecting to the daemon and reading its telemetry, is the roughly 5 ms
+between the first frame and the one with the daemon's state; the window, its
+GPU renderer and the fonts are the other 90 ms. That's the place to look if
+start-up ever needs to get quicker: SDL_CreateRenderer alone took about 40 ms
+in the cloud.
 
 ## Ideas to try next
 
