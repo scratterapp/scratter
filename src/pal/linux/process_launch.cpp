@@ -8,7 +8,8 @@
 namespace am::pal {
 
 std::expected<void, std::error_code> launch_ui(Reactor& /*reactor*/,
-                                               const std::filesystem::path& /*program*/) {
+                                               const std::filesystem::path& /*program*/,
+                                               std::span<const std::string> /*args*/) {
     return std::unexpected(std::make_error_code(std::errc::function_not_supported));
 }
 
