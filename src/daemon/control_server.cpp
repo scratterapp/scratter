@@ -16,9 +16,9 @@ using common::Opcode;
 using common::PlaybackState;
 
 ControlServer::ControlServer(pal::IpcListener listener, audio::AudioPath& audio,
-                             std::function<void()> on_change)
+                             std::function<void()> on_change, TrackHooks tracks)
     : listener_(std::move(listener)), audio_(audio), on_change_(std::move(on_change)),
-      receive_buffer_(common::kMaxFrameBytes) {
+      tracks_(std::move(tracks)), receive_buffer_(common::kMaxFrameBytes) {
     listener_.set_accept_callback([this] { accept_clients(); });
 }
 
@@ -96,6 +96,7 @@ void ControlServer::handle(Client& client, const FrameHeader& header,
             common::HelloBody{.name = common::make_peer_name(common::kDaemonName)});
         send(client, ack);
         send_state(client);
+        send_track(client);
         return;
     }
     case Opcode::Ping: {
@@ -149,9 +150,20 @@ void ControlServer::handle(Client& client, const FrameHeader& header,
         }
         return;
     }
+    case Opcode::LoadTrackReq: {
+        const auto body = common::decode_body<common::LoadTrackBody>(payload);
+        if (!body) {
+            reply(client, header, CommandStatus::BadRequest); // unknown source, or a catalog id
+            return;
+        }
+        // main() starts the switch and broadcasts the TrackChangedEvent when
+        // it's done, a few milliseconds after this ack.
+        reply(client, header, tracks_.load(body->source));
+        return;
+    }
     default:
-        // A real opcode, just not one this daemon handles yet (LoadTrackReq,
-        // SeekReq...), or one only the daemon is meant to send.
+        // A real opcode, just not one this daemon handles yet (SeekReq, the
+        // queue...), or one only the daemon is meant to send.
         reply(client, header, CommandStatus::NotSupported);
         return;
     }
@@ -176,6 +188,18 @@ void ControlServer::send_state(Client& client) {
                                                   .reserved = {},
                                               });
     send(client, frame);
+}
+
+void ControlServer::send_track(Client& client) {
+    send(client, common::encode_message(next_header(Opcode::TrackChangedEvent), tracks_.current()));
+}
+
+void ControlServer::broadcast_track() {
+    for (auto& client : clients_) {
+        if (!client->closed) {
+            send_track(*client);
+        }
+    }
 }
 
 void ControlServer::broadcast_state() {

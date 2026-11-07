@@ -223,11 +223,57 @@ TEST_CASE("the daemon answers commands and publishes its state", "[daemon]") {
     CHECK(state_body->state == PlaybackState::Playing);
     CHECK(state_body->volume_percent == 100);
 
+    // And then what's playing.
+    auto track = client.wait_for(Opcode::TrackChangedEvent);
+    REQUIRE(track.has_value());
+    auto track_body = decode_body<TrackChangedBody>(*track);
+    REQUIRE(track_body.has_value());
+    CHECK(track_body->source == TrackSource::Tone);
+    CHECK(track_title(*track_body) == "440 Hz test tone");
+
     // The telemetry page exists and says the same.
     auto shm = ShmMapping::open_read_only(name + "_telemetry_v2", kTelemetryPageSize);
     REQUIRE(shm.has_value());
     const auto& page = *reinterpret_cast<const TelemetryPage*>(shm->bytes().data());
     CHECK(telemetry_shows(page, PlaybackState::Playing));
+
+    SECTION("load a source") {
+        // Paused first, to see the play state carry over to the new source.
+        auto seq = client.send(Opcode::PauseReq);
+        REQUIRE(client.wait_for_result(Opcode::CommandAck, seq).has_value());
+
+        // Loading the tone again starts it over: ack first, then the event.
+        seq = client.send(
+            Opcode::LoadTrackReq,
+            LoadTrackBody{.catalog_id = 0, .source = TrackSource::Tone, .reserved = {}});
+        auto result = client.wait_for_result(Opcode::CommandAck, seq);
+        REQUIRE(result.has_value());
+        CHECK(result->request_opcode == Opcode::LoadTrackReq);
+        CHECK(result->status == CommandStatus::Ok);
+        auto changed = client.wait_for(Opcode::TrackChangedEvent);
+        REQUIRE(changed.has_value());
+        CHECK(decode_body<TrackChangedBody>(*changed)->source == TrackSource::Tone);
+        CHECK(telemetry_shows(page, PlaybackState::Paused));
+
+        // A daemon built without CEF can't play the films, and says so.
+        if (!AM_DAEMON_HAS_CEF) {
+            for (const TrackSource film : {TrackSource::ClearFilm, TrackSource::WidevineFilm}) {
+                seq = client.send(Opcode::LoadTrackReq,
+                                  LoadTrackBody{.catalog_id = 0, .source = film, .reserved = {}});
+                result = client.wait_for_result(Opcode::CommandNak, seq);
+                REQUIRE(result.has_value());
+                CHECK(result->status == CommandStatus::NotSupported);
+            }
+        }
+
+        // A catalog id means Apple Music, which isn't here yet.
+        seq = client.send(
+            Opcode::LoadTrackReq,
+            LoadTrackBody{.catalog_id = 7, .source = TrackSource::Tone, .reserved = {}});
+        result = client.wait_for_result(Opcode::CommandNak, seq);
+        REQUIRE(result.has_value());
+        CHECK(result->status == CommandStatus::BadRequest);
+    }
 
     SECTION("pause and play") {
         auto seq = client.send(Opcode::PauseReq);
@@ -355,6 +401,11 @@ TEST_CASE("amctl drives the daemon", "[daemon][amctl]") {
     CHECK(page.read().playback_state == PlaybackState::Paused);
 
     CHECK(run_amctl({"--name", name, "ping"}) == 0);
+    CHECK(run_amctl({"--name", name, "load", "tone"}) == 0);
+    CHECK(telemetry_shows(page, PlaybackState::Paused)); // carried over, once the switch is done
+    if (!AM_DAEMON_HAS_CEF) {
+        CHECK(run_amctl({"--name", name, "load", "clear-film"}) == 1);
+    }
 
     const auto json_file = dir.path / "status.json";
     CHECK(wait_for_amctl(start_amctl({"--name", name, "status", "--json"}, json_file)) == 0);

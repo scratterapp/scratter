@@ -342,6 +342,9 @@ window:
 ./build/linux-cef/amctl play
 ./build/linux-cef/amctl volume 30
 ./build/linux-cef/amctl status
+./build/linux-cef/amctl load clear-film    # the same film without encryption
+./build/linux-cef/amctl load tone          # the 440 Hz tone; the page stops
+./build/linux-cef/amctl load widevine-film # back to the Widevine film, from the start
 ```
 
 Back in the first window, Ctrl-C should end with "stopped cleanly" and no

@@ -5,8 +5,10 @@
 //
 //   amctl pause          sends PauseReq and prints the daemon's answer
 //   amctl volume 30      sends SetVolumeReq
+//   amctl load tone      sends LoadTrackReq
 //   amctl ping           sends Ping and prints how long the Pong took
-//   amctl watch          prints each PlaybackStateEvent as it arrives
+//   amctl watch          prints each PlaybackStateEvent and TrackChangedEvent
+//                        as it arrives
 //   amctl status         reads the telemetry page; no IPC at all
 //
 // Run it with no arguments for the full list. Exit codes: 0 when the daemon
@@ -369,8 +371,41 @@ void print_state(const PlaybackStateBody& state, bool json) {
     std::fflush(stdout); // so a script reading the pipe sees each line at once
 }
 
-// The first event is the state at the time of the hello; after that, one per
-// change. Ends cleanly when the daemon quits.
+// `text` as a JSON string, quotes included. Titles are UTF-8 from the daemon;
+// only quotes, backslashes and control characters need escaping.
+std::string json_string(std::string_view text) {
+    std::string out = "\"";
+    for (const char ch : text) {
+        if (ch == '"' || ch == '\\') {
+            out += '\\';
+            out += ch;
+        } else if (static_cast<unsigned char>(ch) < 0x20) {
+            char escaped[8];
+            std::snprintf(escaped, sizeof escaped, "\\u%04x", static_cast<unsigned>(ch));
+            out += escaped;
+        } else {
+            out += ch;
+        }
+    }
+    out += '"';
+    return out;
+}
+
+void print_track(const TrackChangedBody& track, bool json) {
+    if (json) {
+        std::printf("{\"track\":{\"source\":\"%s\",\"title\":%s,\"duration_micros\":%llu}}\n",
+                    am::amctl::source_name(track.source).data(),
+                    json_string(track_title(track)).c_str(),
+                    static_cast<unsigned long long>(track.duration_micros));
+    } else {
+        const std::string title(track_title(track));
+        std::printf("track     %s\n", title.c_str());
+    }
+    std::fflush(stdout);
+}
+
+// The first events are the state and the track at the time of the hello;
+// after that, one per change. Ends cleanly when the daemon quits.
 int watch(Connection& c, bool json) {
     for (;;) {
         auto frame = next_frame(c, std::nullopt);
@@ -382,6 +417,15 @@ int watch(Connection& c, bool json) {
                 return kExitOk;
             }
             return kExitFailed;
+        }
+        if (frame->header.opcode == Opcode::TrackChangedEvent) {
+            auto track = decode_body<TrackChangedBody>(frame->payload);
+            if (!track) {
+                std::fprintf(stderr, "the daemon sent a track amctl can't read\n");
+                return kExitFailed;
+            }
+            print_track(*track, json);
+            continue;
         }
         if (frame->header.opcode != Opcode::PlaybackStateEvent) {
             continue;
@@ -432,6 +476,13 @@ int send_request(Connection& c, const Arguments& args) {
         sent = send_frame(*c.channel,
                           encode_message(make_header(Opcode::SetVolumeReq, kRequestSeqId),
                                          SetVolumeBody{.volume_percent = args.volume_percent}));
+        break;
+    case Command::Load:
+        what = "load " + std::string(am::amctl::source_name(args.source));
+        sent = send_frame(
+            *c.channel,
+            encode_message(make_header(Opcode::LoadTrackReq, kRequestSeqId),
+                           LoadTrackBody{.catalog_id = 0, .source = args.source, .reserved = {}}));
         break;
     case Command::Toggle: // turned into Play or Pause above
     case Command::Ping:   // main() sends these elsewhere; listed to keep the switch complete

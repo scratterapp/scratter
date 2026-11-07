@@ -29,8 +29,10 @@
 // Until Apple Music arrives (issue #4) the "music" is a 440 Hz tone, or with
 // --test-film a test film played by CEF, and it starts playing as soon as the
 // daemon does. amctl, the media keys and the desktop's media widget (MPRIS on
-// Linux) can pause it and change its volume; it has no next track and can't
-// seek.
+// Linux) can pause it and change its volume, and a client can switch between
+// the tone and the two films while it runs (LoadTrackReq, `amctl load`). A
+// daemon built with CEF starts CEF the first time a film is asked for. There
+// is no next track and no seeking yet.
 //
 // Startup, in order:
 //
@@ -81,6 +83,7 @@ using am::audio::AudioPath;
 using am::common::PlaybackState;
 using am::common::TelemetryPage;
 using am::common::TelemetrySnapshot;
+using am::common::TrackSource;
 
 constexpr std::uint32_t kSampleRate = 48000;
 // 100 ticks a second: the ring drains 480 frames per tick at 48 kHz, far
@@ -105,7 +108,7 @@ struct Options {
     std::string name{am::common::kDaemonName};
     std::string media_name{am::common::kAppName};
     bool audio = true;
-    bool test_film = false;
+    TrackSource source = TrackSource::Tone; // what plays first
     am::daemon::CefHostOptions cef;
 };
 
@@ -119,10 +122,9 @@ std::optional<Options> parse_arguments(std::span<char*> args) {
         } else if (arg == "--no-audio") {
             options.audio = false;
         } else if (arg == "--test-film") {
-            options.test_film = true;
+            options.source = TrackSource::WidevineFilm;
         } else if (arg == "--clear-film") {
-            options.test_film = true;
-            options.cef.clear_film = true;
+            options.source = TrackSource::ClearFilm;
         } else if (arg == "--widevine-dir" && i + 1 < args.size()) {
             options.cef.widevine_dir = args[++i];
         } else if (arg == "--no-sandbox") {
@@ -132,6 +134,21 @@ std::optional<Options> parse_arguments(std::span<char*> args) {
         }
     }
     return options;
+}
+
+bool is_film(TrackSource source) { return source != TrackSource::Tone; }
+
+// What the media widget, amctl watch and the window show.
+const char* title_of(TrackSource source) {
+    switch (source) {
+    case TrackSource::Tone:
+        return "440 Hz test tone";
+    case TrackSource::ClearFilm:
+        return "Unencrypted test film (Tears of Steel)";
+    case TrackSource::WidevineFilm:
+        return "Widevine test film (Tears of Steel)";
+    }
+    return "";
 }
 
 TelemetrySnapshot make_snapshot(const AudioPath& audio, bool audio_open) {
@@ -219,7 +236,8 @@ int main(int argc, char** argv) {
     }
     audio = std::make_unique<AudioPath>(sample_rate);
     am::audio::SineGenerator sine(sample_rate);
-    if (!options->test_film) {
+    TrackSource source = options->source; // what plays now; LoadTrackReq changes it
+    if (!is_film(source)) {
         audio->top_up(sine); // full before the first callback asks for anything
     }
 
@@ -238,25 +256,35 @@ int main(int argc, char** argv) {
         }
     }
 
-    // With --test-film, CEF's audio thread fills the ring buffer instead of the
-    // tick. Declared after `audio` and the sink so it's destroyed before them.
+    // While a film plays, CEF's audio thread fills the ring buffer instead of
+    // the tick. CEF starts with the daemon for --test-film or --clear-film,
+    // otherwise the first time a client loads a film, and then stays up until
+    // the daemon quits (CEF can't start twice in one process). Declared after
+    // `audio` and the sink so it's destroyed before them.
     std::optional<am::daemon::CefHost> cef;
-    if (options->test_film) {
+    bool page_has_clear_film = false; // which film the page has loaded
+    auto start_cef = [&](TrackSource film) {
         auto options_cef = options->cef;
         options_cef.sample_rate_hz = sample_rate;
+        options_cef.clear_film = film == TrackSource::ClearFilm;
         auto started = am::daemon::CefHost::start(options_cef, *audio);
         if (!started) {
             std::fprintf(stderr, "couldn't start CEF: %s\n", started.error().c_str());
-            return kExitSetupFailed;
+            return false;
         }
         cef.emplace(std::move(*started));
+        page_has_clear_film = options_cef.clear_film;
         // On Windows, CEF has just put Chromium's own Ctrl-C handler in front
         // of ours, and it would end the process without the cleanup below.
         if (auto reclaimed = shutdown->reclaim(); !reclaimed) {
             std::fprintf(stderr, "couldn't take Ctrl-C back from CEF: %s\n",
                          reclaimed.error().message().c_str());
-            return kExitSetupFailed;
+            return false;
         }
+        return true;
+    };
+    if (is_film(source) && !start_cef(source)) {
+        return kExitSetupFailed;
     }
 
     // 5. Telemetry. The page is built in place at the start of the shared
@@ -277,17 +305,101 @@ int main(int argc, char** argv) {
     // media widget hears about it at the same time.
     std::optional<am::pal::MediaControls> media;
     std::function<void()> tick; // step 7
-    auto publish = [&] {
+    // The page and the media widget follow the audio path's state. The page
+    // only plays while a film is the source; with the tone it stays stopped.
+    auto sync_outputs = [&] {
         if (cef) {
-            cef->set_state(audio->state()); // the page plays, pauses or stops to match
+            cef->set_state(is_film(source) ? audio->state() : PlaybackState::Stopped);
         }
         if (media) {
             media->set_playback_state(audio->state());
             media->set_volume(audio->volume());
         }
+    };
+    auto publish = [&] {
+        sync_outputs();
         tick(); // publishes telemetry, and speeds up or slows down to match the new state
     };
-    am::daemon::ControlServer server(std::move(*listener), *audio, publish);
+
+    // Switching sources (LoadTrackReq). The old source fades out and the
+    // audio path throws its audio away, as for a Stop. Then the ring buffer
+    // changes producer, and the new source starts in the play state the old
+    // one had. The fade-out takes a tick or two, so the tick finishes the
+    // switch (finish_switch below) once the audio path is quiet().
+    struct Switch {
+        TrackSource to;
+        PlaybackState resume;
+    };
+    std::optional<Switch> switching;
+    auto load_track = [&](TrackSource to) {
+        if (is_film(to) && !am::daemon::CefHost::built_in()) {
+            return am::common::CommandStatus::NotSupported;
+        }
+        if (is_film(to) && !cef) {
+            std::fprintf(stderr, "starting CEF for the %s\n", title_of(to));
+            if (!start_cef(to)) {
+                return am::common::CommandStatus::Failed;
+            }
+        }
+        // A second load during a switch keeps the first one's play state.
+        const PlaybackState resume = switching ? switching->resume : audio->state();
+        switching = Switch{.to = to, .resume = resume};
+        audio->let_page_write(false); // from here the page can't touch the ring
+        audio->set_state(PlaybackState::Stopped);
+        audio->discard(); // also empties what the tone left in the ring while stopped
+        sync_outputs();   // the page stops too
+        // The tick takes it from here, starting right after this callback, so
+        // the request's ack always goes out before the TrackChangedEvent.
+        (void)reactor->set_timer(std::chrono::milliseconds::zero(), [&tick] { tick(); });
+        return am::common::CommandStatus::Ok;
+    };
+    auto current_track = [&] {
+        return am::common::TrackChangedBody{
+            .catalog_id = 0,
+            // The films loop, so they have no end either; real lengths come
+            // with Apple Music tracks.
+            .duration_micros = 0,
+            .source = source,
+            .reserved = {},
+            .title = am::common::make_track_title(title_of(source)),
+        };
+    };
+    am::daemon::ControlServer server(std::move(*listener), *audio, publish,
+                                     {.load = load_track, .current = current_track});
+
+    auto show_track = [&] {
+        if (media) {
+            media->set_track({.title = title_of(source),
+                              .artist = std::string(am::common::kAppName),
+                              .album = {},
+                              .artwork_url = {},
+                              .length = {}});
+        }
+    };
+
+    // The tick calls this once the old source has faded out and render() has
+    // emptied the ring buffer.
+    auto finish_switch = [&] {
+        const Switch done = *switching;
+        switching.reset();
+        if (is_film(done.to)) {
+            const bool clear = done.to == TrackSource::ClearFilm;
+            if (clear != page_has_clear_film) {
+                cef->load_film(clear);
+                page_has_clear_film = clear;
+            }
+            audio->let_page_write(true);
+        } else {
+            audio->top_up(sine); // full before render() asks, like at startup
+        }
+        source = done.to;
+        audio->set_state(done.resume);
+        std::fprintf(stderr, "switched to the %s\n", title_of(source));
+        show_track();
+        sync_outputs();
+        server.broadcast_state();
+        server.broadcast_track();
+    };
 
     // 6. Media keys. A key press works like the same amctl command: change
     // the audio, publish, and tell every connected client.
@@ -315,7 +427,7 @@ int main(int argc, char** argv) {
         case Kind::Next:
         case Kind::Previous:
         case Kind::Seek:
-            return; // a tone has no next track and nowhere to seek to
+            return; // the test sources have no next track and nowhere to seek to
         }
         if (state == audio->state() && volume == audio->volume()) {
             return;
@@ -328,14 +440,7 @@ int main(int argc, char** argv) {
     if (auto opened = am::pal::MediaControls::open(*reactor, on_media_key, options->media_name)) {
         media.emplace(std::move(*opened));
         media->set_volume(audio->volume());
-        const char* title = !cef                      ? "440 Hz test tone"
-                            : options->cef.clear_film ? "Unencrypted test film (Tears of Steel)"
-                                                      : "Widevine test film (Tears of Steel)";
-        media->set_track({.title = title,
-                          .artist = std::string(am::common::kAppName),
-                          .album = {},
-                          .artwork_url = {},
-                          .length = {}});
+        show_track();
         media->set_playback_state(audio->state());
     } else {
         std::fprintf(stderr, "no media keys: %s\n", opened.error().message().c_str());
@@ -352,6 +457,19 @@ int main(int argc, char** argv) {
     // once, because publish() runs the tick.
     bool sink_running = sink.has_value();
     tick = [&] {
+        if (switching) {
+            if (audio->state() != PlaybackState::Stopped) {
+                // A play or pause arrived during the switch: carry on in that
+                // state once it's done, and keep the old source stopped.
+                switching->resume = audio->state();
+                audio->set_state(PlaybackState::Stopped);
+            }
+            // Without a sound card nothing runs render(), so there's nothing
+            // to wait for.
+            if (!sink || audio->quiet()) {
+                finish_switch();
+            }
+        }
         // Running and now quiet: stop it. Stopped and no longer quiet: start it.
         if (sink && audio->quiet() == sink_running) {
             sink_running = !sink_running;
@@ -361,7 +479,7 @@ int main(int argc, char** argv) {
                              sink_running ? "restart" : "pause", changed.error().message().c_str());
             }
         }
-        if (!cef) {
+        if (!is_film(source) && !switching) {
             audio->top_up(sine);
         }
         telemetry->write(make_snapshot(*audio, sink.has_value()));
@@ -369,24 +487,17 @@ int main(int argc, char** argv) {
             media->set_position(
                 std::chrono::microseconds{static_cast<std::int64_t>(audio->position_micros())});
         }
-        const auto next =
-            audio->state() == PlaybackState::Playing ? kTickInterval : kIdleTickInterval;
+        // A switch waits for render(), so it ticks fast like playing does.
+        const auto next = audio->state() == PlaybackState::Playing || switching ? kTickInterval
+                                                                                : kIdleTickInterval;
         (void)reactor->set_timer(next, [&tick] { tick(); });
     };
     tick();
 
-    if (cef) {
-        std::fprintf(stderr,
-                     "%s: %s the %s test film at %u Hz, listening as %s. Ctrl-C quits.\n",
-                     am::common::kDaemonName.data(),
-                     sink ? "playing" : "pretending to play (--no-audio)",
-                     options->cef.clear_film ? "unencrypted" : "Widevine", sample_rate, name);
-    } else {
-        std::fprintf(
-            stderr, "%s: %s a %g Hz tone at %u Hz, listening as %s. Ctrl-C quits.\n",
-            am::common::kDaemonName.data(), sink ? "playing" : "pretending to play (--no-audio)",
-            static_cast<double>(am::audio::SineGenerator::kFrequencyHz), sample_rate, name);
-    }
+    std::fprintf(stderr, "%s: %s the %s at %u Hz, listening as %s. Ctrl-C quits.\n",
+                 am::common::kDaemonName.data(),
+                 sink ? "playing" : "pretending to play (--no-audio)", title_of(source),
+                 sample_rate, name);
 
     auto ran = reactor->run();
 
