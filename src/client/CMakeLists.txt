@@ -81,3 +81,5 @@ am_embed_file(am-ui ${CMAKE_CURRENT_SOURCE_DIR}/fonts/AtkinsonHyperlegible-Regul
 am_embed_file(am-ui ${CMAKE_CURRENT_SOURCE_DIR}/fonts/AtkinsonHyperlegible-Bold.ttf atkinson_bold)
 am_embed_file(am-ui ${CMAKE_CURRENT_SOURCE_DIR}/fonts/InstrumentSerif-Regular.ttf instrument_serif_regular)
 am_embed_file(am-ui ${CMAKE_CURRENT_SOURCE_DIR}/fonts/InstrumentSerif-Italic.ttf instrument_serif_italic)
+am_embed_file(am-ui ${CMAKE_CURRENT_SOURCE_DIR}/fonts/NotoSans-Regular.ttf noto_sans)
+am_embed_file(am-ui ${CMAKE_CURRENT_SOURCE_DIR}/fonts/NotoSerif-Regular.ttf noto_serif)

@@ -559,7 +559,7 @@ scratter/
 │       ├── daemon_link.hpp/.cpp       # Connection thread: hello, commands, state events, reconnects (library am_client_core)
 │       ├── ui_state.hpp/.cpp          # DaemonState, plus the once-per-frame SeqLock telemetry reader (am_client_core)
 │       ├── now_playing_text.hpp       # The now-playing view's words and numbers (clock, volume steps, errors)
-│       ├── fonts/                     # Atkinson Hyperlegible + Instrument Serif (OFL), compiled into am-ui
+│       ├── fonts/                     # Atkinson Hyperlegible + Instrument Serif, Noto behind them (all OFL), compiled into am-ui
 │       └── views/                     # ImGui views (Library, Search, Queue, Spectrum)
 │           ├── waiting_view.cpp       # Shown while the daemon isn't connected, with how to start it
 │           ├── now_playing.cpp        # What's playing, position, play/pause, stop, volume (#37)
