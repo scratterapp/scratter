@@ -38,7 +38,7 @@ This specification defines a decoupled, dual-binary native architecture modeled 
 |---|---|---|---|
 |**Resident Set Size (RSS) — Active GUI**|650 MB – 1,200 MB|Less than 160 MB combined (`scratterd` + `am-ui`)|Headless windowless CEF (GPU rasterizer disabled during steady state) + immediate-mode vertex buffer UI.|
 |**Resident Set Size (RSS) — Headless Playback**|N/A (Closing window kills playback or hides full DOM)|Less than 115 MB (`scratterd` only)|Complete termination of `am-ui` process, freeing all VRAM textures, font atlases, and catalog metadata caches.|
-|**UI Cold-Attach Latency**|1,800 ms – 4,200 ms|Less than 5 ms|Pre-allocated swapchain + instant `AF_UNIX` / Named Pipe handshake and `mmap` telemetry attach.|
+|**UI Cold-Attach Latency**|1,800 ms – 4,200 ms|The daemon's state on screen less than 100 ms (median) after launch; the connect and telemetry attach within that about 5 ms (was 5 ms for all of it, see Phase 5)|Instant `AF_UNIX` / Named Pipe handshake and `mmap` telemetry attach; the window itself (GPU context, fonts) is most of the time.|
 |**Control IPC Round-Trip Latency**|2 ms – 15 ms (JSON over IPC / WebSockets)|Less than 25 microseconds (p99)|32-byte naturally aligned binary frames over kernel `SOCK_SEQPACKET` / `IOCP` pipes.|
 |**Catalog JSON Deserialization**|12 ms – 45 ms (`V8 JSON.parse` + GC pauses)|Less than 0.8 ms (zero GC pauses)|`simdjson` On-Demand SIMD vector parsing directly over reusable `libcurl` ring buffers.|
 |**Audio Callback Jitter**|Unbounded (Subject to JS/IPC congestion)|Wait-free ($O(1)$ bounded, zero syscalls)|Cache-line isolated SPSC ring buffer in `mlock`ed physical RAM with adaptive PI clock-drift resampling.|
@@ -569,6 +569,8 @@ scratter/
 │   ├── amctl/                         # Command-line remote for the daemon, like mpc for mpd
 │   │   ├── main_amctl.cpp             # Every request the daemon handles, over IPC; status from telemetry
 │   │   └── amctl_args.hpp             # Command-line parsing, and which command sends each opcode
+│   ├── relaunch/
+│   │   └── relaunch.py                # Linux-only Python script: the phase 5 gate. Opens and closes am-ui 50 times while the daemon plays, checks the sound never skipped, collects start-up times
 │   ├── perf/
 │   │   └── footprint.py               # Linux-only Python script: memory (RSS, PSS), CPU, wake-ups and GPU use of a running daemon, per process, and its busiest threads (by wake-ups for every process with --threads)
 │   ├── soak/
@@ -708,8 +710,9 @@ These are out of scope on purpose, to keep the project a player. Don't add them,
 
 ### Phase 5: Detachable `am-ui` Frontend & Production Profiling
 
-- **Deliverables:** Hardware-accelerated Dear ImGui client (SDL3 + `SDL_Renderer`), adaptive idle frame throttling, 64-band FFT spectrum visualizer reading the `SeqLock` telemetry page, and sub-5ms attach/detach lifecycle.
+- **Deliverables:** Hardware-accelerated Dear ImGui client (SDL3 + `SDL_Renderer`), adaptive idle frame throttling, 64-band FFT spectrum visualizer reading the `SeqLock` telemetry page, and an attach/detach lifecycle quick enough that the window appears within a blink.
     
 - **Verification Gate:**
     
-    - Kill and relaunch `am-ui` 50 consecutive times during active track playback; verify zero audible glitches in `scratterd` and measure cold-attach time from `execve()` to first rendered frame at less than 5 ms.
+    - Kill and relaunch `am-ui` 50 consecutive times during active track playback; verify zero audible glitches in `scratterd` (0 late audio buffers, 0 dropped frames) and measure cold-attach time from `execve()` to the first frame showing the daemon's state at a median of less than 100 ms. `tools/relaunch/relaunch.py` runs the whole gate.
+    - The first draft asked for 5 ms. That was never realistic: creating the window and its GPU context alone takes tens of milliseconds on any desktop, before anything is drawn, and the IPC connect and telemetry attach it was meant for take about 5 ms of the total. 100 ms is about the length of a blink, which is what a listener notices. [`BENCHMARKS.md`](BENCHMARKS.md) has the measured numbers.

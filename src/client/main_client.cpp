@@ -9,6 +9,12 @@
 //   am-ui              open the window
 //   am-ui --frames N   draw N frames as fast as possible, then quit. The tests
 //                      use it to check that start-up and shutdown are clean.
+//   am-ui --name NAME  connect to the daemon started with --name NAME instead
+//                      of the usual one, like amctl --name.
+//   am-ui --print-startup-time
+//                      print how long the first frame took, and the first
+//                      frame showing the daemon's state (see StartupClock).
+//                      tools/relaunch/relaunch.py reads it.
 
 #include "client/daemon_link.hpp"
 #include "client/frame_pacer.hpp"
@@ -25,12 +31,14 @@
 #include <imgui_impl_sdlrenderer3.h>
 
 #include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace {
 
@@ -40,6 +48,9 @@ constexpr int kDefaultHeight = 600;
 struct Options {
     // Set by --frames: draw this many frames, then quit.
     std::optional<int> frame_limit;
+    // Set by --name: the daemon's endpoint name.
+    std::string daemon_name{am::pal::kDaemonEndpoint};
+    bool print_startup_time = false;
 };
 
 std::optional<Options> parse_options(int argc, char** argv) {
@@ -56,13 +67,68 @@ std::optional<Options> parse_options(int argc, char** argv) {
                 return std::nullopt;
             }
             options.frame_limit = frames;
+        } else if (arg == "--name" && i + 1 < argc) {
+            options.daemon_name = argv[++i];
+        } else if (arg == "--print-startup-time") {
+            options.print_startup_time = true;
+        } else if (arg == "--frames" || arg == "--name") {
+            std::fprintf(stderr, "am-ui: %s needs a value\n", argv[i]);
+            return std::nullopt;
         } else {
-            std::fprintf(stderr, "am-ui: unknown option '%s' (try --frames N)\n", argv[i]);
+            std::fprintf(stderr,
+                         "am-ui: unknown option '%s' (try --frames N, --name NAME or "
+                         "--print-startup-time)\n",
+                         argv[i]);
             return std::nullopt;
         }
     }
     return options;
 }
+
+// For --print-startup-time: how long after main() began a frame reached the
+// screen, printed once for the first frame and once for the first one that
+// shows the daemon's state (the now-playing view instead of the waiting one).
+// Each line also gives the steady clock's reading, in seconds. On Linux that's
+// CLOCK_MONOTONIC, the clock Python's time.monotonic() reads, so a script that
+// noted the time just before it started am-ui can work out the whole start-up,
+// including the part before main() (loading the program and its libraries).
+class StartupClock {
+  public:
+    StartupClock(bool enabled, std::chrono::steady_clock::time_point start)
+        : start_{start}, enabled_{enabled} {}
+
+    // Call after each present.
+    void frame_presented(bool connected) {
+        if (!enabled_) {
+            return;
+        }
+        if (!first_printed_) {
+            print("first frame");
+            first_printed_ = true;
+        }
+        if (connected && !connected_printed_) {
+            print("first frame with the daemon's state");
+            connected_printed_ = true;
+        }
+    }
+
+  private:
+    void print(const char* what) const {
+        using Ms = std::chrono::duration<double, std::milli>;
+        using Seconds = std::chrono::duration<double>;
+        const auto now = std::chrono::steady_clock::now();
+        std::printf("am-ui: %s %.2f ms after main() (steady clock %.6f s)\n", what,
+                    Ms{now - start_}.count(), Seconds{now.time_since_epoch()}.count());
+        // stdout is a pipe when a script reads it, and a pipe is only
+        // flushed when its buffer fills unless we say so.
+        std::fflush(stdout);
+    }
+
+    std::chrono::steady_clock::time_point start_;
+    bool enabled_;
+    bool first_printed_ = false;
+    bool connected_printed_ = false;
+};
 
 // "scratter" -> "Scratter", for the title bar.
 std::string window_title() {
@@ -138,10 +204,13 @@ bool take_player_key(const SDL_KeyboardEvent& key, am::client::PlayerKeys& keys)
 } // namespace
 
 int main(int argc, char** argv) {
+    // Starts the clock first thing, before anything that takes time.
+    const auto started = std::chrono::steady_clock::now();
     const std::optional<Options> options = parse_options(argc, argv);
     if (!options) {
         return 2;
     }
+    StartupClock startup{options->print_startup_time, started};
 
     const std::string title = window_title();
     const std::string app_id{am::common::kAppName};
@@ -212,7 +281,9 @@ int main(int argc, char** argv) {
     // SDL_PushEvent is safe from any thread. The link is declared after `sdl`,
     // so it stops before SDL_Quit runs.
     const Uint32 wake_event = SDL_RegisterEvents(1);
-    auto link = am::client::DaemonLink::start({}, [wake_event] {
+    am::client::DaemonLinkOptions link_options;
+    link_options.name = options->daemon_name;
+    auto link = am::client::DaemonLink::start(std::move(link_options), [wake_event] {
         if (wake_event != 0) {
             SDL_Event event{};
             event.type = wake_event;
@@ -224,7 +295,7 @@ int main(int argc, char** argv) {
                      link.error().message().c_str());
         return 1;
     }
-    am::client::TelemetryReader telemetry{std::string{am::pal::kDaemonEndpoint}};
+    am::client::TelemetryReader telemetry{options->daemon_name};
     // Which renderer SDL picked (direct3d11 on Windows, opengl or vulkan on
     // Linux), for the now-playing view's Details line.
     const char* renderer_name = SDL_GetRendererName(renderer.get());
@@ -295,6 +366,7 @@ int main(int argc, char** argv) {
         ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer.get());
         SDL_RenderPresent(renderer.get());
         pacer.on_frame_drawn(SDL_GetTicks());
+        startup.frame_presented(connected);
 
         ++frames_drawn;
         if (options->frame_limit && frames_drawn >= *options->frame_limit) {

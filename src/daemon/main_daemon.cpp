@@ -559,6 +559,13 @@ int main(int argc, char** argv) {
     // last thing the sound card got was silence. Play starts it again at
     // once, because publish() runs the tick.
     bool sink_running = sink.has_value();
+    // Late buffers and dropped frames are glitches you can hear, so the tick
+    // says when there are new ones, at most once a second so a bad minute
+    // doesn't flood the log. tools/relaunch/relaunch.py reads these lines to
+    // tell whether opening and closing the window made the sound skip.
+    std::uint64_t late_reported = 0;
+    std::uint64_t dropped_reported = 0;
+    auto glitch_reported_at = std::chrono::steady_clock::now();
     tick = [&] {
         if (switching) {
             if (audio->state() != PlaybackState::Stopped) {
@@ -597,6 +604,18 @@ int main(int argc, char** argv) {
             audio->top_up(sine);
         }
         telemetry->write(make_snapshot(*audio, sink.has_value(), length_of(source)));
+        const std::uint64_t late = audio->late_buffers();
+        const std::uint64_t dropped = audio->dropped_frames();
+        const auto now = std::chrono::steady_clock::now();
+        if ((late != late_reported || dropped != dropped_reported) &&
+            now - glitch_reported_at >= 1s) {
+            std::fprintf(stderr, "audio: %llu late audio buffers, %llu frames dropped so far\n",
+                         static_cast<unsigned long long>(late),
+                         static_cast<unsigned long long>(dropped));
+            late_reported = late;
+            dropped_reported = dropped;
+            glitch_reported_at = now;
+        }
         if (media) {
             media->set_position(
                 std::chrono::microseconds{static_cast<std::int64_t>(audio->position_micros())});
