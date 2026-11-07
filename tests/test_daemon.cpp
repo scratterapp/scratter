@@ -527,9 +527,18 @@ TEST_CASE("MPRIS Raise starts a window, or brings the open one forward", "[daemo
                                   "org.mpris.MediaPlayer2", "Raise", nullptr, nullptr, "");
     };
 
-    // This client hasn't said hello, so it isn't a window: Raise starts one.
-    CHECK(raise() >= 0);
+    // The socket is up before the media controls are (startup steps 3 and
+    // 6), so the first call can find nobody on the bus yet. Try until the
+    // daemon answers.
     auto deadline = std::chrono::steady_clock::now() + 5s;
+    int first = raise();
+    while (first < 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(20ms);
+        first = raise();
+    }
+    // This client hasn't said hello, so it isn't a window: Raise starts one.
+    CHECK(first >= 0);
+    deadline = std::chrono::steady_clock::now() + 5s;
     while (times_started() == 0 && std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(20ms);
     }
