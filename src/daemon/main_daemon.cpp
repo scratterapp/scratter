@@ -531,6 +531,8 @@ int main(int argc, char** argv) {
         case Kind::Next:
         case Kind::Previous:
             return; // the test sources have no next track
+        case Kind::Raise:
+            return; // TODO(robbie, #41): raise the window, or start one
         }
         if (state == audio->state() && volume == audio->volume()) {
             return;
