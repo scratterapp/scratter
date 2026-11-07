@@ -80,6 +80,10 @@ inline constexpr std::string_view kUsage =
     return "unknown";
 }
 
+// The longest jump amctl takes: 100 days, far more than any track, and small
+// enough that the microseconds it turns into can't overflow.
+inline constexpr std::uint64_t kMaxSeekSeconds = 100ULL * 24 * 3600;
+
 // "1:23" -> 83, "1:02:03" -> 3723, "83" -> 83 seconds. Each part is plain
 // digits; minutes and seconds after a colon go up to 59. Nothing for anything
 // else.
@@ -97,10 +101,13 @@ inline constexpr std::string_view kUsage =
         if (parts > 0 && (value > 59 || part.size() != 2)) {
             return std::nullopt; // 1:5 or 1:75 is a typo, not 65 or 135 seconds
         }
-        if (++parts > 3 || total > 1'000'000'000) {
+        if (++parts > 3 || value > kMaxSeekSeconds) {
             return std::nullopt; // more than h:mm:ss, or silly big
         }
         total = total * 60 + value;
+        if (total > kMaxSeekSeconds) {
+            return std::nullopt;
+        }
         if (colon == std::string_view::npos) {
             return total;
         }

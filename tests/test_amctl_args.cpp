@@ -160,5 +160,11 @@ TEST_CASE("seek takes a time, or a jump forward or back", "[amctl]") {
     CHECK_FALSE(parse({"seek", "1.5"}).has_value());
     CHECK_FALSE(parse({"seek", "soon"}).has_value());
     CHECK_FALSE(parse({"seek", "99999999999999999999"}).has_value());
+    // Fits in 64 bits, but not once it's turned into microseconds.
+    CHECK_FALSE(parse({"seek", "18446744073710"}).has_value());
+    CHECK_FALSE(parse({"seek", "+18446744073710"}).has_value());
+    CHECK_FALSE(parse({"seek", "99999999:00:00"}).has_value());
+    CHECK(parse({"seek", "8640000"})->seek_seconds == 8'640'000); // 100 days, the most
+    CHECK_FALSE(parse({"seek", "8640001"}).has_value());
     CHECK_FALSE(parse({"seek", "10", "20"}).has_value());
 }

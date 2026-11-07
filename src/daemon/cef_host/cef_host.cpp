@@ -188,6 +188,7 @@ class PageClient final : public CefClient,
     // loaded yet runs it first, in OnLoadEnd.
     void load_film(const std::string& script) {
         film_script_ = script;
+        seek_script_.clear(); // a new film starts at 0, not where the old one was asked to go
         if (browser_ && loaded_) {
             browser_->GetMainFrame()->ExecuteJavaScript(script, "", 0);
             film_script_.clear();
@@ -566,10 +567,13 @@ void CefHost::load_film(bool clear_film) {
 }
 
 void CefHost::seek(std::chrono::microseconds position) {
-    // Seconds with three decimals, the unit video.currentTime takes.
+    // Seconds, the unit video.currentTime takes, written as a sum of whole
+    // numbers: %f would print a comma instead of a point under a locale
+    // that uses one, and JavaScript would read that as two arguments.
+    const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(position).count();
     char script[64];
-    std::snprintf(script, sizeof script, "amSeek(%.3f)",
-                  static_cast<double>(position.count()) / 1'000'000.0);
+    std::snprintf(script, sizeof script, "amSeek(%lld + %lld / 1000)",
+                  static_cast<long long>(millis / 1000), static_cast<long long>(millis % 1000));
     CefPostTask(TID_UI, base::BindOnce(&PageClient::seek, impl_->client, std::string(script)));
 }
 
