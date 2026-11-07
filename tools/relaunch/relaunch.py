@@ -365,7 +365,9 @@ def main() -> int:
         try:
             status = wait_until_playing(daemon, amctl, args)
             if status is None:
-                print(f"the daemon didn't start playing; see {log_path}")
+                print(f"the daemon didn't start playing. The end of {log_path}:")
+                log.flush()
+                print("".join(log_path.read_text(errors="replace").splitlines(True)[-10:]))
             else:
                 before = settled_glitches(log_path)
                 start_status = playback_status(amctl, args.name)
