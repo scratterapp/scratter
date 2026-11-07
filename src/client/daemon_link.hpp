@@ -17,6 +17,8 @@
 //   - state, connection -> window: a DaemonState. After every change the
 //     connection thread calls the wake callback, so a pause from the media
 //     keys shows up at once, even while the window sleeps waiting for events.
+//     A RaiseWindowEvent (the player clicked in the media widget) arrives
+//     the same way, as DaemonState::raise_count going up.
 //
 // A mutex is fine here: the "no locks" rule is for the audio callback, and
 // neither thread is that. The lock is held only to copy a small struct.

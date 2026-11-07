@@ -63,6 +63,20 @@ cmake --build --preset linux-debug
 ctest --preset linux-debug
 ```
 
+To use it like a normal desktop app (launcher entry, taskbar icon, clicking
+the player in the media widget opens the window), install it into your home
+folder:
+
+```sh
+cmake --install build/linux-debug --prefix ~/.local
+```
+
+That puts `scratterd` and `am-ui` in `~/.local/bin`, `scratter.desktop` in
+`~/.local/share/applications` and the icon under `~/.local/share/icons/hicolor`
+(`packaging/linux/`). Delete those to uninstall. A daemon built with CEF needs its
+CEF files next to it, which the install doesn't copy yet, so install a build
+without CEF, or run the CEF one from its build folder.
+
 Swap `linux-debug` for `linux-asan` (AddressSanitizer + UBSan) or `linux-tsan`
 (ThreadSanitizer) to run the same tests under a sanitizer. `linux-fuzz` also
 builds the libFuzzer targets; it needs `clang` and its sanitizer runtimes

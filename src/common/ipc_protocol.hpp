@@ -83,6 +83,7 @@ enum class Opcode : std::uint8_t {
     TrackChangedEvent = 0x82,
     EmeErrorEvent = 0x83,
     PlaybackStateEvent = 0x84,
+    RaiseWindowEvent = 0x85,
 };
 
 // An Opcode can hold any byte, including ones that aren't listed above (a byte
@@ -111,6 +112,7 @@ enum class Opcode : std::uint8_t {
     case Opcode::TrackChangedEvent:
     case Opcode::EmeErrorEvent:
     case Opcode::PlaybackStateEvent:
+    case Opcode::RaiseWindowEvent:
         return true;
     }
     return false;

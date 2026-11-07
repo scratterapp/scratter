@@ -22,6 +22,8 @@
 //   LoadTrackReq         LoadTrackBody        client, to switch what plays
 //   TrackChangedEvent    TrackChangedBody     daemon, after each switch and right after
 //                                             HelloAck, so a new client knows what plays
+//   RaiseWindowEvent     (none)               daemon, to every connected window, when the
+//                                             desktop asks to raise the player (MPRIS Raise)
 //
 // "(none)" means payload_bytes is 0 and the frame is just the header. That is
 // still a 32-byte message, so the IPC channel's "no empty messages" rule
@@ -67,6 +69,11 @@ enum class BodyError : std::uint8_t {
 // ---- The bodies --------------------------------------------------------------
 
 inline constexpr std::size_t kPeerNameBytes = 32;
+
+// The name am-ui says in its HelloReq. It's how the daemon tells a window
+// from amctl or a test: RaiseWindowEvent goes only to clients that gave this
+// name, and if none did, the daemon starts a window instead.
+inline constexpr std::string_view kWindowPeerName = "am-ui";
 
 // HelloReq and HelloAck. Each side says who it is, mostly for log lines
 // ("am-ui connected"). There is no version number in here: the frame header
