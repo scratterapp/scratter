@@ -29,5 +29,5 @@ Russian shows up instead of as boxes. Chinese, Japanese and Korean aren't
 covered yet: a font with those is 15 MB or more, too big to build in.
 
 The OFL allows bundling a font with a program, as long as its license comes
-along and the font isn't sold on its own. A release has to ship the two
+along and the font isn't sold on its own. A release has to ship the three
 `-OFL.txt` files (see "Licenses for what we bundle" in `docs/release-checklist.md`).
