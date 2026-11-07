@@ -57,7 +57,9 @@ CEF instead of the tone (`src/daemon/cef_host/`, issue #76), and `amctl load` sw
 between the tone and the two films while it runs, starting CEF the first time (#38). The films
 can be seeked in from amctl, the window's position bar and MPRIS (#39); the tone has no
 length, except with `--tone-length`, which the tests use. `tests/test_daemon.cpp` starts the daemon
-and drives it, directly, through amctl and over MPRIS.
+and drives it, directly, through amctl and over MPRIS. `tools/relaunch/relaunch.py` is the
+phase 5 gate: it opens and closes `am-ui` 50 times while the daemon plays and fails
+if the sound skipped (#43).
 
 What's real so far: everything in `src/common/` except `arena_allocator.hpp`, every
 interface in `src/pal/interfaces/`, the Linux reactor, IPC

@@ -71,6 +71,9 @@ std::optional<Options> parse_options(int argc, char** argv) {
             options.daemon_name = argv[++i];
         } else if (arg == "--print-startup-time") {
             options.print_startup_time = true;
+        } else if (arg == "--frames" || arg == "--name") {
+            std::fprintf(stderr, "am-ui: %s needs a value\n", argv[i]);
+            return std::nullopt;
         } else {
             std::fprintf(stderr,
                          "am-ui: unknown option '%s' (try --frames N, --name NAME or "

@@ -48,6 +48,7 @@ import argparse
 import csv
 import datetime
 import json
+import os
 import re
 import selectors
 import signal
@@ -195,21 +196,31 @@ def run_window(am_ui: Path, args, clean: bool, ui_log) -> dict:
         with_name(am_ui, args.name, "--print-startup-time"),
         stdout=subprocess.PIPE,
         stderr=ui_log,
-        text=True,
     )
+    # Reads the pipe's raw bytes and splits the lines here. A buffered
+    # readline() could take both timing lines from the pipe at once and leave
+    # the second in Python's buffer, where select() can't see it.
+    fd = ui.stdout.fileno()
     selector = selectors.DefaultSelector()
-    selector.register(ui.stdout, selectors.EVENT_READ)
+    selector.register(fd, selectors.EVENT_READ)
     deadline = launched + args.window_timeout
+    pending = b""
+    lines: list[str] = []
     connected = False
     while not connected:
-        left = deadline - time.monotonic()
-        if left <= 0 or not selector.select(timeout=left):
-            row["problem"] = "no frame with the daemon's state in time"
-            break
-        line = ui.stdout.readline()
-        if not line:
-            row["problem"] = f"am-ui quit by itself (exit code {ui.wait()}); see ui.log"
-            break
+        if not lines:
+            left = deadline - time.monotonic()
+            if left <= 0 or not selector.select(timeout=left):
+                row["problem"] = "no frame with the daemon's state in time"
+                break
+            chunk = os.read(fd, 4096)
+            if not chunk:
+                row["problem"] = f"am-ui quit by itself (exit code {ui.wait()}); see ui.log"
+                break
+            *complete, pending = (pending + chunk).split(b"\n")
+            lines.extend(part.decode(errors="replace") + "\n" for part in complete)
+            continue
+        line = lines.pop(0)
         if match := FIRST_FRAME.search(line):
             row["main_to_frame_ms"] = float(match[1])
             row["launch_to_frame_ms"] = round((float(match[2]) - launched) * 1000, 2)
