@@ -538,12 +538,12 @@ int main(int argc, char** argv) {
             program = *dir / AM_UI_NAME;
         }
         if (auto started = am::pal::launch_ui(*reactor, program); !started) {
-            std::fprintf(stderr, "couldn't start the window (%s): %s\n", program.c_str(),
+            std::fprintf(stderr, "couldn't start the window (%s): %s\n", program.string().c_str(),
                          started.error().message().c_str());
             return;
         }
         last_launch = now;
-        std::fprintf(stderr, "started the window: %s\n", program.c_str());
+        std::fprintf(stderr, "started the window: %s\n", program.string().c_str());
     };
 
     // 6. Media keys. A key press works like the same amctl command: change
