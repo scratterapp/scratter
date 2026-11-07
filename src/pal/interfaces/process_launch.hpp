@@ -5,9 +5,12 @@
 // When someone clicks the player in the desktop's media widget, MPRIS asks the
 // daemon to Raise() it. If no window is connected, the daemon starts am-ui:
 //
-//   auto ui = am::pal::program_next_to_this_one(AM_UI_NAME);  // "am-ui"
-//   if (ui) {
-//       if (auto started = am::pal::launch_ui(reactor, *ui); !started) {
+//   // The am-ui next to this daemon (browser_files.hpp's executable_dir()),
+//   // so it's the matching build and not whichever one is first on $PATH.
+//   // The build puts the two side by side, and so does `cmake --install`.
+//   auto dir = am::pal::executable_dir();
+//   if (dir) {
+//       if (auto started = am::pal::launch_ui(reactor, *dir / "am-ui"); !started) {
 //           log started.error().message();
 //       }
 //   }
@@ -21,10 +24,9 @@
 //   Linux:    posix_spawn. A process that exits stays in the process table
 //             (a "zombie") until its parent collects its exit status, so the
 //             Linux version watches a pidfd for the window on `reactor` and
-//             collects it when it exits. /proc/self/exe finds this program.
-//   Windows:  not written yet (function_not_supported). CreateProcessW and
-//             GetModuleFileNameW, for kero; Windows has no zombies, so it
-//             won't need the reactor.
+//             collects it when it exits.
+//   Windows:  not written yet (function_not_supported). CreateProcessW, for
+//             kero; Windows has no zombies, so it won't need the reactor.
 //
 // Errors are std::error_code, like the other interfaces:
 //
@@ -34,25 +36,17 @@
 //                                      didn't make am-ui, say)
 //   anything else                      what the OS said
 //
-// Both functions run on the reactor thread, like everything else the daemon
-// does. Each platform defines them once: src/pal/linux/process_launch.cpp and
+// It runs on the reactor thread, like everything else the daemon does. Each
+// platform defines it once: src/pal/linux/process_launch.cpp and
 // src/pal/win32/process_launch.cpp. Nothing here may include a platform header.
 
 #include <expected>
 #include <filesystem>
-#include <string_view>
 #include <system_error>
 
 namespace am::pal {
 
 class Reactor;
-
-// The full path of `file_name` in the folder this program's own executable is
-// in. The build puts am-ui next to the daemon, and so does `cmake --install`,
-// so this finds the window that belongs to this daemon, not whichever one is
-// first on $PATH. Doesn't check that the file exists.
-[[nodiscard]] std::expected<std::filesystem::path, std::error_code>
-program_next_to_this_one(std::string_view file_name);
 
 // Starts `program`, with no arguments, as a process of its own, and returns
 // once it has started. Its standard input reads nothing (/dev/null on Linux);

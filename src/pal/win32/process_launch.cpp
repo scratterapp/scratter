@@ -7,11 +7,6 @@
 
 namespace am::pal {
 
-std::expected<std::filesystem::path, std::error_code>
-program_next_to_this_one(std::string_view /*file_name*/) {
-    return std::unexpected(std::make_error_code(std::errc::function_not_supported));
-}
-
 std::expected<void, std::error_code> launch_ui(Reactor& /*reactor*/,
                                                const std::filesystem::path& /*program*/) {
     return std::unexpected(std::make_error_code(std::errc::function_not_supported));
