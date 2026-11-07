@@ -6,6 +6,7 @@
 //   amctl pause          sends PauseReq and prints the daemon's answer
 //   amctl volume 30      sends SetVolumeReq
 //   amctl load tone      sends LoadTrackReq
+//   amctl seek 1:23      sends SeekReq (seek +10 jumps from where it is)
 //   amctl ping           sends Ping and prints how long the Pong took
 //   amctl watch          prints each PlaybackStateEvent and TrackChangedEvent
 //                        as it arrives
@@ -25,6 +26,7 @@
 #include "reactor.hpp"
 #include "shm_mapping.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -121,16 +123,23 @@ int show_status(const Arguments& args) {
         // Every value is a number or one of the fixed state names, so nothing
         // needs escaping. sample_rate_hz is 0 when there's no audio output.
         std::printf(
-            "{\"state\":\"%s\",\"position_micros\":%llu,\"volume_percent\":%u,"
+            "{\"state\":\"%s\",\"position_micros\":%llu,\"duration_micros\":%llu,"
+            "\"volume_percent\":%u,"
             "\"sample_rate_hz\":%u,\"ring_buffer_fill\":%.3f,\"clock_drift_ppm\":%.3f}\n",
             state_name(s.playback_state).data(), static_cast<unsigned long long>(s.pts_micros),
+            static_cast<unsigned long long>(s.duration_micros),
             static_cast<unsigned>(s.volume_percent), s.sample_rate_hz,
             static_cast<double>(s.ring_buffer_fill_pct), static_cast<double>(s.clock_drift_ppm));
         return kExitOk;
     }
 
     std::printf("state:    %s\n", state_name(s.playback_state).data());
-    std::printf("position: %s\n", minutes_seconds(s.pts_micros).c_str());
+    if (s.duration_micros > 0) {
+        std::printf("position: %s of %s\n", minutes_seconds(s.pts_micros).c_str(),
+                    minutes_seconds(s.duration_micros).c_str());
+    } else {
+        std::printf("position: %s\n", minutes_seconds(s.pts_micros).c_str());
+    }
     std::printf("volume:   %u%%\n", static_cast<unsigned>(s.volume_percent));
     if (s.sample_rate_hz == 0) {
         std::printf("output:   none (daemon started with --no-audio)\n");
@@ -440,6 +449,29 @@ int watch(Connection& c, bool json) {
 
 // ---- play, pause, stop, toggle, volume ---------------------------------------
 
+// Where `amctl seek` jumps to. A relative jump starts from the position in
+// the event that follows the HelloAck, which is where playback is right now,
+// and stops at 0. The daemon stops at the end.
+std::optional<std::uint64_t> seek_target(Connection& c, const Arguments& args) {
+    const std::uint64_t jump = args.seek_seconds * 1'000'000;
+    if (args.seek_direction == 0) {
+        return jump;
+    }
+    auto event = wait_for(c, Opcode::PlaybackStateEvent);
+    if (!event) {
+        return std::nullopt;
+    }
+    auto state = read_state(*event);
+    if (!state) {
+        return std::nullopt;
+    }
+    const std::uint64_t from = state->position_micros;
+    if (args.seek_direction < 0) {
+        return from > jump ? from - jump : 0;
+    }
+    return std::min(from + jump, kMaxSeekMicros);
+}
+
 int send_request(Connection& c, const Arguments& args) {
     Command command = args.command;
     if (command == Command::Toggle) {
@@ -484,6 +516,16 @@ int send_request(Connection& c, const Arguments& args) {
             encode_message(make_header(Opcode::LoadTrackReq, kRequestSeqId),
                            LoadTrackBody{.catalog_id = 0, .source = args.source, .reserved = {}}));
         break;
+    case Command::Seek: {
+        const auto target = seek_target(c, args);
+        if (!target) {
+            return kExitFailed;
+        }
+        what = "seek " + minutes_seconds(*target);
+        sent = send_frame(*c.channel, encode_message(make_header(Opcode::SeekReq, kRequestSeqId),
+                                                     SeekBody{.position_micros = *target}));
+        break;
+    }
     case Command::Toggle: // turned into Play or Pause above
     case Command::Ping:   // main() sends these elsewhere; listed to keep the switch complete
     case Command::Status:
@@ -498,7 +540,18 @@ int send_request(Connection& c, const Arguments& args) {
     if (!answer) {
         return kExitFailed;
     }
-    std::printf("%s: %s\n", what.c_str(), status_name(answer->status).data());
+    // A seek is done when its PlaybackStateEvent arrives, a moment after the
+    // ack. Wait for it, so `amctl seek 1:23; amctl status` shows 1:23.
+    if (command == Command::Seek && answer->status == CommandStatus::Ok &&
+        !wait_for(c, Opcode::PlaybackStateEvent)) {
+        return kExitFailed;
+    }
+    // The one thing a daemon refuses a seek for is a source with no length.
+    const std::string_view result =
+        command == Command::Seek && answer->status == CommandStatus::NotSupported
+            ? "what plays has no length to seek in (the tone)"
+            : status_name(answer->status);
+    std::printf("%s: %s\n", what.c_str(), result.data());
     return answer->status == CommandStatus::Ok ? kExitOk : kExitFailed;
 }
 

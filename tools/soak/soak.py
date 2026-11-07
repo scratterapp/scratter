@@ -431,8 +431,12 @@ def main() -> int:
             row["sample_rate_hz"] = status.get("sample_rate_hz", "")
             # Seconds of audio played since the last line. The position goes
             # back to 0 on stop, so a smaller number than last time isn't a
-            # stall, just a stop.
+            # stall, just a stop. The films loop, and their position goes round
+            # to 0 at the end too: add one length back for that.
             played = row["position_s"] - last["position_s"] if last else None
+            duration_s = status.get("duration_micros", 0) / 1e6
+            if played is not None and played < 0 and row["state"] == "playing" and duration_s > 0:
+                played += duration_s
             row["played_s"] = round(played, 1) if played is not None else ""
             span = row["elapsed_s"] - last["elapsed_s"] if last else 0
             # Only a daemon with sound output moves its play position.

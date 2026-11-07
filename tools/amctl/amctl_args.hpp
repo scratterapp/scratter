@@ -15,6 +15,7 @@
 #include <charconv>
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -28,6 +29,7 @@ enum class Command : std::uint8_t {
     Toggle, // play if paused or stopped, pause if playing
     Volume, // needs volume_percent
     Load,   // needs source
+    Seek,   // needs seek_seconds and seek_direction
     Ping,   // checks the daemon is alive and answering
     Status, // reads the telemetry page, no IPC
     Watch,  // prints every state change until the daemon quits
@@ -35,9 +37,11 @@ enum class Command : std::uint8_t {
 
 struct Arguments {
     Command command = Command::Status;
-    std::uint8_t volume_percent = 0;           // only for Command::Volume
-    am::common::TrackSource source{};          // only for Command::Load
-    bool json = false;                         // only for Status and Watch
+    std::uint8_t volume_percent = 0;  // only for Command::Volume
+    am::common::TrackSource source{}; // only for Command::Load
+    std::uint64_t seek_seconds = 0;   // only for Command::Seek
+    int seek_direction = 0;           // Seek: 0 jumps to seek_seconds, +1 or -1 that far from here
+    bool json = false;                // only for Status and Watch
     std::string name{am::common::kDaemonName}; // the daemon's --name
 };
 
@@ -52,6 +56,8 @@ inline constexpr std::string_view kUsage =
     "  volume PERCENT   set the volume, 0 to 100\n"
     "  load SOURCE      switch to tone, clear-film or widevine-film (the films\n"
     "                   need a daemon built with CEF)\n"
+    "  seek TIME        jump to TIME (1:23, 1:02:03 or 83 seconds), or that far\n"
+    "                   forward or back with +TIME or -TIME (seek +10)\n"
     "  ping             check the daemon is answering, and how fast\n"
     "  status [--json]  show the play state, position and volume\n"
     "  watch [--json]   print what's playing, then each change of track, play\n"
@@ -72,6 +78,41 @@ inline constexpr std::string_view kUsage =
         return "widevine-film";
     }
     return "unknown";
+}
+
+// The longest jump amctl takes: 100 days, far more than any track, and small
+// enough that the microseconds it turns into can't overflow.
+inline constexpr std::uint64_t kMaxSeekSeconds = 100ULL * 24 * 3600;
+
+// "1:23" -> 83, "1:02:03" -> 3723, "83" -> 83 seconds. Each part is plain
+// digits; minutes and seconds after a colon go up to 59. Nothing for anything
+// else.
+[[nodiscard]] inline std::optional<std::uint64_t> parse_time(std::string_view text) {
+    std::uint64_t total = 0;
+    int parts = 0;
+    for (;;) {
+        const std::size_t colon = text.find(':');
+        const std::string_view part = text.substr(0, colon);
+        std::uint64_t value = 0;
+        const auto [end, error] = std::from_chars(part.data(), part.data() + part.size(), value);
+        if (part.empty() || error != std::errc{} || end != part.data() + part.size()) {
+            return std::nullopt;
+        }
+        if (parts > 0 && (value > 59 || part.size() != 2)) {
+            return std::nullopt; // 1:5 or 1:75 is a typo, not 65 or 135 seconds
+        }
+        if (++parts > 3 || value > kMaxSeekSeconds) {
+            return std::nullopt; // more than h:mm:ss, or silly big
+        }
+        total = total * 60 + value;
+        if (total > kMaxSeekSeconds) {
+            return std::nullopt;
+        }
+        if (colon == std::string_view::npos) {
+            return total;
+        }
+        text.remove_prefix(colon + 1);
+    }
 }
 
 // `args` is argv without the program name. On failure the error is a one-line
@@ -143,6 +184,20 @@ parse_arguments(std::span<const std::string_view> args) {
         if (!found) {
             return std::unexpected("load needs tone, clear-film or widevine-film");
         }
+    } else if (command == "seek") {
+        parsed.command = Command::Seek;
+        operands = 1;
+        std::string_view text = i < args.size() ? args[i] : std::string_view{};
+        if (text.starts_with('+') || text.starts_with('-')) {
+            parsed.seek_direction = text.front() == '+' ? 1 : -1;
+            text.remove_prefix(1);
+        }
+        const auto seconds = parse_time(text);
+        if (!seconds) {
+            return std::unexpected("seek needs a time like 1:23 or 83, or +10 / -10 to jump "
+                                   "from where it is");
+        }
+        parsed.seek_seconds = *seconds;
     } else {
         return std::unexpected("unknown command \"" + std::string(command) + "\"");
     }
@@ -189,10 +244,11 @@ struct Coverage {
         return {Kind::Command, "volume"};
     case Opcode::LoadTrackReq:
         return {Kind::Command, "load"};
-
-    // Login, seeking, the queue: all need the real player.
-    case Opcode::AuthEscalationReq:
     case Opcode::SeekReq:
+        return {Kind::Command, "seek"};
+
+    // Login, the queue: all need the real player.
+    case Opcode::AuthEscalationReq:
     case Opcode::SetAudioModeReq:
     case Opcode::QueueReplaceReq:
     case Opcode::QueueAppendReq:

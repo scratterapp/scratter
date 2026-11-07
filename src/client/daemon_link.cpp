@@ -47,8 +47,9 @@ FrameHeader make_header(Opcode opcode, std::uint64_t seq_id) {
 struct Request {
     RequestId id;
     Command command;
-    std::uint8_t volume_percent; // SetVolume only
-    TrackSource source;          // LoadTrack only
+    std::uint8_t volume_percent;   // SetVolume only
+    TrackSource source;            // LoadTrack only
+    std::uint64_t position_micros; // Seek only
 };
 
 // A command that went out, waiting for its CommandAck or CommandNak.
@@ -382,6 +383,9 @@ struct DaemonLink::Impl {
             return send_frame(
                 encode_message(make_header(Opcode::LoadTrackReq, r.id),
                                LoadTrackBody{.catalog_id = 0, .source = r.source, .reserved = {}}));
+        case Command::Seek:
+            return send_frame(encode_message(make_header(Opcode::SeekReq, r.id),
+                                             SeekBody{.position_micros = r.position_micros}));
         }
         return false;
     }
@@ -414,12 +418,13 @@ DaemonState DaemonLink::state() const {
     return impl_->state;
 }
 
-RequestId DaemonLink::ask(Command command, std::uint8_t volume_percent, TrackSource source) {
+RequestId DaemonLink::ask(Command command, std::uint8_t volume_percent, TrackSource source,
+                          std::uint64_t position_micros) {
     RequestId id = 0;
     {
         std::lock_guard lock(impl_->mutex);
         id = impl_->next_seq_id++;
-        impl_->queue.push_back({id, command, volume_percent, source});
+        impl_->queue.push_back({id, command, volume_percent, source, position_micros});
     }
     impl_->reactor.wake();
     return id;
@@ -431,5 +436,10 @@ RequestId DaemonLink::stop() { return ask(Command::Stop, 0); }
 RequestId DaemonLink::toggle() { return ask(Command::Toggle, 0); }
 RequestId DaemonLink::set_volume(std::uint8_t percent) { return ask(Command::SetVolume, percent); }
 RequestId DaemonLink::load_track(TrackSource source) { return ask(Command::LoadTrack, 0, source); }
+RequestId DaemonLink::seek(std::uint64_t position_micros) {
+    // More than SeekBody takes would only come back as BadRequest.
+    return ask(Command::Seek, 0, TrackSource::Tone,
+               std::min(position_micros, common::kMaxSeekMicros));
+}
 
 } // namespace am::client

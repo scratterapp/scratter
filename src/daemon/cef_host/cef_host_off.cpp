@@ -22,6 +22,8 @@ void CefHost::set_state(common::PlaybackState) {}
 
 void CefHost::load_film(bool) {}
 
+void CefHost::seek(std::chrono::microseconds) {}
+
 bool CefHost::built_in() noexcept { return false; }
 
 } // namespace am::daemon

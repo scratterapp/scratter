@@ -60,6 +60,12 @@
 // the page back in. In between, the daemon stops the audio path and waits for
 // quiet(), so render() has faded out and thrown away the old source's audio.
 //
+// Seeking (SeekReq) works like a short switch: the daemon pauses the audio
+// path, waits for quiet() so the old audio has faded out and been thrown
+// away, then moves the position with set_position_frames() and plays on.
+// A source with a length (set_length_frames()) loops, like the test films
+// do, so the position counts from 0 again each time round.
+//
 // Construct it on the heap (std::make_unique): the ring buffer alone is 128 KiB.
 
 #include "common/spsc_ring_buffer.hpp"
@@ -209,6 +215,20 @@ class AudioPath {
         volume_percent_.store(percent, std::memory_order_relaxed);
     }
 
+    // How long the source is, so position_frames() goes round to 0 at the
+    // end, the way the looping test films do. 0 (the default) means it has
+    // no end: the tone.
+    void set_length_frames(std::uint64_t frames) noexcept {
+        length_frames_.store(frames, std::memory_order_relaxed);
+    }
+
+    // Moves the position, for a seek or a switch. Only while quiet() (or with
+    // no sink running render() at all): render() adds to the position while
+    // it plays, and a quiet render() never touches it unless stopped.
+    void set_position_frames(std::uint64_t frames) noexcept {
+        position_frames_.store(frames, std::memory_order_relaxed);
+    }
+
     // True once render() has seen the latest set_state(), that state isn't
     // Playing, and the fade-out is over: from then on render() only writes
     // silence, so the daemon can stop the sink. Turns false again with the
@@ -236,9 +256,15 @@ class AudioPath {
     // How many frames a fade lasts: 480 at 48 kHz.
     [[nodiscard]] std::size_t fade_frames() const noexcept { return fade_frames_; }
 
-    // Frames played since the last Stop (Pause keeps the place).
+    // Where playback is, in frames: played since the last Stop or seek (Pause
+    // keeps the place), going round to 0 at the end of a source with a length.
     [[nodiscard]] std::uint64_t position_frames() const noexcept {
-        return position_frames_.load(std::memory_order_relaxed);
+        const std::uint64_t played = position_frames_.load(std::memory_order_relaxed);
+        const std::uint64_t length = length_frames_.load(std::memory_order_relaxed);
+        return length > 0 ? played % length : played;
+    }
+    [[nodiscard]] std::uint64_t length_frames() const noexcept {
+        return length_frames_.load(std::memory_order_relaxed);
     }
     [[nodiscard]] std::uint64_t position_micros() const noexcept {
         return position_frames() * 1'000'000 / sample_rate_hz_;
@@ -349,6 +375,7 @@ class AudioPath {
     std::atomic<PlaybackState> state_{PlaybackState::Playing};
     std::atomic<std::uint8_t> volume_percent_{100};
     std::atomic<std::uint64_t> state_changes_{1}; // set_state() calls that changed it
+    std::atomic<std::uint64_t> length_frames_{0}; // 0: no end
 
     // Written by the audio thread, read by the reactor thread: the value of
     // state_changes_ when render() last went quiet (0: not yet). See quiet().
@@ -360,7 +387,8 @@ class AudioPath {
     bool filling_up_ = true; // waiting for kTargetFrames before playing
     float fade_ = 0.0f;      // 0 is silent, 1 is full volume; see render()
 
-    // Written by the audio thread, read by the reactor thread.
+    // Written by the audio thread, read by the reactor thread. Also written
+    // by set_position_frames(), while render() leaves it alone.
     std::atomic<std::uint64_t> position_frames_{0};
     std::atomic<std::size_t> fill_frames_{0};
     std::atomic<float> drift_ppm_{0.0f};

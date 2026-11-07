@@ -40,8 +40,9 @@ enum class LinkStatus : std::uint8_t {
 
 // The commands the window can send. Toggle is play/pause, decided on the
 // connection thread from the newest state, like the play/pause media key.
-// LoadTrack switches sources (the tone or a test film).
-enum class Command : std::uint8_t { Play, Pause, Stop, Toggle, SetVolume, LoadTrack };
+// LoadTrack switches sources (the tone or a test film), and Seek jumps to a
+// point in it.
+enum class Command : std::uint8_t { Play, Pause, Stop, Toggle, SetVolume, LoadTrack, Seek };
 
 // How a command ended. The first four are the daemon's own answer
 // (CommandStatus); the rest are about the connection.

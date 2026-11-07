@@ -175,12 +175,40 @@ TEST_CASE("the window's link connects, sends commands and follows the state", "[
         l, [](const DaemonState& st) { return st.playback == PlaybackState::Stopped; }));
     CHECK(outcome_of(window, l, l.play()) == CommandOutcome::Ok);
 
+    // The tone has no length, so there's nothing to seek in.
+    CHECK(outcome_of(window, l, l.seek(10'000'000)) == CommandOutcome::NotSupported);
+
     // Loading the tone starts it over; a daemon without CEF refuses the films.
     CHECK(outcome_of(window, l, l.load_track(am::common::TrackSource::Tone)) == CommandOutcome::Ok);
     if (!AM_DAEMON_HAS_CEF) {
         CHECK(outcome_of(window, l, l.load_track(am::common::TrackSource::ClearFilm)) ==
               CommandOutcome::NotSupported);
     }
+}
+
+TEST_CASE("the window's link seeks, and the new position arrives", "[daemon_link][seek]") {
+    RuntimeDir dir;
+    const std::string name = unique_name() + "-link-seek";
+    Daemon daemon(name, {"--tone-length", "60"}); // a tone with a length, so it can seek
+
+    Window window;
+    auto link = DaemonLink::start(options_for(name), window.callback());
+    REQUIRE(link.has_value());
+    DaemonLink& l = **link;
+    REQUIRE(window.wait_for(l, connected, 10s));
+    CHECK(window.wait_for(l, [](const DaemonState& s) { return s.has_track; }));
+    CHECK(l.state().track_duration_micros == 60'000'000);
+
+    CHECK(outcome_of(window, l, l.seek(42'000'000)) == CommandOutcome::Ok);
+    CHECK(window.wait_for(l, [](const DaemonState& s) { return s.position_micros == 42'000'000; }));
+    TelemetryReader reader(name);
+    CHECK(telemetry_shows(reader, l, [](const auto& t) {
+        return t.pts_micros == 42'000'000 && t.duration_micros == 60'000'000;
+    }));
+
+    // Past the end: the end, which for the looping tone is the start again.
+    CHECK(outcome_of(window, l, l.seek(~std::uint64_t{0})) == CommandOutcome::Ok);
+    CHECK(window.wait_for(l, [](const DaemonState& s) { return s.position_micros == 0; }));
 }
 
 TEST_CASE("the window's link says when the daemon isn't running and reconnects", "[daemon_link]") {

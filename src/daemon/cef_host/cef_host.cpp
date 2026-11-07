@@ -4,7 +4,7 @@
 //
 // Which thread runs what:
 //
-//   reactor thread   start(), set_state(), load_film(), ~CefHost(). Posts work to CEF's
+//   reactor thread   start(), set_state(), load_film(), seek(), ~CefHost(). Posts work to CEF's
 //                    UI thread and, on shutdown, waits for it.
 //   CEF UI thread    everything in PageClient and HostApp except the audio
 //                    callbacks below. It's CEF's own thread because the
@@ -188,9 +188,22 @@ class PageClient final : public CefClient,
     // loaded yet runs it first, in OnLoadEnd.
     void load_film(const std::string& script) {
         film_script_ = script;
+        seek_script_.clear(); // a new film starts at 0, not where the old one was asked to go
         if (browser_ && loaded_) {
             browser_->GetMainFrame()->ExecuteJavaScript(script, "", 0);
             film_script_.clear();
+        }
+    }
+
+    // Runs amSeek() in the page. Before the page has loaded it waits, like
+    // load_film(), and runs once the page has, after the film switch. Only
+    // the newest seek is kept, and only until it has run: a page loaded
+    // again after a crash carries on from its own saved position.
+    void seek(const std::string& script) {
+        seek_script_ = script;
+        if (browser_ && loaded_) {
+            browser_->GetMainFrame()->ExecuteJavaScript(script, "", 0);
+            seek_script_.clear();
         }
     }
 
@@ -286,6 +299,9 @@ class PageClient final : public CefClient,
         if (!film_script_.empty()) {
             browser->GetMainFrame()->ExecuteJavaScript(std::exchange(film_script_, {}), "", 0);
         }
+        if (!seek_script_.empty()) {
+            browser->GetMainFrame()->ExecuteJavaScript(std::exchange(seek_script_, {}), "", 0);
+        }
         if (!last_script_.empty()) {
             browser->GetMainFrame()->ExecuteJavaScript(last_script_, "", 0);
         }
@@ -351,6 +367,7 @@ class PageClient final : public CefClient,
     bool loaded_ = false;
     std::string last_script_; // the last play/pause/stop asked for
     std::string film_script_; // an amLoad() waiting for the page to load
+    std::string seek_script_; // an amSeek() waiting for the page to load
     Clock::time_point loaded_at_{};
     int deaths_in_a_row_ = 0; // renderer deaths, each soon after the page loaded
 
@@ -547,6 +564,17 @@ void CefHost::set_state(PlaybackState state) {
 void CefHost::load_film(bool clear_film) {
     std::string script = clear_film ? "amLoad(true)" : "amLoad(false)";
     CefPostTask(TID_UI, base::BindOnce(&PageClient::load_film, impl_->client, std::move(script)));
+}
+
+void CefHost::seek(std::chrono::microseconds position) {
+    // Seconds, the unit video.currentTime takes, written as a sum of whole
+    // numbers: %f would print a comma instead of a point under a locale
+    // that uses one, and JavaScript would read that as two arguments.
+    const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(position).count();
+    char script[64];
+    std::snprintf(script, sizeof script, "amSeek(%lld + %lld / 1000)",
+                  static_cast<long long>(millis / 1000), static_cast<long long>(millis % 1000));
+    CefPostTask(TID_UI, base::BindOnce(&PageClient::seek, impl_->client, std::string(script)));
 }
 
 bool CefHost::built_in() noexcept { return true; }
