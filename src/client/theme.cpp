@@ -8,9 +8,13 @@ namespace am::client {
 
 namespace {
 
-ImFont* add_font(std::span<const unsigned char> bytes) {
+// Adds one font. With `merge`, its letters join the font added just before
+// (ImFontConfig::MergeMode) instead of making a new one: ImGui looks a letter
+// up in the first font, and only if that doesn't have it, in the next.
+ImFont* add_font(std::span<const unsigned char> bytes, bool merge = false) {
     ImGuiIO& io = ImGui::GetIO();
     ImFontConfig config;
+    config.MergeMode = merge;
     // The bytes live in the program for its whole run, so ImGui must not
     // free them (it would by default).
     config.FontDataOwnedByAtlas = false;
@@ -19,7 +23,23 @@ ImFont* add_font(std::span<const unsigned char> bytes) {
     ImFont* font =
         io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(bytes.data()),
                                        static_cast<int>(bytes.size()), kBodySize, &config);
+    if (merge) {
+        return font; // a missing fallback just means fewer letters, not a missing font
+    }
     return font != nullptr ? font : io.Fonts->AddFontDefault();
+}
+
+// Atkinson Hyperlegible and Instrument Serif only have Latin letters. Track
+// titles come in any language, so each font gets Noto behind it: Greek,
+// Cyrillic, Vietnamese and the rest of Latin. ImGui (since 1.92) only draws a
+// letter the first time it's shown, so the extra fonts cost the program's
+// size (about 1.1 MB), not memory for letters nobody uses. Chinese, Japanese
+// and Korean aren't in these; those fonts are 15 MB or more each.
+ImFont* add_font_with_fallback(std::span<const unsigned char> bytes,
+                               std::span<const unsigned char> fallback) {
+    ImFont* font = add_font(bytes);
+    add_font(fallback, true);
+    return font;
 }
 
 } // namespace
@@ -27,10 +47,14 @@ ImFont* add_font(std::span<const unsigned char> bytes) {
 Fonts load_fonts() {
     Fonts fonts;
     // The first font added is ImGui's default, so body text comes first.
-    fonts.body = add_font(embedded::atkinson_regular());
-    fonts.body_bold = add_font(embedded::atkinson_bold());
-    fonts.display = add_font(embedded::instrument_serif_regular());
-    fonts.display_italic = add_font(embedded::instrument_serif_italic());
+    // A bold or italic letter that falls through to Noto comes out upright
+    // and regular; carrying a Noto for every style would double the size.
+    fonts.body = add_font_with_fallback(embedded::atkinson_regular(), embedded::noto_sans());
+    fonts.body_bold = add_font_with_fallback(embedded::atkinson_bold(), embedded::noto_sans());
+    fonts.display =
+        add_font_with_fallback(embedded::instrument_serif_regular(), embedded::noto_serif());
+    fonts.display_italic =
+        add_font_with_fallback(embedded::instrument_serif_italic(), embedded::noto_serif());
     return fonts;
 }
 

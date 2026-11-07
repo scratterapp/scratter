@@ -151,9 +151,19 @@ void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
 
     // What's playing, from the daemon's TrackChangedEvent (#38). Until Apple
     // Music arrives it's one of the test sources.
+    // A title that doesn't fit on one line before the record on the right
+    // gets a smaller size, then wraps. Apple Music titles run long.
     ImGui::SetCursorPosX(margin);
+    const char* title = state.has_track ? state.track_title.c_str() : "Test sound";
+    const float title_right = std::max(size.x * 0.52f, margin + em * 12.0f);
     ImGui::PushFont(fonts.display, kBodySize * 3.6f);
-    ImGui::TextUnformatted(state.has_track ? state.track_title.c_str() : "Test sound");
+    if (ImGui::CalcTextSize(title).x > title_right - margin) {
+        ImGui::PopFont();
+        ImGui::PushFont(fonts.display, kBodySize * 2.4f);
+    }
+    ImGui::PushTextWrapPos(title_right);
+    ImGui::TextUnformatted(title);
+    ImGui::PopTextWrapPos();
     ImGui::PopFont();
     ImGui::SetCursorPosX(margin);
     ImGui::PushFont(fonts.display_italic, kBodySize * 1.4f);
