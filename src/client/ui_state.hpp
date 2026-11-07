@@ -101,6 +101,13 @@ struct DaemonState {
     // so don't count on seeing every id here.
     std::optional<CommandResult> last_result;
 
+    // Goes up by one at every RaiseWindowEvent: the desktop asked to see the
+    // player (clicked it in the media widget). The window compares it with
+    // the last value it saw and comes to the front when it went up. A count,
+    // not a flag, so two clicks between frames aren't lost and nothing has
+    // to reset it.
+    std::uint64_t raise_count = 0;
+
     // The connection thread only wakes the window when something changed.
     bool operator==(const DaemonState&) const = default;
 };

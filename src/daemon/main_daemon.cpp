@@ -2,6 +2,7 @@
 //
 //   scratterd [--name NAME] [--no-audio] [--tone-length SECONDS]
 //             [--test-film | --clear-film] [--widevine-dir DIR] [--no-sandbox]
+//             [--ui PROGRAM]
 //
 //   --name NAME   listen on endpoint NAME and publish telemetry as
 //                 NAME_telemetry_v2 (default: the daemon's own name, which is
@@ -27,6 +28,9 @@
 //   --no-sandbox  run CEF's subprocesses without Chromium's sandbox, for
 //                 machines where it won't start. Only use it to find out
 //                 whether the sandbox is the problem.
+//   --ui PROGRAM  what to start when the desktop asks to see the player (MPRIS
+//                 Raise) and no window is open. Default: the am-ui next to
+//                 this daemon. The tests point it at a stand-in.
 //
 // Exit codes: 0 after a clean shutdown (Ctrl-C or SIGTERM), 1 if setting
 // something up failed, 2 for bad arguments, 3 if a daemon is already running.
@@ -38,7 +42,9 @@
 // the tone and the two films while it runs (LoadTrackReq, `amctl load`). A
 // daemon built with CEF starts CEF the first time a film is asked for. The
 // films can be seeked in (SeekReq, `amctl seek`, the window's bar, MPRIS);
-// the tone only with --tone-length. There is no next track yet.
+// the tone only with --tone-length. There is no next track yet. Clicking the
+// player in the media widget brings the window to the front, or starts it
+// if none is open (issue #41).
 //
 // Startup, in order:
 //
@@ -67,7 +73,9 @@
 #include "daemon/cef_host/test_film_page.hpp"
 #include "daemon/control_server.hpp"
 #include "ipc_channel.hpp"
+#include "browser_files.hpp"
 #include "media_controls.hpp"
+#include "process_launch.hpp"
 #include "reactor.hpp"
 #include "realtime.hpp"
 #include "shm_mapping.hpp"
@@ -78,6 +86,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -120,6 +129,7 @@ struct Options {
     bool audio = true;
     TrackSource source = TrackSource::Tone; // what plays first
     microseconds tone_length{0};            // 0: the tone has no end
+    std::string ui_program;                 // --ui; empty: am-ui next to the daemon
     am::daemon::CefHostOptions cef;
 };
 
@@ -149,6 +159,8 @@ std::optional<Options> parse_arguments(std::span<char*> args) {
             options.cef.widevine_dir = args[++i];
         } else if (arg == "--no-sandbox") {
             options.cef.sandbox = false;
+        } else if (arg == "--ui" && i + 1 < args.size()) {
+            options.ui_program = args[++i];
         } else {
             return std::nullopt;
         }
@@ -194,7 +206,8 @@ int main(int argc, char** argv) {
     if (!options) {
         std::fprintf(stderr,
                      "usage: %s [--name NAME] [--no-audio] [--tone-length SECONDS] "
-                     "[--test-film | --clear-film] [--widevine-dir DIR] [--no-sandbox]\n",
+                     "[--test-film | --clear-film] [--widevine-dir DIR] [--no-sandbox] "
+                     "[--ui PROGRAM]\n",
                      argv[0]);
         return kExitBadArguments;
     }
@@ -502,6 +515,37 @@ int main(int argc, char** argv) {
         server->broadcast_state();
     };
 
+    // MPRIS Raise: bring the open window forward, or start one. A second
+    // click while the new window is still starting (it takes a moment to
+    // connect) shouldn't start a second window, hence the wait.
+    std::optional<std::chrono::steady_clock::time_point> last_launch;
+    auto raise_window = [&] {
+        if (server->raise_windows() > 0) {
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (last_launch && now - *last_launch < 5s) {
+            return;
+        }
+        std::filesystem::path program = options->ui_program;
+        if (program.empty()) {
+            auto dir = am::pal::executable_dir();
+            if (!dir) {
+                std::fprintf(stderr, "can't find the window program: %s\n",
+                             dir.error().message().c_str());
+                return;
+            }
+            program = *dir / AM_UI_NAME;
+        }
+        if (auto started = am::pal::launch_ui(*reactor, program); !started) {
+            std::fprintf(stderr, "couldn't start the window (%s): %s\n", program.c_str(),
+                         started.error().message().c_str());
+            return;
+        }
+        last_launch = now;
+        std::fprintf(stderr, "started the window: %s\n", program.c_str());
+    };
+
     // 6. Media keys. A key press works like the same amctl command: change
     // the audio, publish, and tell every connected client.
     auto on_media_key = [&](const am::pal::MediaRequest& request) {
@@ -532,7 +576,8 @@ int main(int argc, char** argv) {
         case Kind::Previous:
             return; // the test sources have no next track
         case Kind::Raise:
-            return; // TODO(robbie, #41): raise the window, or start one
+            raise_window();
+            return;
         }
         if (state == audio->state() && volume == audio->volume()) {
             return;

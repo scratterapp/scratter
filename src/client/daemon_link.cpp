@@ -313,6 +313,13 @@ struct DaemonLink::Impl {
             });
             return true;
         }
+        case Opcode::RaiseWindowEvent: {
+            if (!expect_no_body(payload)) {
+                return false;
+            }
+            publish([](DaemonState& s) { ++s.raise_count; });
+            return true;
+        }
         case Opcode::CommandAck:
         case Opcode::CommandNak: {
             auto body = decode_body<CommandResultBody>(payload);

@@ -222,6 +222,20 @@ void ControlServer::broadcast_state() {
     }
 }
 
+int ControlServer::raise_windows() {
+    int raised = 0;
+    for (auto& client : clients_) {
+        if (client->closed || client->name != common::kWindowPeerName) {
+            continue;
+        }
+        send(*client, common::encode_header(next_header(Opcode::RaiseWindowEvent)));
+        if (!client->closed) {
+            ++raised;
+        }
+    }
+    return raised;
+}
+
 void ControlServer::send(Client& client, std::span<const std::byte> frame) {
     if (client.closed) {
         return;

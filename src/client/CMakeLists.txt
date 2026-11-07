@@ -65,6 +65,10 @@ add_executable(am-ui
 )
 target_link_libraries(am-ui PRIVATE am_client_core am_imgui am_net am_pal am_common)
 am_enable_warnings(am-ui)
+# Built next to the daemon (the top of the build folder), not in src/client/:
+# the daemon starts the am-ui that sits beside it when the desktop asks to see
+# the player and no window is open (issue #41), as it does once installed.
+set_target_properties(am-ui PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}")
 
 # On Windows: the icon, and in Release a GUI program (WIN32_EXECUTABLE), so
 # starting it from Explorer or the Start menu doesn't open a console window as

@@ -197,7 +197,8 @@ Mpris& mpris_of(void* userdata) noexcept { return *static_cast<Mpris*>(userdata)
 // the daemon's callback has run, so a client that reads PlaybackStatus right
 // after PlayPause() returns already sees the new state.
 
-// Play, Pause, PlayPause, Stop, Next, Previous: no arguments, one request.
+// Play, Pause, PlayPause, Stop, Next, Previous, Raise: no arguments, one
+// request.
 template <MediaRequest::Kind kind>
 int simple_request(sd_bus_message* call, void* userdata, sd_bus_error*) {
     mpris_of(userdata).request({.kind = kind});
@@ -251,8 +252,9 @@ int open_uri(sd_bus_message*, void*, sd_bus_error* error) {
     return sd_bus_error_set(error, SD_BUS_ERROR_NOT_SUPPORTED, "OpenUri isn't supported");
 }
 
-// Raise() (bring the window up) and Quit(): CanRaise and CanQuit say we
-// don't, so these do nothing. MPRIS still requires them to exist.
+// Quit(): CanQuit says we don't, so it does nothing. MPRIS still requires it
+// to exist. (Quitting from the media widget would stop the music for good,
+// which is what closing the window deliberately doesn't do.)
 int do_nothing(sd_bus_message* call, void*, sd_bus_error*) {
     return sd_bus_reply_method_return(call, nullptr);
 }
@@ -270,6 +272,13 @@ AM_GETTER(get_true) { return sd_bus_message_append(reply, "b", 1); }
 AM_GETTER(get_false) { return sd_bus_message_append(reply, "b", 0); }
 AM_GETTER(get_rate) { return sd_bus_message_append(reply, "d", 1.0); }
 AM_GETTER(get_no_strings) { return sd_bus_message_append(reply, "as", 0); }
+
+// The .desktop file the player belongs to, without ".desktop"
+// (packaging/linux/, installed as <app>.desktop). KDE's media widget takes the
+// player's icon from it.
+AM_GETTER(get_desktop_entry) {
+    return sd_bus_message_append(reply, "s", std::string(common::kAppName).c_str());
+}
 
 AM_GETTER(get_identity) {
     return sd_bus_message_append(reply, "s", mpris_of(userdata).identity.c_str());
@@ -382,10 +391,11 @@ constexpr auto kEmits = SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE;
 
 const sd_bus_vtable kRootVtable[] = {
     SD_BUS_VTABLE_START(0),
-    SD_BUS_METHOD("Raise", "", "", do_nothing, 0),
+    SD_BUS_METHOD("Raise", "", "", simple_request<Kind::Raise>, 0),
     SD_BUS_METHOD("Quit", "", "", do_nothing, 0),
     SD_BUS_PROPERTY("CanQuit", "b", get_false, 0, kConst),
-    SD_BUS_PROPERTY("CanRaise", "b", get_false, 0, kConst),
+    SD_BUS_PROPERTY("CanRaise", "b", get_true, 0, kConst),
+    SD_BUS_PROPERTY("DesktopEntry", "s", get_desktop_entry, 0, kConst),
     SD_BUS_PROPERTY("HasTrackList", "b", get_false, 0, kConst),
     SD_BUS_PROPERTY("Identity", "s", get_identity, 0, kConst),
     SD_BUS_PROPERTY("SupportedUriSchemes", "as", get_no_strings, 0, kConst),
