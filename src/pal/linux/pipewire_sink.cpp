@@ -144,10 +144,14 @@ struct AudioSink::Impl {
 };
 
 std::expected<AudioSink, std::error_code> AudioSink::open(const AudioFormat& requested,
-                                                          RenderCallback render) {
+                                                          RenderCallback render, OutputMode mode) {
     if (requested.channels == 0 || requested.channels > SPA_AUDIO_MAX_CHANNELS ||
         requested.sample_rate_hz == 0) {
         return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    }
+    if (mode == OutputMode::Exclusive) {
+        // PipeWire always mixes; exclusive output comes with the ALSA hw: sink (#7).
+        return std::unexpected(std::make_error_code(std::errc::not_supported));
     }
 
     auto impl = std::make_unique<Impl>();
@@ -252,5 +256,7 @@ std::expected<void, std::error_code> AudioSink::stop() {
 }
 
 AudioFormat AudioSink::format() const noexcept { return impl_->format; }
+
+OutputMode AudioSink::mode() const noexcept { return OutputMode::Shared; }
 
 } // namespace am::pal

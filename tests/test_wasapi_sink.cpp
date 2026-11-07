@@ -124,3 +124,19 @@ TEST_CASE("bad formats are rejected before touching WASAPI", "[audio][wasapi]") 
     REQUIRE_FALSE(zero_rate);
     CHECK(zero_rate.error() == std::errc::invalid_argument);
 }
+
+TEST_CASE("a shared sink says so, and exclusive mode is refused for now", "[audio][wasapi]") {
+    Counters counters;
+    if (auto sink = open_silent_sink(counters)) {
+        CHECK(sink->mode() == am::pal::OutputMode::Shared);
+    } else {
+        WARN("no audio output device, not testing the shared sink: " << sink.error().message());
+    }
+
+    // TODO(kero): exclusive mode, #13. This becomes a real playback test then.
+    auto exclusive = AudioSink::open(
+        {.sample_rate_hz = 48000, .channels = 2}, [](std::span<float>) noexcept {},
+        am::pal::OutputMode::Exclusive);
+    REQUIRE_FALSE(exclusive);
+    CHECK(exclusive.error() == std::errc::not_supported);
+}
