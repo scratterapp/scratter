@@ -6,6 +6,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <string>
+
 using namespace am::client;
 
 TEST_CASE("the clock reads minutes and seconds, and hours after an hour", "[now_playing]") {
@@ -52,4 +54,17 @@ TEST_CASE("the details line shows rate, buffer fill and drift", "[now_playing]")
     snapshot.ring_buffer_fill_pct = 0.52f;
     snapshot.clock_drift_ppm = 3.14f;
     CHECK(telemetry_line(snapshot) == "48000 Hz  \xC2\xB7  buffer 52%  \xC2\xB7  drift +3.1 ppm");
+}
+
+TEST_CASE("a refused switch says why, and each source has a label", "[now_playing]") {
+    CHECK(command_failure_text(
+              {.id = 4, .command = Command::LoadTrack, .outcome = CommandOutcome::NotSupported}) ==
+          "Couldn't switch sources: this daemon was built without CEF, so it only has the tone.");
+    CHECK(command_failure_text(
+              {.id = 5, .command = Command::LoadTrack, .outcome = CommandOutcome::Failed}) ==
+          "Couldn't switch sources: the daemon tried and it went wrong.");
+
+    CHECK(std::string(source_label(am::common::TrackSource::Tone)) == "Tone");
+    CHECK(std::string(source_label(am::common::TrackSource::ClearFilm)) == "Clear film");
+    CHECK(std::string(source_label(am::common::TrackSource::WidevineFilm)) == "Widevine film");
 }

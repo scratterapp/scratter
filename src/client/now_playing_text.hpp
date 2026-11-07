@@ -72,6 +72,9 @@ inline std::string command_failure_text(const CommandResult& result) {
     case Command::SetVolume:
         verb = "change the volume";
         break;
+    case Command::LoadTrack:
+        verb = "switch sources";
+        break;
     }
     const char* why = nullptr;
     switch (result.outcome) {
@@ -81,7 +84,10 @@ inline std::string command_failure_text(const CommandResult& result) {
         why = "the daemon didn't understand the request";
         break;
     case CommandOutcome::NotSupported:
-        why = "the daemon can't do that yet";
+        // The one switch a daemon refuses is to a film, without CEF.
+        why = result.command == Command::LoadTrack
+                  ? "this daemon was built without CEF, so it only has the tone"
+                  : "the daemon can't do that yet";
         break;
     case CommandOutcome::Failed:
         why = "the daemon tried and it went wrong";
@@ -97,6 +103,19 @@ inline std::string command_failure_text(const CommandResult& result) {
         break;
     }
     return std::string{"Couldn't "} + verb + ": " + why + ".";
+}
+
+// What the source picker calls each source.
+inline const char* source_label(common::TrackSource source) {
+    switch (source) {
+    case common::TrackSource::Tone:
+        return "Tone";
+    case common::TrackSource::ClearFilm:
+        return "Clear film";
+    case common::TrackSource::WidevineFilm:
+        return "Widevine film";
+    }
+    return "";
 }
 
 // The fold-away line for hand testing: "48000 Hz · buffer 52% · drift +3.1 ppm".

@@ -48,6 +48,7 @@ struct Request {
     RequestId id;
     Command command;
     std::uint8_t volume_percent; // SetVolume only
+    TrackSource source;          // LoadTrack only
 };
 
 // A command that went out, waiting for its CommandAck or CommandNak.
@@ -280,6 +281,7 @@ struct DaemonLink::Impl {
                 // What a daemon from before said no longer counts; this one
                 // sends its own state straight after the hello.
                 s.has_playback = false;
+                s.has_track = false;
             });
             arm_timer();
             return true;
@@ -294,6 +296,19 @@ struct DaemonLink::Impl {
                 s.playback = body->state;
                 s.volume_percent = body->volume_percent;
                 s.position_micros = body->position_micros;
+            });
+            return true;
+        }
+        case Opcode::TrackChangedEvent: {
+            auto body = decode_body<TrackChangedBody>(payload);
+            if (!body) {
+                return false;
+            }
+            publish([&](DaemonState& s) {
+                s.has_track = true;
+                s.track_source = body->source;
+                s.track_title = std::string(track_title(*body));
+                s.track_duration_micros = body->duration_micros;
             });
             return true;
         }
@@ -363,6 +378,10 @@ struct DaemonLink::Impl {
         case Command::SetVolume:
             return send_frame(encode_message(make_header(Opcode::SetVolumeReq, r.id),
                                              SetVolumeBody{.volume_percent = r.volume_percent}));
+        case Command::LoadTrack:
+            return send_frame(
+                encode_message(make_header(Opcode::LoadTrackReq, r.id),
+                               LoadTrackBody{.catalog_id = 0, .source = r.source, .reserved = {}}));
         }
         return false;
     }
@@ -395,12 +414,12 @@ DaemonState DaemonLink::state() const {
     return impl_->state;
 }
 
-RequestId DaemonLink::ask(Command command, std::uint8_t volume_percent) {
+RequestId DaemonLink::ask(Command command, std::uint8_t volume_percent, TrackSource source) {
     RequestId id = 0;
     {
         std::lock_guard lock(impl_->mutex);
         id = impl_->next_seq_id++;
-        impl_->queue.push_back({id, command, volume_percent});
+        impl_->queue.push_back({id, command, volume_percent, source});
     }
     impl_->reactor.wake();
     return id;
@@ -411,5 +430,6 @@ RequestId DaemonLink::pause() { return ask(Command::Pause, 0); }
 RequestId DaemonLink::stop() { return ask(Command::Stop, 0); }
 RequestId DaemonLink::toggle() { return ask(Command::Toggle, 0); }
 RequestId DaemonLink::set_volume(std::uint8_t percent) { return ask(Command::SetVolume, percent); }
+RequestId DaemonLink::load_track(TrackSource source) { return ask(Command::LoadTrack, 0, source); }
 
 } // namespace am::client
