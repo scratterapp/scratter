@@ -329,6 +329,7 @@ In the repo this lives in `src/common/ipc_protocol.hpp` under `am::common`, next
 | `Ping`, `Pong` | none | 0 | Header-only. The daemon answers each `Ping` with a `Pong` whose header `seq_id` is the `Ping`'s, so the client can match them. |
 | `PlayReq`, `PauseReq`, `StopReq` | none | 0 | Header-only frames. Any payload is refused. |
 | `SetVolumeReq` | `SetVolumeBody` | 1 | `volume_percent`: 0 to 100 |
+| `SeekReq` | `SeekBody` | 8 | `position_micros` (u64): where to jump to, from the start of the track, at most 2^63 - 1. Always absolute; the sender works out a relative jump from the last position it heard. The daemon clamps a position past the end to the end, and answers a seek on the tone (no length) with `CommandNak` / `NotSupported`. |
 | `CommandAck`, `CommandNak` | `CommandResultBody` | 16 | `request_seq_id` (u64, the request's `seq_id`), `request_opcode` (u8), `status` (u8: 0 Ok, 1 BadRequest, 2 NotSupported, 3 Failed; Ack carries Ok, Nak the others), 6 reserved zero bytes |
 | `PlaybackStateEvent` | `PlaybackStateBody` | 16 | `position_micros` (u64), `state` (u8, the telemetry page's `PlaybackState`), `volume_percent` (u8), 6 reserved zero bytes |
 | `LoadTrackReq` | `LoadTrackBody` | 16 | `catalog_id` (u64, 0 for the test sources), `source` (u8: 0 Tone, 1 ClearFilm, 2 WidevineFilm; Catalog comes with Apple Music), 7 reserved zero bytes. A daemon built without CEF answers the films with `CommandNak` / `NotSupported`. |
