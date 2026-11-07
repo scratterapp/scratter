@@ -93,6 +93,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -537,7 +538,13 @@ int main(int argc, char** argv) {
             }
             program = *dir / AM_UI_NAME;
         }
-        if (auto started = am::pal::launch_ui(*reactor, program); !started) {
+        // A daemon under another name (--name) tells the window which one to
+        // connect to; the default daemon is what am-ui looks for anyway.
+        std::vector<std::string> args;
+        if (options->name != am::common::kDaemonName) {
+            args = {"--name", options->name};
+        }
+        if (auto started = am::pal::launch_ui(*reactor, program, args); !started) {
             std::fprintf(stderr, "couldn't start the window (%s): %s\n", program.string().c_str(),
                          started.error().message().c_str());
             return;

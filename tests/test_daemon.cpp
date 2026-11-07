@@ -498,11 +498,13 @@ TEST_CASE("MPRIS Raise starts a window, or brings the open one forward", "[daemo
     const std::string name = unique_name() + "-raise";
     const auto started_file = dir.path / "ui-started";
     const auto signals_file = dir.path / "ui-signals";
+    const auto args_file = dir.path / "ui-args";
     const auto stand_in = dir.path / "fake-ui";
     {
         std::ofstream script(stand_in);
         script << "#!/bin/sh\necho started >> '" << started_file.string() << "'\n"
-               << "grep '^SigBlk' /proc/$$/status > '" << signals_file.string() << "'\n";
+               << "grep '^SigBlk' /proc/$$/status > '" << signals_file.string() << "'\n"
+               << "echo \"$*\" > '" << args_file.string() << "'\n";
     }
     REQUIRE(::chmod(stand_in.c_str(), 0700) == 0);
     auto times_started = [&] {
@@ -546,10 +548,14 @@ TEST_CASE("MPRIS Raise starts a window, or brings the open one forward", "[daemo
     // The daemon blocks SIGINT and SIGTERM for its signalfd. The window must
     // not inherit that, or it would ignore Ctrl-C and `kill`.
     deadline = std::chrono::steady_clock::now() + 5s;
-    while (read_file(signals_file).empty() && std::chrono::steady_clock::now() < deadline) {
+    // The stand-in writes the arguments file last.
+    while (read_file(args_file).empty() && std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(20ms);
     }
     CHECK(read_file(signals_file) == "SigBlk:\t0000000000000000\n");
+    // This daemon runs under a name of its own, so the window is told which
+    // daemon to connect to.
+    CHECK(read_file(args_file) == "--name " + name + "\n");
 
     // A second click while that window is still starting (it hasn't
     // connected) doesn't start another.

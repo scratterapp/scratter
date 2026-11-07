@@ -29,6 +29,7 @@
 #include <string>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 #include <fcntl.h>
 #include <signal.h>
@@ -83,12 +84,8 @@ std::error_code from_errno(int value) noexcept { return {value, std::system_cate
 } // namespace
 
 std::expected<void, std::error_code> launch_ui(Reactor& reactor,
-                                               const std::filesystem::path& program) {
-    // posix_spawn would say so too, but only through an exit status we'd
-    // collect later. Checking first gives the daemon a clear log line.
-    if (::access(program.c_str(), X_OK) != 0) {
-        return std::unexpected(from_errno(errno));
-    }
+                                               const std::filesystem::path& program,
+                                               std::span<const std::string> args) {
 
     SpawnOptions options;
     sigset_t none;
@@ -103,11 +100,23 @@ std::expected<void, std::error_code> launch_ui(Reactor& reactor,
                                POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSID);
     ::posix_spawn_file_actions_addopen(&options.actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
 
-    std::string path = program.string();
-    char* argv[] = {path.data(), nullptr};
+    // posix_spawn wants a C array of char*, ending with a null pointer, and
+    // the program's own path first. It doesn't change the strings, but the
+    // type says char*, so they're copied into strings of our own.
+    std::vector<std::string> words;
+    words.push_back(program.string());
+    words.insert(words.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& word : words) {
+        argv.push_back(word.data());
+    }
+    argv.push_back(nullptr);
+
+    // A missing or non-executable program comes back from posix_spawn itself
+    // (ENOENT, EACCES), before any process exists.
     pid_t pid = -1;
-    if (const int r =
-            ::posix_spawn(&pid, path.c_str(), &options.actions, &options.attributes, argv, environ);
+    if (const int r = ::posix_spawn(&pid, argv[0], &options.actions, &options.attributes,
+                                    argv.data(), environ);
         r != 0) {
         return std::unexpected(from_errno(r));
     }

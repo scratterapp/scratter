@@ -10,7 +10,7 @@
 //   // The build puts the two side by side, and so does `cmake --install`.
 //   auto dir = am::pal::executable_dir();
 //   if (dir) {
-//       if (auto started = am::pal::launch_ui(reactor, *dir / "am-ui"); !started) {
+//       if (auto started = am::pal::launch_ui(reactor, *dir / "am-ui", {}); !started) {
 //           log started.error().message();
 //       }
 //   }
@@ -26,7 +26,10 @@
 //             Linux version watches a pidfd for the window on `reactor` and
 //             collects it when it exits.
 //   Windows:  not written yet (function_not_supported). CreateProcessW, for
-//             kero; Windows has no zombies, so it won't need the reactor.
+//             kero; Windows has no zombies, so it won't need the reactor. Do
+//             close both handles CreateProcessW hands back (hProcess and
+//             hThread in PROCESS_INFORMATION) once it has started, or every
+//             launch leaks two handles.
 //
 // Errors are std::error_code, like the other interfaces:
 //
@@ -42,17 +45,23 @@
 
 #include <expected>
 #include <filesystem>
+#include <span>
+#include <string>
 #include <system_error>
 
 namespace am::pal {
 
 class Reactor;
 
-// Starts `program`, with no arguments, as a process of its own, and returns
-// once it has started. Its standard input reads nothing (/dev/null on Linux);
-// its output goes where the daemon's goes, so its error messages end up next
-// to the daemon's (the terminal, or the journal under systemd).
+// Starts `program` with `args` (not counting the program's own name, which
+// goes first as usual) as a process of its own, and returns once it has
+// started. The daemon passes `--name NAME` when it runs under a name other
+// than the default, so the window connects to this daemon and not another.
+// Its standard input reads nothing (/dev/null on Linux); its output goes
+// where the daemon's goes, so its error messages end up next to the daemon's
+// (the terminal, or the journal under systemd).
 [[nodiscard]] std::expected<void, std::error_code> launch_ui(Reactor& reactor,
-                                                             const std::filesystem::path& program);
+                                                             const std::filesystem::path& program,
+                                                             std::span<const std::string> args);
 
 } // namespace am::pal
