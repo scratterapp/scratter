@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <memory>
@@ -488,9 +489,11 @@ TEST_CASE("a page shut out by let_page_write(false) writes nothing", "[audio_pat
 }
 
 // The page's thread keeps sending while the test thread takes the ring buffer
-// away from it, writes the tone, and hands it back, over and over. Under
-// linux-tsan a write_planar() and a top_up() touching the producer's side at
-// the same time is reported as a data race.
+// away from it, writes the tone, and hands it back, over and over, the way
+// the daemon switches sources: shut the page out, stop and let render() empty
+// the ring, top up the tone, play and let the page back in. Under linux-tsan
+// a write_planar() and a top_up() touching the producer's side at the same
+// time is reported as a data race.
 TEST_CASE("the ring buffer changes hands between the page and the tone", "[audio_path]") {
     auto audio = std::make_unique<AudioPath>(kRate);
     SineGenerator sine(kRate);
@@ -507,21 +510,35 @@ TEST_CASE("the ring buffer changes hands between the page and the tone", "[audio
     });
 
     std::vector<float> out(kBufferFrames * AudioPath::kChannels);
+    // render() is the consumer's side. It may run on any thread as long as
+    // it's always the same one, so this thread plays the audio thread too.
     std::uint64_t tone_frames = 0;
-    for (int round = 0; round < 2000; ++round) {
+    for (int round = 0; round < 500; ++round) {
         audio->let_page_write(false);
+        audio->set_state(PlaybackState::Stopped);
+        audio->discard();
+        while (!audio->quiet()) {
+            audio->render(out); // fades out, then empties the ring
+        }
         tone_frames += audio->top_up(sine); // this thread is the only producer now
+        audio->set_state(PlaybackState::Playing);
         audio->let_page_write(true);
-        // The consumer's side, so the ring doesn't stay full. render() may
-        // run on any thread as long as it's always the same one.
-        for (int i = 0; i < 8; ++i) {
+        for (int i = 0; i < 4; ++i) {
             audio->render(out);
         }
+    }
+
+    // Make sure the page got in at least once, however the threads were
+    // scheduled: the gate is open and it's playing, so it will.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (page_frames.load() == 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::yield();
     }
     done.store(true, std::memory_order_relaxed);
     page.join();
 
-    CHECK(tone_frames > 0);
+    // Each round emptied the ring, so each top-up wrote the whole target.
+    CHECK(tone_frames == 500 * AudioPath::kTargetFrames);
     CHECK(page_frames.load() > 0);
 }
 
