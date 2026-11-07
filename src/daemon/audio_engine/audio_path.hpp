@@ -53,6 +53,13 @@
 // stopped nothing calls render(), which is why write_planar() has to drop the
 // page's audio itself.
 //
+// Switching sources (LoadTrackReq) hands the producer's side of the ring
+// buffer from CEF to the reactor thread or back. let_page_write(false) shuts
+// write_planar() out and waits for one that's halfway through a packet, so
+// once it returns the reactor thread can top_up(). let_page_write(true) lets
+// the page back in. In between, the daemon stops the audio path and waits for
+// quiet(), so render() has faded out and thrown away the old source's audio.
+//
 // Construct it on the heap (std::make_unique): the ring buffer alone is 128 KiB.
 
 #include "common/spsc_ring_buffer.hpp"
@@ -66,6 +73,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <thread>
 
 namespace am::audio {
 
@@ -118,10 +126,23 @@ class AudioPath {
     // them as it goes. `channels` holds one array per channel, the way
     // CefAudioHandler delivers them; the first two are used, and a single
     // channel goes to both sides. Frames that don't fit are dropped and
-    // counted. While paused or stopped everything is dropped, and not counted
-    // (see the top). Returns how many frames were written.
+    // counted. While paused or stopped, or shut out by let_page_write(false),
+    // everything is dropped and not counted (see the top). Returns how many
+    // frames were written.
     std::size_t write_planar(std::span<const float* const> channels, std::size_t frames) noexcept {
-        if (channels.empty() || state_.load(std::memory_order_acquire) != PlaybackState::Playing) {
+        // Counted in before looking at the gate, counted out after the last
+        // touch of the ring buffer; see let_page_write().
+        page_writers_.fetch_add(1, std::memory_order_seq_cst);
+        const std::size_t written = write_planar_inside(channels, frames);
+        page_writers_.fetch_sub(1, std::memory_order_release);
+        return written;
+    }
+
+  private:
+    std::size_t write_planar_inside(std::span<const float* const> channels,
+                                    std::size_t frames) noexcept {
+        if (!page_may_write_.load(std::memory_order_seq_cst) || channels.empty() ||
+            state_.load(std::memory_order_acquire) != PlaybackState::Playing) {
             return 0;
         }
         const float* left = channels[0];
@@ -144,7 +165,30 @@ class AudioPath {
         return space.frames_reserved;
     }
 
+  public:
     // --- Reactor thread --------------------------------------------------
+
+    // Lets write_planar() into the ring buffer (true, the default), or shuts
+    // it out (false). Shutting it out waits for a write_planar() that's
+    // already inside, copying one packet: a few microseconds. Once it
+    // returns, the reactor thread is the ring buffer's only producer.
+    //
+    // Why that's safe: write_planar() counts itself in, then reads the gate.
+    // This stores the gate, then reads the count. Both are seq_cst, so at
+    // least one side sees the other. Either the count read here includes that
+    // write_planar(), and this waits for it, or that write_planar() reads the
+    // closed gate and goes without touching the ring. The count's release
+    // decrement and the acquire read below also make the page's last write
+    // visible to the reactor thread.
+    void let_page_write(bool allowed) noexcept {
+        page_may_write_.store(allowed, std::memory_order_seq_cst);
+        if (allowed) {
+            return;
+        }
+        while (page_writers_.load(std::memory_order_seq_cst) != 0) {
+            std::this_thread::yield();
+        }
+    }
 
     void set_state(PlaybackState state) noexcept {
         if (state == state_.load(std::memory_order_relaxed)) {
@@ -155,6 +199,12 @@ class AudioPath {
         // the new state (see quiet()).
         state_changes_.fetch_add(1, std::memory_order_release);
     }
+    // While stopped or paused: makes render() throw away what's in the ring
+    // buffer once more, and quiet() false until it has. The daemon uses it
+    // when switching sources, because the tone keeps the ring full while
+    // stopped, and a switch made while already stopped changes no state.
+    void discard() noexcept { state_changes_.fetch_add(1, std::memory_order_release); }
+
     void set_volume(std::uint8_t percent) noexcept {
         volume_percent_.store(percent, std::memory_order_relaxed);
     }
@@ -318,6 +368,10 @@ class AudioPath {
 
     // Written by the producer, read by the reactor thread.
     std::atomic<std::uint64_t> dropped_frames_{0};
+
+    // The handover between producers; see let_page_write().
+    std::atomic<bool> page_may_write_{true};     // written by the reactor thread
+    std::atomic<std::uint32_t> page_writers_{0}; // write_planar() calls inside right now
 };
 
 } // namespace am::audio

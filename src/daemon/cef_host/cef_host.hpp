@@ -69,6 +69,15 @@ class CefHost {
     // Cheap to call with the state it already has.
     void set_state(common::PlaybackState state);
 
+    // Switches the page to the other film (LoadTrackReq), from the start.
+    // The play state carries over: set_state() before or after this applies
+    // to the new film once it has loaded.
+    void load_film(bool clear_film);
+
+    // Whether this daemon was built with CEF. Without it start() always
+    // fails, so the daemon refuses the films up front.
+    [[nodiscard]] static bool built_in() noexcept;
+
   private:
     struct Impl;
     explicit CefHost(std::unique_ptr<Impl> impl) noexcept;

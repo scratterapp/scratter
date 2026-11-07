@@ -130,7 +130,9 @@ if(LINUX)
                                               PkgConfig::LIBSYSTEMD)
     target_compile_definitions(test_daemon PRIVATE
         AM_DAEMON_PATH="$<TARGET_FILE:${AM_DAEMON_TARGET}>"
-        AM_AMCTL_PATH="$<TARGET_FILE:amctl>")
+        AM_AMCTL_PATH="$<TARGET_FILE:amctl>"
+        # 1 when the daemon has CEF and can play the films, 0 when it refuses them.
+        AM_DAEMON_HAS_CEF=$<BOOL:${AM_WITH_CEF}>)
     add_dependencies(test_daemon ${AM_DAEMON_TARGET} amctl)
     target_include_directories(test_daemon PRIVATE "${PROJECT_SOURCE_DIR}/tools")
     am_enable_warnings(test_daemon)

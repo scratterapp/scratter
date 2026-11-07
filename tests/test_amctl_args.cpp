@@ -106,7 +106,22 @@ TEST_CASE("every request amctl claims to send has a command that parses", "[amct
             continue;
         }
         INFO("opcode 0x" << std::hex << byte << ", command " << std::string(c.command));
-        auto parsed = c.command == "volume" ? parse({c.command, "50"}) : parse({c.command});
+        auto parsed = c.command == "volume" ? parse({c.command, "50"})
+                      : c.command == "load" ? parse({c.command, "tone"})
+                                            : parse({c.command});
         CHECK(parsed.has_value());
     }
+}
+
+TEST_CASE("load takes one of the three sources", "[amctl]") {
+    using am::common::TrackSource;
+    CHECK(parse({"load", "tone"})->source == TrackSource::Tone);
+    CHECK(parse({"load", "clear-film"})->source == TrackSource::ClearFilm);
+    CHECK(parse({"load", "widevine-film"})->source == TrackSource::WidevineFilm);
+    CHECK(parse({"load", "tone"})->command == Command::Load);
+
+    CHECK_FALSE(parse({"load"}).has_value());
+    CHECK_FALSE(parse({"load", "film"}).has_value());
+    CHECK_FALSE(parse({"load", "Tone"}).has_value());
+    CHECK_FALSE(parse({"load", "tone", "extra"}).has_value());
 }

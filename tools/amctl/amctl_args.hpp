@@ -27,6 +27,7 @@ enum class Command : std::uint8_t {
     Stop,
     Toggle, // play if paused or stopped, pause if playing
     Volume, // needs volume_percent
+    Load,   // needs source
     Ping,   // checks the daemon is alive and answering
     Status, // reads the telemetry page, no IPC
     Watch,  // prints every state change until the daemon quits
@@ -35,6 +36,7 @@ enum class Command : std::uint8_t {
 struct Arguments {
     Command command = Command::Status;
     std::uint8_t volume_percent = 0;           // only for Command::Volume
+    am::common::TrackSource source{};          // only for Command::Load
     bool json = false;                         // only for Status and Watch
     std::string name{am::common::kDaemonName}; // the daemon's --name
 };
@@ -48,13 +50,29 @@ inline constexpr std::string_view kUsage =
     "  stop             stop playback\n"
     "  toggle           pause if playing, otherwise play\n"
     "  volume PERCENT   set the volume, 0 to 100\n"
+    "  load SOURCE      switch to tone, clear-film or widevine-film (the films\n"
+    "                   need a daemon built with CEF)\n"
     "  ping             check the daemon is answering, and how fast\n"
     "  status [--json]  show the play state, position and volume\n"
-    "  watch [--json]   print each change of play state or volume until the\n"
-    "                   daemon quits (Ctrl-C stops watching)\n"
+    "  watch [--json]   print what's playing, then each change of track, play\n"
+    "                   state or volume until the daemon quits (Ctrl-C stops)\n"
     "\n"
     "--name NAME talks to a daemon started with the same --name.\n"
     "--json prints JSON instead of text, one object per line.\n";
+
+// The word amctl uses for each source, in `amctl load` and `amctl watch`.
+[[nodiscard]] constexpr std::string_view source_name(am::common::TrackSource source) noexcept {
+    using am::common::TrackSource;
+    switch (source) {
+    case TrackSource::Tone:
+        return "tone";
+    case TrackSource::ClearFilm:
+        return "clear-film";
+    case TrackSource::WidevineFilm:
+        return "widevine-film";
+    }
+    return "unknown";
+}
 
 // `args` is argv without the program name. On failure the error is a one-line
 // message saying what was wrong; print it with kUsage.
@@ -109,6 +127,22 @@ parse_arguments(std::span<const std::string_view> args) {
                                    std::string(text) + "\"");
         }
         parsed.volume_percent = static_cast<std::uint8_t>(value);
+    } else if (command == "load") {
+        parsed.command = Command::Load;
+        operands = 1;
+        using am::common::TrackSource;
+        const std::string_view text = i < args.size() ? args[i] : std::string_view{};
+        bool found = false;
+        for (const TrackSource source :
+             {TrackSource::Tone, TrackSource::ClearFilm, TrackSource::WidevineFilm}) {
+            if (text == source_name(source)) {
+                parsed.source = source;
+                found = true;
+            }
+        }
+        if (!found) {
+            return std::unexpected("load needs tone, clear-film or widevine-film");
+        }
     } else {
         return std::unexpected("unknown command \"" + std::string(command) + "\"");
     }
@@ -153,10 +187,11 @@ struct Coverage {
         return {Kind::Command, "stop"};
     case Opcode::SetVolumeReq:
         return {Kind::Command, "volume"};
-
-    // Login, loading tracks, seeking, the queue: all need the real player.
-    case Opcode::AuthEscalationReq:
     case Opcode::LoadTrackReq:
+        return {Kind::Command, "load"};
+
+    // Login, seeking, the queue: all need the real player.
+    case Opcode::AuthEscalationReq:
     case Opcode::SeekReq:
     case Opcode::SetAudioModeReq:
     case Opcode::QueueReplaceReq:

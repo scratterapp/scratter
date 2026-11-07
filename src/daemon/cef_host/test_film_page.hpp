@@ -34,6 +34,9 @@
 // process dies, the daemon loads the page again (cef_host.cpp, #60), and the
 // page starts the film from there and logs "carrying on from".
 //
+// The daemon switches films with amLoad() (#38), in the same page and player,
+// from the start. sessionStorage remembers which film, for that reload.
+//
 // Shaka Player comes from jsdelivr with an integrity hash: Chromium refuses to
 // run the file unless its SHA-384 matches, so a broken-into CDN can't put its
 // own script in our page. A new Shaka version needs a new hash. Take it from
@@ -49,8 +52,8 @@
 //
 // The first and third lines must print the same thing; the last one is the hash.
 //
-// The daemon drives the page through three functions, amPlay(), amPause() and
-// amStop(). The page prints what it's doing to its console, and the daemon
+// The daemon drives the page through four functions: amPlay(), amPause(),
+// amStop() and amLoad(). The page prints what it's doing to its console, and the daemon
 // copies those lines to its own output with a "page:" in front.
 
 #include <string_view>
@@ -71,15 +74,20 @@ inline constexpr std::string_view kTestFilmPage = R"html(<!doctype html>
         integrity="sha384-9Ggzd10pFFpeKcDGCcHkCH+qpmRonKnNcMzC5lCtdQ9zJkocFw/o4Yv0Np8QcfdH"
         crossorigin="anonymous"></script>
 <script>
-// ?clear asks for Google's unencrypted copy of the same film.
-const clear = location.search === '?clear';
-const manifest = clear
+// ?clear asks for Google's unencrypted copy of the same film. Once the
+// daemon has switched films (amLoad below), sessionStorage says which one,
+// so a reload after a renderer crash plays the film that was playing.
+const switched = sessionStorage.getItem('film-clear');
+let clear = switched !== null ? switched === '1' : location.search === '?clear';
+const manifestFor = (clearFilm) => clearFilm
   ? 'https://storage.googleapis.com/wvmedia/clear/h264/tears/tears.mpd'
   : 'https://storage.googleapis.com/wvmedia/cenc/h264/tears/tears.mpd';
 const license = 'https://proxy.uat.widevine.com/proxy?provider=widevine_test';
+const drmFor = (clearFilm) => ({ servers: clearFilm ? {} : { 'com.widevine.alpha': license } });
 const film = document.getElementById('film');
 let ready = false;
 let wanted = 'play';
+let switchFilm = null; // main() sets it once the player exists
 
 // The daemon calls these. Before the film has loaded they only remember what
 // was asked for.
@@ -88,6 +96,15 @@ window.amPause = () => { wanted = 'pause'; if (ready) film.pause(); };
 window.amStop = () => {
   wanted = 'pause';
   if (ready) { film.pause(); film.currentTime = 0; }
+};
+// amLoad(true) switches to the unencrypted film, amLoad(false) to the
+// Widevine one, from the start (CefHost::load_film). Same page, same player:
+// no navigation.
+window.amLoad = (clearFilm) => {
+  clear = clearFilm;
+  sessionStorage.setItem('film-clear', clear ? '1' : '0');
+  sessionStorage.removeItem('film-position');
+  if (switchFilm) switchFilm();
 };
 
 // Widevine's messages are protobufs, Google's binary format: a list of
@@ -180,7 +197,7 @@ async function main() {
   player.configure({
     manifest: { disableVideo: true, disableText: true },
     preferredAudioCodecs: ['mp4a.40.2'],
-    drm: { servers: clear ? {} : { 'com.widevine.alpha': license } },
+    drm: drmFor(clear),
   });
   // Log every license request and what kind it is (the first license, a
   // renewal, ...), to see which one a server refuses, and the size of each
@@ -207,7 +224,7 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 5000));
     for (;;) {
       try {
-        await player.load(manifest, at);
+        await player.load(manifestFor(clear), at);
         break;
       } catch (e) {
         console.log(`couldn't reload the film (Shaka error ${e.code}), trying again in 10 s`);
@@ -262,10 +279,31 @@ async function main() {
   });
   const resumeAt = Number(sessionStorage.getItem('film-position')) || 0;
 
+  // amLoad() lands here once the player exists. A switch made while the
+  // first film is still loading interrupts that load, which then gives up
+  // quietly below and leaves the rest to this.
+  switchFilm = async () => {
+    ready = false;
+    film.pause();
+    player.configure({ drm: drmFor(clear) });
+    try {
+      await player.load(manifestFor(clear));
+    } catch (e) {
+      if (e.code !== shaka.util.Error.Code.LOAD_INTERRUPTED) {
+        console.log(`couldn't load the film: Shaka error ${e.code}`);
+      }
+      return;
+    }
+    ready = true;
+    if (wanted === 'play') film.play();
+  };
+
   try {
-    await player.load(manifest, resumeAt > 0 ? resumeAt : undefined);
+    await player.load(manifestFor(clear), resumeAt > 0 ? resumeAt : undefined);
   } catch (e) {
-    console.log(`couldn't load the film: Shaka error ${e.code}`);
+    if (e.code !== shaka.util.Error.Code.LOAD_INTERRUPTED) {
+      console.log(`couldn't load the film: Shaka error ${e.code}`);
+    }
     return;
   }
   if (resumeAt > 0) {

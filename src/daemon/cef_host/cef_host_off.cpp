@@ -20,4 +20,8 @@ CefHost::~CefHost() = default;
 
 void CefHost::set_state(common::PlaybackState) {}
 
+void CefHost::load_film(bool) {}
+
+bool CefHost::built_in() noexcept { return false; }
+
 } // namespace am::daemon

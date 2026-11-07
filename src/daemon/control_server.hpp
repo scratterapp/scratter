@@ -5,10 +5,15 @@
 // or volume changes.
 //
 //   Client sends          Daemon answers
-//   HelloReq              HelloAck with its name, then a PlaybackStateEvent
+//   HelloReq              HelloAck with its name, then a PlaybackStateEvent and
+//                         a TrackChangedEvent
 //   Ping                  Pong with the Ping's seq_id
 //   PlayReq/PauseReq/     CommandAck, then a PlaybackStateEvent to every
 //   StopReq/SetVolumeReq  client (this one too) if something changed
+//   LoadTrackReq          CommandAck once the switch has started, and a
+//                         TrackChangedEvent to every client once the new
+//                         source is in place (main's broadcast_track()); a
+//                         CommandNak if the daemon can't play that source
 //   a bad body            CommandNak with BadRequest
 //   any other request     CommandNak with NotSupported
 //   a broken frame        nothing; the client is disconnected
@@ -39,13 +44,22 @@
 
 namespace am::daemon {
 
+// What the server asks main() about tracks: loading one, and what plays now.
+struct TrackHooks {
+    // LoadTrackReq. Ok means the switch has started; NotSupported or Failed
+    // means nothing changed.
+    std::function<common::CommandStatus(common::TrackSource)> load;
+    // What plays now, for the TrackChangedEvent after each HelloAck.
+    std::function<common::TrackChangedBody()> current;
+};
+
 class ControlServer {
   public:
     // Takes over a listener that's already open. main() opens it first,
     // because a listener that fails with address_in_use is how the daemon
     // finds out another copy is already running.
     ControlServer(pal::IpcListener listener, audio::AudioPath& audio,
-                  std::function<void()> on_change);
+                  std::function<void()> on_change, TrackHooks tracks);
 
     // Its callbacks point back at this object, so it can't be copied or moved.
     ControlServer(const ControlServer&) = delete;
@@ -55,6 +69,10 @@ class ControlServer {
     // volume. The server does this itself after its own commands; main()
     // calls it when something else (a media key) changed them.
     void broadcast_state();
+
+    // Sends every client a TrackChangedEvent with what plays now. main()
+    // calls it when a switch is done.
+    void broadcast_track();
 
   private:
     struct Client {
@@ -70,6 +88,7 @@ class ControlServer {
 
     void reply(Client& client, const common::FrameHeader& request, common::CommandStatus status);
     void send_state(Client& client);
+    void send_track(Client& client);
     void send(Client& client, std::span<const std::byte> frame);
     void remove_closed_clients();
 
@@ -79,6 +98,7 @@ class ControlServer {
     pal::IpcListener listener_;
     audio::AudioPath& audio_;
     std::function<void()> on_change_;
+    TrackHooks tracks_;
     // unique_ptr so each Client stays at one address: its readable callback
     // holds a pointer to it.
     std::vector<std::unique_ptr<Client>> clients_;

@@ -8,10 +8,12 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <memory>
 #include <span>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -435,4 +437,72 @@ TEST_CASE("a long break between tracks is heard as long as it lasts, no longer",
         CHECK(heard.longest_silence <= kBreak + sink_frames + AudioPath::kPacketFrames);
         CHECK(std::abs(heard.last_sample - 0.3f) < 1e-4f);
     }
+}
+
+TEST_CASE("a page shut out by let_page_write(false) writes nothing", "[audio_path]") {
+    auto audio = std::make_unique<AudioPath>(kRate);
+    std::vector<float> page(AudioPath::kPacketFrames, 0.5f);
+    const float* channels[] = {page.data(), page.data()};
+
+    audio->let_page_write(false);
+    CHECK(audio->write_planar(channels, page.size()) == 0);
+    CHECK(audio->dropped_frames() == 0); // shut out isn't dropped for lack of room
+
+    audio->let_page_write(true);
+    CHECK(audio->write_planar(channels, page.size()) == page.size());
+}
+
+// The page's thread keeps sending while the test thread takes the ring buffer
+// away from it, writes the tone, and hands it back, over and over. Under
+// linux-tsan a write_planar() and a top_up() touching the producer's side at
+// the same time is reported as a data race.
+TEST_CASE("the ring buffer changes hands between the page and the tone", "[audio_path]") {
+    auto audio = std::make_unique<AudioPath>(kRate);
+    SineGenerator sine(kRate);
+    std::vector<float> packet(AudioPath::kPacketFrames, 0.25f);
+    const float* channel = packet.data();
+
+    std::atomic<bool> done{false};
+    std::atomic<std::uint64_t> page_frames{0};
+    std::thread page([&] {
+        while (!done.load(std::memory_order_relaxed)) {
+            page_frames.fetch_add(audio->write_planar(std::span(&channel, 1), packet.size()),
+                                  std::memory_order_relaxed);
+        }
+    });
+
+    std::vector<float> out(kBufferFrames * AudioPath::kChannels);
+    std::uint64_t tone_frames = 0;
+    for (int round = 0; round < 2000; ++round) {
+        audio->let_page_write(false);
+        tone_frames += audio->top_up(sine); // this thread is the only producer now
+        audio->let_page_write(true);
+        // The consumer's side, so the ring doesn't stay full. render() may
+        // run on any thread as long as it's always the same one.
+        for (int i = 0; i < 8; ++i) {
+            audio->render(out);
+        }
+    }
+    done.store(true, std::memory_order_relaxed);
+    page.join();
+
+    CHECK(tone_frames > 0);
+    CHECK(page_frames.load() > 0);
+}
+
+TEST_CASE("discard() throws away what the tone left in the ring while stopped", "[audio_path]") {
+    Fixture f;
+    f.audio->set_state(PlaybackState::Stopped);
+    f.render(kFadeBuffers + 1); // faded out; the top-ups filled the ring again
+    REQUIRE(f.audio->quiet());
+
+    f.audio->discard();
+    CHECK_FALSE(f.audio->quiet()); // the daemon waits for render() to empty it
+    f.audio->render(f.out);        // no top-up this time
+    CHECK(f.audio->quiet());
+
+    // Empty now, so playing waits to fill up instead of playing old tone.
+    f.audio->set_state(PlaybackState::Playing);
+    f.audio->render(f.out);
+    CHECK(loudest(f.out) == 0.0f);
 }
