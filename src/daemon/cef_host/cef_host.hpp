@@ -24,6 +24,7 @@
 #include "common/telemetry_shm.hpp"
 #include "daemon/audio_engine/audio_path.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
@@ -73,6 +74,12 @@ class CefHost {
     // The play state carries over: set_state() before or after this applies
     // to the new film once it has loaded.
     void load_film(bool clear_film);
+
+    // Moves the film to `position` from its start (SeekReq). The daemon
+    // pauses the page first and plays it again once the old audio is gone,
+    // so nothing from before the jump is heard. A seek before the film has
+    // loaded happens once it has.
+    void seek(std::chrono::microseconds position);
 
     // Whether this daemon was built with CEF. Without it start() always
     // fails, so the daemon refuses the films up front.

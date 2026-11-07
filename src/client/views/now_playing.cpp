@@ -125,6 +125,24 @@ void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
         asked_volume_id_ = link.set_volume(percent);
     };
 
+    // The position to show, the same way: what this window seeked to, until
+    // the daemon's position is there (it's within a second of it), the seek
+    // failed, or two seconds went by without either.
+    const std::uint64_t daemon_position =
+        telemetry.mapped() ? snapshot.pts_micros : state.position_micros;
+    const std::uint64_t length = state.has_track ? state.track_duration_micros : 0;
+    if (asked_seek_ && !seek_held_) {
+        const bool answered = fresh_result && state.last_result->id >= asked_seek_id_;
+        const bool failed = answered && state.last_result->id == asked_seek_id_ &&
+                            state.last_result->outcome != CommandOutcome::Ok;
+        const std::uint64_t apart = daemon_position > *asked_seek_ ? daemon_position - *asked_seek_
+                                                                   : *asked_seek_ - daemon_position;
+        const bool arrived = answered && apart < 1'000'000;
+        if (failed || arrived || ImGui::GetTime() - asked_seek_at_ > 2.0 || length == 0) {
+            asked_seek_.reset();
+        }
+    }
+
     if (keys.toggle) {
         link.toggle();
     }
@@ -169,9 +187,9 @@ void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
     // the page is stale.
     ImGui::Dummy({0.0f, em * 0.8f});
     ImGui::SetCursorPosX(margin);
-    const std::uint64_t position = telemetry.mapped() ? snapshot.pts_micros : state.position_micros;
+    const std::uint64_t position = asked_seek_.value_or(daemon_position);
     ImGui::PushFont(fonts.display, kBodySize * 2.6f);
-    ImGui::PushStyleColor(ImGuiCol_Text, telemetry.fresh() ? kText : kTextDim);
+    ImGui::PushStyleColor(ImGuiCol_Text, telemetry.fresh() || asked_seek_ ? kText : kTextDim);
     const std::string clock = format_clock(position);
     ImGui::TextUnformatted(clock.c_str());
     ImGui::PopStyleColor();
@@ -183,21 +201,46 @@ void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
         {ImGui::GetCursorScreenPos().x, clock_bottom - ImGui::GetTextLineHeight() * 1.45f});
     small_caps(fonts, playback_word(state.playback), playing ? kAccent : kTextDim);
 
-    if (snapshot.duration_micros > 0) {
-        // A track with a known length gets a bar. The tone and the test film
-        // don't report one, so this waits for real tracks.
+    if (length > 0) {
+        // A source with a length (the test films) gets a bar you can drag
+        // (#39). Dragging shows the new place on the clock; letting go sends
+        // one seek. The tone has no length, so no bar.
         const float width = em * 20.0f;
-        const float fraction =
-            std::clamp(static_cast<float>(position) / static_cast<float>(snapshot.duration_micros),
-                       0.0f, 1.0f);
         ImGui::SetCursorPosX(margin);
         const ImVec2 at = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton("##position", {width, em});
+        const bool hovered = ImGui::IsItemHovered();
+        if (ImGui::IsItemActive()) {
+            seek_held_ = true;
+            asked_seek_ = bar_position(ImGui::GetIO().MousePos.x, at.x, width, length);
+        }
+        if (ImGui::IsItemDeactivated() && seek_held_) {
+            seek_held_ = false;
+            asked_seek_id_ = link.seek(*asked_seek_);
+            asked_seek_at_ = ImGui::GetTime();
+        }
+        ImGui::SetItemTooltip("Drag to move through the track");
+        const std::uint64_t shown = asked_seek_.value_or(daemon_position);
+        const float fraction =
+            std::clamp(static_cast<float>(shown) / static_cast<float>(length), 0.0f, 1.0f);
+        const float thick = hovered || seek_held_ ? em * 0.25f : em * 0.15f;
+        const float middle = at.y + em * 0.5f;
         ImDrawList& draw = *ImGui::GetWindowDrawList();
-        draw.AddRectFilled({at.x, at.y + em * 0.4f}, {at.x + width, at.y + em * 0.55f},
+        draw.AddRectFilled({at.x, middle - thick * 0.5f}, {at.x + width, middle + thick * 0.5f},
                            to_u32(kRaised), 2.0f);
-        draw.AddRectFilled({at.x, at.y + em * 0.4f}, {at.x + width * fraction, at.y + em * 0.55f},
-                           to_u32(kAccent), 2.0f);
-        ImGui::Dummy({width, em});
+        draw.AddRectFilled({at.x, middle - thick * 0.5f},
+                           {at.x + width * fraction, middle + thick * 0.5f}, to_u32(kAccent), 2.0f);
+        if (hovered || seek_held_) {
+            draw.AddCircleFilled({at.x + width * fraction, middle}, em * 0.4f, to_u32(kAccent), 24);
+        }
+        // The length, after the bar.
+        ImGui::SameLine(0.0f, em * 0.8f);
+        ImGui::PushStyleColor(ImGuiCol_Text, kTextDim);
+        const std::string total = format_clock(length);
+        ImGui::TextUnformatted(total.c_str());
+        ImGui::PopStyleColor();
+    } else {
+        seek_held_ = false;
     }
 
     // The controls: play/pause, stop, then the volume.

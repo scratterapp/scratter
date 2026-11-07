@@ -117,6 +117,41 @@ TEST_CASE("stop renders silence and rewinds the position", "[audio_path]") {
     CHECK(f.audio->position_frames() == 0);
 }
 
+TEST_CASE("a seek moves the position, and render() carries on from there", "[audio_path]") {
+    Fixture f;
+    f.render(4);
+    f.audio->set_state(PlaybackState::Paused);
+    f.render(kFadeBuffers + 1);
+    REQUIRE(f.audio->quiet());
+
+    // While quiet, render() leaves the position alone, so the seek sticks.
+    f.audio->set_position_frames(10 * kRate);
+    f.render(2);
+    CHECK(f.audio->position_frames() == 10 * kRate);
+
+    f.audio->set_state(PlaybackState::Playing);
+    f.render(2);
+    CHECK(f.audio->position_frames() == 10 * kRate + 2 * kBufferFrames);
+}
+
+TEST_CASE("a source with a length goes round to 0 at its end", "[audio_path]") {
+    Fixture f;
+    CHECK(f.audio->length_frames() == 0);
+    f.audio->set_length_frames(3 * kBufferFrames);
+    f.render(2);
+    CHECK(f.audio->position_frames() == 2 * kBufferFrames);
+    f.render(2); // 4 buffers into a 3-buffer source
+    CHECK(f.audio->position_frames() == kBufferFrames);
+
+    // A seek to the very end is the start again.
+    f.audio->set_position_frames(3 * kBufferFrames);
+    CHECK(f.audio->position_frames() == 0);
+
+    // No length: no end.
+    f.audio->set_length_frames(0);
+    CHECK(f.audio->position_frames() == 3 * kBufferFrames);
+}
+
 TEST_CASE("volume scales the output", "[audio_path]") {
     Fixture f;
     f.render(4);

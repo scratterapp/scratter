@@ -87,12 +87,18 @@ class DaemonLink {
     // DaemonState's track_* fields change when it's done. A daemon built
     // without CEF answers the films with NotSupported.
     RequestId load_track(common::TrackSource source);
+    // Jumps to `position_micros` from the start of what plays. Ok once the
+    // seek has started; the new position arrives in DaemonState (and the
+    // telemetry page) when it's done. NotSupported when what plays has no
+    // length (the tone). Past the end, the daemon stops at the end.
+    RequestId seek(std::uint64_t position_micros);
 
   private:
     struct Impl;
     explicit DaemonLink(std::unique_ptr<Impl> impl);
     RequestId ask(Command command, std::uint8_t volume_percent,
-                  common::TrackSource source = common::TrackSource::Tone);
+                  common::TrackSource source = common::TrackSource::Tone,
+                  std::uint64_t position_micros = 0);
     std::unique_ptr<Impl> impl_;
 };
 

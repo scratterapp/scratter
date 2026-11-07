@@ -14,6 +14,10 @@
 //                         TrackChangedEvent to every client once the new
 //                         source is in place (main's broadcast_track()); a
 //                         CommandNak if the daemon can't play that source
+//   SeekReq               CommandAck once the seek has started, and a
+//                         PlaybackStateEvent with the new position to every
+//                         client once it's done; a CommandNak with
+//                         NotSupported if what plays has no length (the tone)
 //   a bad body            CommandNak with BadRequest
 //   any other request     CommandNak with NotSupported
 //   a broken frame        nothing; the client is disconnected
@@ -34,6 +38,7 @@
 #include "daemon/audio_engine/audio_path.hpp"
 #include "ipc_channel.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -51,6 +56,9 @@ struct TrackHooks {
     std::function<common::CommandStatus(common::TrackSource)> load;
     // What plays now, for the TrackChangedEvent after each HelloAck.
     std::function<common::TrackChangedBody()> current;
+    // SeekReq. Ok means the seek has started; NotSupported means what plays
+    // can't seek.
+    std::function<common::CommandStatus(std::chrono::microseconds)> seek;
 };
 
 class ControlServer {

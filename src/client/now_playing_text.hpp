@@ -32,6 +32,17 @@ inline std::string format_clock(std::uint64_t micros) {
     return text;
 }
 
+// The point in a track of `length_micros` that a position bar `width` wide,
+// starting at `left`, stands for at `x`: what a click or drag there seeks to.
+// Off either end is the start or the end.
+inline std::uint64_t bar_position(float x, float left, float width, std::uint64_t length_micros) {
+    if (width <= 0.0f) {
+        return 0;
+    }
+    const double fraction = std::clamp(static_cast<double>((x - left) / width), 0.0, 1.0);
+    return static_cast<std::uint64_t>(fraction * static_cast<double>(length_micros));
+}
+
 // The volume after `steps` presses of up (positive) or down (negative),
 // kept between 0 and 100.
 inline std::uint8_t step_volume(std::uint8_t current, int steps) {
@@ -75,6 +86,9 @@ inline std::string command_failure_text(const CommandResult& result) {
     case Command::LoadTrack:
         verb = "switch sources";
         break;
+    case Command::Seek:
+        verb = "seek";
+        break;
     }
     const char* why = nullptr;
     switch (result.outcome) {
@@ -84,10 +98,12 @@ inline std::string command_failure_text(const CommandResult& result) {
         why = "the daemon didn't understand the request";
         break;
     case CommandOutcome::NotSupported:
-        // The one switch a daemon refuses is to a film, without CEF.
+        // The one switch a daemon refuses is to a film, without CEF, and the
+        // one seek is in something with no length.
         why = result.command == Command::LoadTrack
                   ? "this daemon was built without CEF, so it only has the tone"
-                  : "the daemon can't do that yet";
+              : result.command == Command::Seek ? "the tone has no length to seek in"
+                                                : "the daemon can't do that yet";
         break;
     case CommandOutcome::Failed:
         why = "the daemon tried and it went wrong";

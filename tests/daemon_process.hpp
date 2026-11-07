@@ -62,8 +62,11 @@ extern "C" inline void kill_daemon_on_abort(int) {
 struct Daemon {
     pid_t pid = -1;
 
-    explicit Daemon(const std::string& name) {
+    // `extra` goes on the daemon's command line after the usual arguments,
+    // such as {"--tone-length", "60"}.
+    explicit Daemon(const std::string& name, const std::vector<std::string>& extra = {}) {
         std::vector<std::string> args = {AM_DAEMON_PATH, "--name", name, "--no-audio"};
+        args.insert(args.end(), extra.begin(), extra.end());
         std::vector<char*> argv;
         for (auto& arg : args) {
             argv.push_back(arg.data());

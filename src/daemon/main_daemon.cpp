@@ -1,6 +1,6 @@
 // The daemon: plays audio and answers commands until it's told to quit.
 //
-//   scratterd [--name NAME] [--no-audio]
+//   scratterd [--name NAME] [--no-audio] [--tone-length SECONDS]
 //             [--test-film | --clear-film] [--widevine-dir DIR] [--no-sandbox]
 //
 //   --name NAME   listen on endpoint NAME and publish telemetry as
@@ -11,6 +11,11 @@
 //                 (org.mpris.MediaPlayer2.NAME).
 //   --no-audio    don't open the sound card. Everything else works; the play
 //                 position just doesn't move. For CI machines with no audio.
+//   --tone-length SECONDS
+//                 give the tone a length, so it can be seeked in and goes
+//                 round to 0 at the end like the films. The tests use it to
+//                 check seeking without CEF. Without it the tone has no end,
+//                 and a seek on it is refused.
 //   --test-film   play Google's Widevine test film through CEF instead of the
 //                 tone (cef_host/test_film_page.hpp). Needs a daemon built with
 //                 CEF (the linux-cef preset) and an installed Widevine CDM.
@@ -31,8 +36,9 @@
 // daemon does. amctl, the media keys and the desktop's media widget (MPRIS on
 // Linux) can pause it and change its volume, and a client can switch between
 // the tone and the two films while it runs (LoadTrackReq, `amctl load`). A
-// daemon built with CEF starts CEF the first time a film is asked for. There
-// is no next track and no seeking yet.
+// daemon built with CEF starts CEF the first time a film is asked for. The
+// films can be seeked in (SeekReq, `amctl seek`, the window's bar, MPRIS);
+// the tone only with --tone-length. There is no next track yet.
 //
 // Startup, in order:
 //
@@ -58,6 +64,7 @@
 #include "daemon/audio_engine/audio_path.hpp"
 #include "daemon/audio_engine/sine_generator.hpp"
 #include "daemon/cef_host/cef_host.hpp"
+#include "daemon/cef_host/test_film_page.hpp"
 #include "daemon/control_server.hpp"
 #include "ipc_channel.hpp"
 #include "media_controls.hpp"
@@ -66,6 +73,8 @@
 #include "shm_mapping.hpp"
 #include "shutdown_signal.hpp"
 
+#include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -84,6 +93,7 @@ using am::common::PlaybackState;
 using am::common::TelemetryPage;
 using am::common::TelemetrySnapshot;
 using am::common::TrackSource;
+using std::chrono::microseconds;
 
 constexpr std::uint32_t kSampleRate = 48000;
 // 100 ticks a second: the ring drains 480 frames per tick at 48 kHz, far
@@ -109,6 +119,7 @@ struct Options {
     std::string media_name{am::common::kAppName};
     bool audio = true;
     TrackSource source = TrackSource::Tone; // what plays first
+    microseconds tone_length{0};            // 0: the tone has no end
     am::daemon::CefHostOptions cef;
 };
 
@@ -121,6 +132,15 @@ std::optional<Options> parse_arguments(std::span<char*> args) {
             options.media_name = options.name;
         } else if (arg == "--no-audio") {
             options.audio = false;
+        } else if (arg == "--tone-length" && i + 1 < args.size()) {
+            const std::string_view text = args[++i];
+            unsigned seconds = 0;
+            const auto [end, error] =
+                std::from_chars(text.data(), text.data() + text.size(), seconds);
+            if (error != std::errc{} || end != text.data() + text.size() || seconds == 0) {
+                return std::nullopt;
+            }
+            options.tone_length = std::chrono::seconds{seconds};
         } else if (arg == "--test-film") {
             options.source = TrackSource::WidevineFilm;
         } else if (arg == "--clear-film") {
@@ -151,9 +171,14 @@ const char* title_of(TrackSource source) {
     return "";
 }
 
-TelemetrySnapshot make_snapshot(const AudioPath& audio, bool audio_open) {
+std::uint64_t frames_in(microseconds time, std::uint32_t sample_rate) {
+    return static_cast<std::uint64_t>(time.count()) * sample_rate / 1'000'000;
+}
+
+TelemetrySnapshot make_snapshot(const AudioPath& audio, bool audio_open, microseconds length) {
     TelemetrySnapshot s{};
     s.pts_micros = audio.position_micros();
+    s.duration_micros = static_cast<std::uint64_t>(length.count());
     s.ring_buffer_fill_pct = audio.ring_fill();
     s.clock_drift_ppm = audio.drift_ppm();
     s.sample_rate_hz = audio_open ? audio.sample_rate_hz() : 0;
@@ -168,8 +193,8 @@ int main(int argc, char** argv) {
     const auto options = parse_arguments(std::span(argv, static_cast<std::size_t>(argc)));
     if (!options) {
         std::fprintf(stderr,
-                     "usage: %s [--name NAME] [--no-audio] [--test-film | --clear-film] "
-                     "[--widevine-dir DIR] [--no-sandbox]\n",
+                     "usage: %s [--name NAME] [--no-audio] [--tone-length SECONDS] "
+                     "[--test-film | --clear-film] [--widevine-dir DIR] [--no-sandbox]\n",
                      argv[0]);
         return kExitBadArguments;
     }
@@ -237,6 +262,11 @@ int main(int argc, char** argv) {
     audio = std::make_unique<AudioPath>(sample_rate);
     am::audio::SineGenerator sine(sample_rate);
     TrackSource source = options->source; // what plays now; LoadTrackReq changes it
+    // How long a source is. The films loop, and so does a tone with a length.
+    auto length_of = [&](TrackSource of) {
+        return is_film(of) ? microseconds{am::daemon::kTestFilmLength} : options->tone_length;
+    };
+    audio->set_length_frames(frames_in(length_of(source), sample_rate));
     if (!is_film(source)) {
         audio->top_up(sine); // full before the first callback asks for anything
     }
@@ -298,7 +328,7 @@ int main(int argc, char** argv) {
     }
     TelemetryPage* telemetry =
         std::construct_at(reinterpret_cast<TelemetryPage*>(shm->writable_bytes().data()));
-    telemetry->write(make_snapshot(*audio, sink.has_value()));
+    telemetry->write(make_snapshot(*audio, sink.has_value(), length_of(source)));
 
     // Republish telemetry as soon as a command changes something, not just on
     // the next tick, so `amctl pause; amctl status` shows the new state. The
@@ -331,6 +361,12 @@ int main(int argc, char** argv) {
         PlaybackState resume;
     };
     std::optional<Switch> switching;
+    // A seek under way; see `seek` below.
+    struct Seek {
+        microseconds to;
+        PlaybackState resume;
+    };
+    std::optional<Seek> seeking;
     auto load_track = [&](TrackSource to) {
         if (is_film(to) && !am::daemon::CefHost::built_in()) {
             return am::common::CommandStatus::NotSupported;
@@ -341,8 +377,13 @@ int main(int argc, char** argv) {
                 return am::common::CommandStatus::Failed;
             }
         }
-        // A second load during a switch keeps the first one's play state.
-        const PlaybackState resume = switching ? switching->resume : audio->state();
+        // A second load during a switch keeps the first one's play state, and
+        // a load during a seek the state from before the seek. The seek is
+        // dropped: the new source starts at 0.
+        const PlaybackState resume = switching ? switching->resume
+                                     : seeking ? seeking->resume
+                                               : audio->state();
+        seeking.reset();
         switching = Switch{.to = to, .resume = resume};
         audio->let_page_write(false); // from here the page can't touch the ring
         audio->set_state(PlaybackState::Stopped);
@@ -356,16 +397,53 @@ int main(int argc, char** argv) {
     auto current_track = [&] {
         return am::common::TrackChangedBody{
             .catalog_id = 0,
-            // The films loop, so they have no end either; real lengths come
-            // with Apple Music tracks.
-            .duration_micros = 0,
+            .duration_micros = static_cast<std::uint64_t>(length_of(source).count()),
             .source = source,
             .reserved = {},
             .title = am::common::make_track_title(title_of(source)),
         };
     };
-    am::daemon::ControlServer server(std::move(*listener), *audio, publish,
-                                     {.load = load_track, .current = current_track});
+
+    // Seeking (SeekReq, the media widget, the window's bar). Like a switch
+    // without the change of source: pause, wait for the audio path to fade
+    // out and throw away the old audio, then move the position and play on
+    // in the state from before. Without that wait, the ring buffer's 85 ms
+    // of audio from before the jump would play first. The page is paused
+    // first and jumps at once, so it has new audio ready when it plays again.
+    std::optional<am::daemon::ControlServer> server; // finish_seek() announces through it
+    auto seek = [&](microseconds to) {
+        const microseconds length = length_of(source);
+        if (length == microseconds::zero()) {
+            return am::common::CommandStatus::NotSupported; // the tone has no length
+        }
+        if (switching) {
+            // The position belongs to a source that's on its way out.
+            return am::common::CommandStatus::Failed;
+        }
+        // Past the end is the end. The test sources loop, so for them the
+        // end is the start again.
+        to = std::clamp(to, microseconds::zero(), length);
+        // A stopped player that's seeked stays paused at that point instead of
+        // starting over from 0 on play. A second seek before the first is done
+        // keeps the first one's play state.
+        PlaybackState resume = seeking ? seeking->resume : audio->state();
+        if (resume == PlaybackState::Stopped) {
+            resume = PlaybackState::Paused;
+        }
+        seeking = Seek{.to = to, .resume = resume};
+        audio->set_state(PlaybackState::Paused);
+        audio->discard(); // throw away the ring's audio even if already paused
+        sync_outputs();   // pauses the page...
+        if (cef && is_film(source)) {
+            cef->seek(to); // ...then moves it
+        }
+        // As for a switch: the ack goes out first, then the tick takes over.
+        (void)reactor->set_timer(std::chrono::milliseconds::zero(), [&tick] { tick(); });
+        return am::common::CommandStatus::Ok;
+    };
+    server.emplace(
+        std::move(*listener), *audio, publish,
+        am::daemon::TrackHooks{.load = load_track, .current = current_track, .seek = seek});
 
     auto show_track = [&] {
         if (media) {
@@ -373,7 +451,7 @@ int main(int argc, char** argv) {
                               .artist = std::string(am::common::kAppName),
                               .album = {},
                               .artwork_url = {},
-                              .length = {}});
+                              .length = length_of(source)});
         }
     };
 
@@ -393,12 +471,35 @@ int main(int argc, char** argv) {
             audio->top_up(sine); // full before render() asks, like at startup
         }
         source = done.to;
+        // render() rewound when it saw the stop; without a sound card nothing
+        // did. Either way the new source starts at 0.
+        audio->set_position_frames(0);
+        audio->set_length_frames(frames_in(length_of(source), sample_rate));
         audio->set_state(done.resume);
         std::fprintf(stderr, "switched to the %s\n", title_of(source));
         show_track();
         sync_outputs();
-        server.broadcast_state();
-        server.broadcast_track();
+        server->broadcast_state();
+        server->broadcast_track();
+    };
+
+    // The tick calls this once a seek's fade-out is over.
+    auto finish_seek = [&] {
+        const Seek done = *seeking;
+        seeking.reset();
+        audio->set_position_frames(frames_in(done.to, sample_rate));
+        if (!is_film(source)) {
+            audio->top_up(sine);
+        }
+        audio->set_state(done.resume);
+        sync_outputs(); // plays the page again, if it was playing
+        if (media) {
+            media->seeked(microseconds{static_cast<std::int64_t>(audio->position_micros())});
+        }
+        // The page first, so a client that reads it as soon as the event
+        // arrives (`amctl seek` then `amctl status`) sees the new position.
+        telemetry->write(make_snapshot(*audio, sink.has_value(), length_of(source)));
+        server->broadcast_state();
     };
 
     // 6. Media keys. A key press works like the same amctl command: change
@@ -424,10 +525,12 @@ int main(int argc, char** argv) {
         case Kind::SetVolume:
             volume = request.volume_percent;
             break;
+        case Kind::Seek:
+            (void)seek(request.position); // finish_seek() tells the widget and the clients
+            return;
         case Kind::Next:
         case Kind::Previous:
-        case Kind::Seek:
-            return; // the test sources have no next track and nowhere to seek to
+            return; // the test sources have no next track
         }
         if (state == audio->state() && volume == audio->volume()) {
             return;
@@ -435,7 +538,7 @@ int main(int argc, char** argv) {
         audio->set_state(state);
         audio->set_volume(volume);
         publish();
-        server.broadcast_state();
+        server->broadcast_state();
     };
     if (auto opened = am::pal::MediaControls::open(*reactor, on_media_key, options->media_name)) {
         media.emplace(std::move(*opened));
@@ -470,6 +573,17 @@ int main(int argc, char** argv) {
                 finish_switch();
             }
         }
+        if (seeking) {
+            if (audio->state() != PlaybackState::Paused) {
+                // Play, pause or stop during the seek: that's the state to
+                // carry on in. The audio stays paused until the seek is done.
+                seeking->resume = audio->state();
+                audio->set_state(PlaybackState::Paused);
+            }
+            if (!sink || audio->quiet()) {
+                finish_seek();
+            }
+        }
         // Running and now quiet: stop it. Stopped and no longer quiet: start it.
         if (sink && audio->quiet() == sink_running) {
             sink_running = !sink_running;
@@ -479,17 +593,18 @@ int main(int argc, char** argv) {
                              sink_running ? "restart" : "pause", changed.error().message().c_str());
             }
         }
-        if (!is_film(source) && !switching) {
+        if (!is_film(source) && !switching && !seeking) {
             audio->top_up(sine);
         }
-        telemetry->write(make_snapshot(*audio, sink.has_value()));
+        telemetry->write(make_snapshot(*audio, sink.has_value(), length_of(source)));
         if (media) {
             media->set_position(
                 std::chrono::microseconds{static_cast<std::int64_t>(audio->position_micros())});
         }
-        // A switch waits for render(), so it ticks fast like playing does.
-        const auto next = audio->state() == PlaybackState::Playing || switching ? kTickInterval
-                                                                                : kIdleTickInterval;
+        // A switch or seek waits for render(), so it ticks fast like playing does.
+        const bool waiting = switching || seeking;
+        const auto next =
+            audio->state() == PlaybackState::Playing || waiting ? kTickInterval : kIdleTickInterval;
         (void)reactor->set_timer(next, [&tick] { tick(); });
     };
     tick();

@@ -50,6 +50,14 @@ class NowPlayingView {
     std::uint64_t seen_connection_ = 0;
     RequestId results_after_ = 0;
 
+    // Where the position bar was let go, until the daemon's position shows
+    // it: like the volume, so the bar doesn't jump back to the old place
+    // for the few frames the seek takes. Also shown while dragging.
+    std::optional<std::uint64_t> asked_seek_;
+    RequestId asked_seek_id_ = 0;
+    double asked_seek_at_ = 0.0; // ImGui::GetTime() when it was sent
+    bool seek_held_ = false;     // the bar is being dragged
+
     // The slider's own value while it's being dragged. The volume is only
     // sent when it's let go, not on every pixel of the drag.
     int slider_volume_ = 0;

@@ -108,6 +108,7 @@ TEST_CASE("every request amctl claims to send has a command that parses", "[amct
         INFO("opcode 0x" << std::hex << byte << ", command " << std::string(c.command));
         auto parsed = c.command == "volume" ? parse({c.command, "50"})
                       : c.command == "load" ? parse({c.command, "tone"})
+                      : c.command == "seek" ? parse({c.command, "1:23"})
                                             : parse({c.command});
         CHECK(parsed.has_value());
     }
@@ -124,4 +125,40 @@ TEST_CASE("load takes one of the three sources", "[amctl]") {
     CHECK_FALSE(parse({"load", "film"}).has_value());
     CHECK_FALSE(parse({"load", "Tone"}).has_value());
     CHECK_FALSE(parse({"load", "tone", "extra"}).has_value());
+}
+
+TEST_CASE("seek takes a time, or a jump forward or back", "[amctl]") {
+    const auto to = parse({"seek", "1:23"});
+    REQUIRE(to.has_value());
+    CHECK(to->command == Command::Seek);
+    CHECK(to->seek_seconds == 83);
+    CHECK(to->seek_direction == 0);
+
+    CHECK(parse({"seek", "83"})->seek_seconds == 83);
+    CHECK(parse({"seek", "0"})->seek_seconds == 0);
+    CHECK(parse({"seek", "1:02:03"})->seek_seconds == 3723);
+    CHECK(parse({"seek", "12:00"})->seek_seconds == 720);
+
+    const auto forward = parse({"seek", "+10"});
+    REQUIRE(forward.has_value());
+    CHECK(forward->seek_seconds == 10);
+    CHECK(forward->seek_direction == 1);
+    const auto back = parse({"seek", "-1:30"});
+    REQUIRE(back.has_value());
+    CHECK(back->seek_seconds == 90);
+    CHECK(back->seek_direction == -1);
+
+    CHECK_FALSE(parse({"seek"}).has_value());
+    CHECK_FALSE(parse({"seek", ""}).has_value());
+    CHECK_FALSE(parse({"seek", "+"}).has_value());
+    CHECK_FALSE(parse({"seek", "1:5"}).has_value());  // a typo, not 1:05
+    CHECK_FALSE(parse({"seek", "1:75"}).has_value()); // seconds go to 59
+    CHECK_FALSE(parse({"seek", "1::23"}).has_value());
+    CHECK_FALSE(parse({"seek", "1:23:"}).has_value());
+    CHECK_FALSE(parse({"seek", "1:00:00:00"}).has_value());
+    CHECK_FALSE(parse({"seek", "+-5"}).has_value());
+    CHECK_FALSE(parse({"seek", "1.5"}).has_value());
+    CHECK_FALSE(parse({"seek", "soon"}).has_value());
+    CHECK_FALSE(parse({"seek", "99999999999999999999"}).has_value());
+    CHECK_FALSE(parse({"seek", "10", "20"}).has_value());
 }

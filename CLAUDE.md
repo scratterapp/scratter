@@ -43,9 +43,9 @@ that moves a number.
 Phase 1, Linux phase 2 and the daemon skeleton are done. `scratterd` (built as
 `<AM_APP_NAME>d`, see `src/daemon/main_daemon.cpp`) runs: it plays a 440 Hz tone
 through ring buffer, drift controller and PipeWire, answers Hello, Ping, Play, Pause,
-Stop, SetVolume and LoadTrack over the IPC socket, publishes telemetry in shared memory, and
+Stop, SetVolume, LoadTrack and Seek over the IPC socket, publishes telemetry in shared memory, and
 quits cleanly on Ctrl-C or SIGTERM. `amctl` (`tools/amctl/`) is a command-line
-remote for it: `amctl pause`, `amctl volume 30`, `amctl load clear-film`, `amctl watch`,
+remote for it: `amctl pause`, `amctl volume 30`, `amctl load clear-film`, `amctl seek 1:23`, `amctl watch`,
 `amctl status --json`.
 It can send every request the daemon handles, and `tests/test_daemon.cpp` fails if
 the daemon learns one amctl lacks (`coverage()` in `tools/amctl/amctl_args.hpp`).
@@ -54,7 +54,9 @@ media keys and `playerctl play-pause` pause it too. Built with CEF (the `linux-c
 preset, off by default because CEF only exists where someone built it),
 `scratterd --test-film` plays Google's Widevine test film through a headless
 CEF instead of the tone (`src/daemon/cef_host/`, issue #76), and `amctl load` switches
-between the tone and the two films while it runs, starting CEF the first time (#38). `tests/test_daemon.cpp` starts the daemon
+between the tone and the two films while it runs, starting CEF the first time (#38). The films
+can be seeked in from amctl, the window's position bar and MPRIS (#39); the tone has no
+length, except with `--tone-length`, which the tests use. `tests/test_daemon.cpp` starts the daemon
 and drives it, directly, through amctl and over MPRIS.
 
 What's real so far: everything in `src/common/` except `arena_allocator.hpp`, every

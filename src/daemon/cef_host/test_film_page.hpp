@@ -52,13 +52,19 @@
 //
 // The first and third lines must print the same thing; the last one is the hash.
 //
-// The daemon drives the page through four functions: amPlay(), amPause(),
-// amStop() and amLoad(). The page prints what it's doing to its console, and the daemon
+// The daemon drives the page through five functions: amPlay(), amPause(),
+// amStop(), amLoad() and amSeek(). The page prints what it's doing to its console, and the daemon
 // copies those lines to its own output with a "page:" in front.
 
+#include <chrono>
 #include <string_view>
 
 namespace am::daemon {
+
+// How long the film is: both copies' manifests say mediaPresentationDuration
+// "PT734S". The page loops it, and the daemon reports this length so the
+// window's bar, amctl and the media widget can seek in it (#39).
+inline constexpr std::chrono::microseconds kTestFilmLength = std::chrono::seconds{734};
 
 // A made-up host under .invalid, a name reserved so it can never be a real site.
 inline constexpr std::string_view kTestFilmOrigin = "https://player.invalid";
@@ -88,6 +94,7 @@ const film = document.getElementById('film');
 let ready = false;
 let wanted = 'play';
 let switchFilm = null; // main() sets it once the player exists
+let seekTo = null;     // an amSeek() from before the film had loaded
 
 // The daemon calls these. Before the film has loaded they only remember what
 // was asked for.
@@ -95,7 +102,17 @@ window.amPlay = () => { wanted = 'play'; if (ready) film.play(); };
 window.amPause = () => { wanted = 'pause'; if (ready) film.pause(); };
 window.amStop = () => {
   wanted = 'pause';
+  seekTo = null;
   if (ready) { film.pause(); film.currentTime = 0; }
+};
+// amSeek(83.5) jumps to 1:23.5 (CefHost::seek). The daemon pauses the page
+// before and plays it again after, so the jump is never heard.
+window.amSeek = (seconds) => {
+  if (ready) { film.currentTime = seconds; } else { seekTo = seconds; }
+};
+// Once a film has loaded: the seek that arrived while it loaded, if any.
+const applySeek = () => {
+  if (seekTo !== null) { film.currentTime = seekTo; seekTo = null; }
 };
 // amLoad(true) switches to the unencrypted film, amLoad(false) to the
 // Widevine one, from the start (CefHost::load_film). Same page, same player:
@@ -104,6 +121,7 @@ window.amLoad = (clearFilm) => {
   clear = clearFilm;
   sessionStorage.setItem('film-clear', clear ? '1' : '0');
   sessionStorage.removeItem('film-position');
+  seekTo = null;
   if (switchFilm) switchFilm();
 };
 
@@ -295,6 +313,7 @@ async function main() {
       return;
     }
     ready = true;
+    applySeek();
     if (wanted === 'play') film.play();
   };
 
@@ -310,6 +329,7 @@ async function main() {
     console.log(`carrying on from ${resumeAt.toFixed(1)} s after the page was loaded again`);
   }
   ready = true;
+  applySeek();
   if (wanted === 'play') film.play();
 }
 

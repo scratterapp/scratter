@@ -68,3 +68,20 @@ TEST_CASE("a refused switch says why, and each source has a label", "[now_playin
     CHECK(std::string(source_label(am::common::TrackSource::ClearFilm)) == "Clear film");
     CHECK(std::string(source_label(am::common::TrackSource::WidevineFilm)) == "Widevine film");
 }
+
+TEST_CASE("the position bar turns a mouse position into a point in the track", "[now_playing]") {
+    constexpr std::uint64_t kLength = 734'000'000; // the test film
+    CHECK(bar_position(100.0f, 100.0f, 200.0f, kLength) == 0);
+    CHECK(bar_position(200.0f, 100.0f, 200.0f, kLength) == kLength / 2);
+    CHECK(bar_position(300.0f, 100.0f, 200.0f, kLength) == kLength);
+    // Dragged off either end: the start or the end.
+    CHECK(bar_position(-50.0f, 100.0f, 200.0f, kLength) == 0);
+    CHECK(bar_position(900.0f, 100.0f, 200.0f, kLength) == kLength);
+    CHECK(bar_position(150.0f, 100.0f, 0.0f, kLength) == 0); // no bar at all
+}
+
+TEST_CASE("a refused seek says the tone has no length", "[now_playing]") {
+    CHECK(command_failure_text(
+              {.id = 3, .command = Command::Seek, .outcome = CommandOutcome::NotSupported}) ==
+          "Couldn't seek: the tone has no length to seek in.");
+}

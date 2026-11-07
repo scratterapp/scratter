@@ -161,9 +161,21 @@ void ControlServer::handle(Client& client, const FrameHeader& header,
         reply(client, header, tracks_.load(body->source));
         return;
     }
+    case Opcode::SeekReq: {
+        const auto body = common::decode_body<common::SeekBody>(payload);
+        if (!body) {
+            reply(client, header, CommandStatus::BadRequest); // wrong size, or past 2^63
+            return;
+        }
+        // main() starts the seek and broadcasts the new position when it's done.
+        reply(client, header,
+              tracks_.seek(
+                  std::chrono::microseconds{static_cast<std::int64_t>(body->position_micros)}));
+        return;
+    }
     default:
-        // A real opcode, just not one this daemon handles yet (SeekReq, the
-        // queue...), or one only the daemon is meant to send.
+        // A real opcode, just not one this daemon handles yet (the queue...),
+        // or one only the daemon is meant to send.
         reply(client, header, CommandStatus::NotSupported);
         return;
     }

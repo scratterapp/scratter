@@ -306,10 +306,25 @@ TEST_CASE("the daemon answers commands and publishes its state", "[daemon]") {
     }
 
     SECTION("requests it can't handle yet get NotSupported") {
-        auto seq = client.send(Opcode::SeekReq);
+        auto seq = client.send(Opcode::QueueShuffleReq);
         auto nak = client.wait_for_result(Opcode::CommandNak, seq);
         REQUIRE(nak.has_value());
         CHECK(nak->status == CommandStatus::NotSupported);
+    }
+
+    SECTION("a seek on the tone is refused: it has no length") {
+        CHECK(track_body->duration_micros == 0);
+        auto seq = client.send(Opcode::SeekReq, SeekBody{.position_micros = 10'000'000});
+        auto nak = client.wait_for_result(Opcode::CommandNak, seq);
+        REQUIRE(nak.has_value());
+        CHECK(nak->request_opcode == Opcode::SeekReq);
+        CHECK(nak->status == CommandStatus::NotSupported);
+
+        // And a body that doesn't decode is a bad request, as for the others.
+        seq = client.send(Opcode::SeekReq);
+        nak = client.wait_for_result(Opcode::CommandNak, seq);
+        REQUIRE(nak.has_value());
+        CHECK(nak->status == CommandStatus::BadRequest);
     }
 
     SECTION("media keys pause and resume it") {
@@ -350,6 +365,98 @@ TEST_CASE("the daemon answers commands and publishes its state", "[daemon]") {
     REQUIRE_FALSE(gone.has_value());
     CHECK(gone.error() == std::errc::no_such_file_or_directory);
     CHECK(!std::filesystem::exists(dir.path / (name + ".sock")));
+}
+
+// Seeking needs a source with a length. The films have one, but CI can't play
+// them, so this gives the tone one with --tone-length. The daemon runs with
+// --no-audio, so the position stays where a seek put it.
+TEST_CASE("the daemon seeks, clamps at the end and tells everyone", "[daemon][seek]") {
+    RuntimeDir dir;
+    const std::string name = unique_name() + "-seek";
+    Daemon daemon(name, {"--tone-length", "60"});
+
+    auto reactor = Reactor::create();
+    REQUIRE(reactor.has_value());
+    Client client(std::move(*reactor));
+    REQUIRE(client.connect(name));
+    client.send(Opcode::HelloReq, HelloBody{.name = make_peer_name("test_daemon")});
+    auto track = client.wait_for(Opcode::TrackChangedEvent);
+    REQUIRE(track.has_value());
+    CHECK(decode_body<TrackChangedBody>(*track)->duration_micros == 60'000'000);
+
+    auto shm = ShmMapping::open_read_only(name + "_telemetry_v2", kTelemetryPageSize);
+    REQUIRE(shm.has_value());
+    const auto& page = *reinterpret_cast<const TelemetryPage*>(shm->bytes().data());
+    CHECK(page.read().duration_micros == 60'000'000);
+
+    // Ack first, then the new position, and it plays on.
+    auto seek_to = [&](std::uint64_t micros) -> std::optional<PlaybackStateBody> {
+        const auto seq = client.send(Opcode::SeekReq, SeekBody{.position_micros = micros});
+        auto ack = client.wait_for_result(Opcode::CommandAck, seq);
+        REQUIRE(ack.has_value());
+        CHECK(ack->request_opcode == Opcode::SeekReq);
+        auto event = client.wait_for(Opcode::PlaybackStateEvent);
+        if (!event) {
+            return std::nullopt;
+        }
+        auto body = decode_body<PlaybackStateBody>(*event);
+        return body ? std::optional(*body) : std::nullopt;
+    };
+    auto seeked = seek_to(30'000'000);
+    REQUIRE(seeked.has_value());
+    CHECK(seeked->position_micros == 30'000'000);
+    CHECK(seeked->state == PlaybackState::Playing);
+    CHECK(page.read().pts_micros == 30'000'000);
+
+    // Past the end is the end, which for a looping source is the start.
+    seeked = seek_to(10 * 60'000'000ULL);
+    REQUIRE(seeked.has_value());
+    CHECK(seeked->position_micros == 0);
+
+    // Paused stays paused; stopped becomes paused at that point instead of
+    // starting over from 0.
+    auto seq = client.send(Opcode::StopReq);
+    REQUIRE(client.wait_for_result(Opcode::CommandAck, seq).has_value());
+    REQUIRE(client.wait_for(Opcode::PlaybackStateEvent).has_value()); // the stop
+    seeked = seek_to(12'000'000);
+    REQUIRE(seeked.has_value());
+    CHECK(seeked->position_micros == 12'000'000);
+    CHECK(seeked->state == PlaybackState::Paused);
+    CHECK(telemetry_shows(page, PlaybackState::Paused));
+
+    // MPRIS: CanSeek is on, and playerctl position 20 (SetPosition) works.
+    sd_bus* bus = nullptr;
+    if (sd_bus_open_user(&bus) < 0) {
+        WARN("no D-Bus session bus here, skipping the MPRIS part");
+    } else {
+        const std::string bus_name = "org.mpris.MediaPlayer2." + name;
+        int can_seek = 0;
+        CHECK(sd_bus_get_property_trivial(bus, bus_name.c_str(), "/org/mpris/MediaPlayer2",
+                                          "org.mpris.MediaPlayer2.Player", "CanSeek", nullptr, 'b',
+                                          &can_seek) >= 0);
+        CHECK(can_seek == 1);
+        CHECK(sd_bus_call_method(bus, bus_name.c_str(), "/org/mpris/MediaPlayer2",
+                                 "org.mpris.MediaPlayer2.Player", "SetPosition", nullptr, nullptr,
+                                 "ox", "/CurrentTrack",
+                                 static_cast<std::int64_t>(20'000'000)) >= 0);
+        auto event = client.wait_for(Opcode::PlaybackStateEvent);
+        REQUIRE(event.has_value());
+        CHECK(decode_body<PlaybackStateBody>(*event)->position_micros == 20'000'000);
+        sd_bus_flush_close_unref(bus);
+    }
+
+    // amctl: to a time, then forward and back from where it is.
+    CHECK(run_amctl({"--name", name, "seek", "0:45"}) == 0);
+    CHECK(page.read().pts_micros == 45'000'000);
+    CHECK(run_amctl({"--name", name, "seek", "+10"}) == 0);
+    CHECK(page.read().pts_micros == 55'000'000);
+    CHECK(run_amctl({"--name", name, "seek", "-20"}) == 0);
+    CHECK(page.read().pts_micros == 35'000'000);
+    CHECK(run_amctl({"--name", name, "seek", "-5:00"}) == 0); // stops at 0
+    CHECK(page.read().pts_micros == 0);
+
+    REQUIRE(::kill(daemon.pid, SIGTERM) == 0);
+    CHECK(daemon.wait_for_exit(10s) == 0);
 }
 
 // $XDG_RUNTIME_DIR has to be private: anyone who can write to it could swap
@@ -401,6 +508,7 @@ TEST_CASE("amctl drives the daemon", "[daemon][amctl]") {
     CHECK(page.read().playback_state == PlaybackState::Paused);
 
     CHECK(run_amctl({"--name", name, "ping"}) == 0);
+    CHECK(run_amctl({"--name", name, "seek", "1:00"}) == 1); // the tone has no length
     CHECK(run_amctl({"--name", name, "load", "tone"}) == 0);
     CHECK(telemetry_shows(page, PlaybackState::Paused)); // carried over, once the switch is done
     if (!AM_DAEMON_HAS_CEF) {
