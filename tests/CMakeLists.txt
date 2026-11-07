@@ -142,7 +142,8 @@ if(LINUX)
     add_executable(test_daemon_link test_daemon_link.cpp)
     target_link_libraries(test_daemon_link PRIVATE am_client_core Catch2::Catch2WithMain)
     target_compile_definitions(test_daemon_link PRIVATE
-        AM_DAEMON_PATH="$<TARGET_FILE:${AM_DAEMON_TARGET}>")
+        AM_DAEMON_PATH="$<TARGET_FILE:${AM_DAEMON_TARGET}>"
+        AM_DAEMON_HAS_CEF=$<BOOL:${AM_WITH_CEF}>)
     add_dependencies(test_daemon_link ${AM_DAEMON_TARGET})
     am_enable_warnings(test_daemon_link)
     catch_discover_tests(test_daemon_link DISCOVERY_MODE PRE_TEST)

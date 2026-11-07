@@ -59,6 +59,23 @@ bool round_button(const char* id, const char* tooltip, Icon icon, float radius, 
     return pressed && enabled;
 }
 
+// A pill-shaped button for the source picker, filled with the accent color
+// when `lit`. Clicking the lit one again starts that source over.
+bool chip(const char* label, bool lit) {
+    using namespace palette;
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFrameHeight() * 0.5f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+                        {ImGui::GetFontSize() * 0.9f, ImGui::GetStyle().FramePadding.y});
+    ImGui::PushStyleColor(ImGuiCol_Button, lit ? kAccent : kRaised);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, lit ? kAccentHover : kSurface);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, lit ? kAccentHover : kSurface);
+    ImGui::PushStyleColor(ImGuiCol_Text, lit ? kBackground : kText);
+    const bool pressed = ImGui::Button(label);
+    ImGui::PopStyleColor(4);
+    ImGui::PopStyleVar(2);
+    return pressed;
+}
+
 // A word in small spaced capitals, like the "VOL" label in the mockup.
 void small_caps(const Fonts& fonts, const char* text, ImVec4 color) {
     ImGui::PushFont(fonts.body_bold, kBodySize * 0.72f);
@@ -132,16 +149,16 @@ void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
     ImGui::SetCursorPos({margin, size.y * 0.16f});
     draw_app_label(fonts);
 
-    // What's playing. The daemon doesn't say yet (there's no message for it
-    // until Apple Music arrives, #38), and for now it's always a test sound.
+    // What's playing, from the daemon's TrackChangedEvent (#38). Until Apple
+    // Music arrives it's one of the test sources.
     ImGui::SetCursorPosX(margin);
     ImGui::PushFont(fonts.display, kBodySize * 3.6f);
-    ImGui::TextUnformatted("Test sound");
+    ImGui::TextUnformatted(state.has_track ? state.track_title.c_str() : "Test sound");
     ImGui::PopFont();
     ImGui::SetCursorPosX(margin);
     ImGui::PushFont(fonts.display_italic, kBodySize * 1.4f);
     ImGui::PushStyleColor(ImGuiCol_Text, kTextDim);
-    const std::string from = "the tone or the test film, from " + daemon;
+    const std::string from = "a test source, from " + daemon;
     ImGui::TextUnformatted(from.c_str());
     ImGui::PopStyleColor();
     ImGui::PopFont();
@@ -221,6 +238,24 @@ void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
     }
     ImGui::SetItemTooltip("Volume (Up and Down)");
     ImGui::SetCursorPosY(row_top + big * 2.0f + em * 0.6f);
+
+    // What plays: the tone or one of the test films. The lit one is what the
+    // daemon says plays now; a click asks it to switch, and the light moves
+    // when its TrackChangedEvent arrives.
+    ImGui::SetCursorPosX(margin);
+    const float chips_top = ImGui::GetCursorPosY();
+    ImGui::SetCursorPosY(chips_top + (ImGui::GetFrameHeight() - em * 0.72f) * 0.5f);
+    small_caps(fonts, "SOURCE", kTextDim);
+    for (const common::TrackSource source :
+         {common::TrackSource::Tone, common::TrackSource::ClearFilm,
+          common::TrackSource::WidevineFilm}) {
+        ImGui::SameLine(0.0f, em * 0.7f);
+        ImGui::SetCursorPosY(chips_top);
+        const bool lit = state.has_track && state.track_source == source;
+        if (chip(source_label(source), lit)) {
+            link.load_track(source);
+        }
+    }
 
     // The newest answer, when it's a no. A later command that works replaces
     // it, so it doesn't stay around once things are fine again.

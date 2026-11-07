@@ -141,6 +141,12 @@ TEST_CASE("the window's link connects, sends commands and follows the state", "[
     CHECK(s.volume_percent == 100);
     CHECK(window.wakes > 0);
 
+    // And what plays, which the daemon sends right after its state.
+    CHECK(window.wait_for(l, [](const DaemonState& st) { return st.has_track; }));
+    s = l.state();
+    CHECK(s.track_source == am::common::TrackSource::Tone);
+    CHECK(s.track_title == "440 Hz test tone");
+
     TelemetryReader reader(name);
     CHECK(telemetry_shows(
         reader, l, [](const auto& t) { return t.playback_state == PlaybackState::Playing; }));
@@ -168,6 +174,13 @@ TEST_CASE("the window's link connects, sends commands and follows the state", "[
     CHECK(window.wait_for(
         l, [](const DaemonState& st) { return st.playback == PlaybackState::Stopped; }));
     CHECK(outcome_of(window, l, l.play()) == CommandOutcome::Ok);
+
+    // Loading the tone starts it over; a daemon without CEF refuses the films.
+    CHECK(outcome_of(window, l, l.load_track(am::common::TrackSource::Tone)) == CommandOutcome::Ok);
+    if (!AM_DAEMON_HAS_CEF) {
+        CHECK(outcome_of(window, l, l.load_track(am::common::TrackSource::ClearFilm)) ==
+              CommandOutcome::NotSupported);
+    }
 }
 
 TEST_CASE("the window's link says when the daemon isn't running and reconnects", "[daemon_link]") {

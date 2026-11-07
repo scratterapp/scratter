@@ -83,11 +83,16 @@ class DaemonLink {
     RequestId stop();
     RequestId toggle();
     RequestId set_volume(std::uint8_t percent); // 0 to 100; more gets BadRequest
+    // Switches to the tone or a test film. Ok once the switch has started;
+    // DaemonState's track_* fields change when it's done. A daemon built
+    // without CEF answers the films with NotSupported.
+    RequestId load_track(common::TrackSource source);
 
   private:
     struct Impl;
     explicit DaemonLink(std::unique_ptr<Impl> impl);
-    RequestId ask(Command command, std::uint8_t volume_percent);
+    RequestId ask(Command command, std::uint8_t volume_percent,
+                  common::TrackSource source = common::TrackSource::Tone);
     std::unique_ptr<Impl> impl_;
 };
 

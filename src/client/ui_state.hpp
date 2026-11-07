@@ -40,7 +40,8 @@ enum class LinkStatus : std::uint8_t {
 
 // The commands the window can send. Toggle is play/pause, decided on the
 // connection thread from the newest state, like the play/pause media key.
-enum class Command : std::uint8_t { Play, Pause, Stop, Toggle, SetVolume };
+// LoadTrack switches sources (the tone or a test film).
+enum class Command : std::uint8_t { Play, Pause, Stop, Toggle, SetVolume, LoadTrack };
 
 // How a command ended. The first four are the daemon's own answer
 // (CommandStatus); the rest are about the connection.
@@ -85,6 +86,13 @@ struct DaemonState {
     common::PlaybackState playback = common::PlaybackState::Stopped;
     std::uint8_t volume_percent = 0;
     std::uint64_t position_micros = 0; // where playback was when the event was sent
+
+    // From the newest TrackChangedEvent: what plays. has_track works like
+    // has_playback: false until this connection's first event.
+    bool has_track = false;
+    common::TrackSource track_source = common::TrackSource::Tone;
+    std::string track_title;
+    std::uint64_t track_duration_micros = 0; // 0 when it has no end or isn't known
 
     // The newest answer to a command, for "couldn't pause: ..." under the
     // controls. Empty until the first command finishes. Only the newest is
