@@ -12,6 +12,7 @@ if(LINUX)
         linux/unix_seqpacket_ipc.cpp
         linux/mpris_controls.cpp
         linux/posix_shm.cpp
+        linux/process_launch.cpp
     )
 elseif(WIN32)
     list(APPEND AM_PAL_SOURCES
@@ -24,6 +25,7 @@ elseif(WIN32)
         win32/smtc_controls.cpp
         win32/win32_shm.cpp
         win32/console_shutdown.cpp
+        win32/process_launch.cpp
     )
 else()
     message(FATAL_ERROR "Unsupported platform: only Linux and Windows are supported")

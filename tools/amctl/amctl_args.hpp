@@ -264,6 +264,7 @@ struct Coverage {
     case Opcode::TrackChangedEvent:
     case Opcode::EmeErrorEvent:
     case Opcode::PlaybackStateEvent:
+    case Opcode::RaiseWindowEvent:
         return {Kind::FromDaemon, {}};
     }
     return {Kind::FromDaemon, {}}; // not a listed opcode at all
