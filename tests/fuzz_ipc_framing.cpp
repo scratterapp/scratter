@@ -67,6 +67,9 @@ void check_payload(Opcode opcode, std::span<const std::byte> payload) {
     case Opcode::SetVolumeReq:
         check_body<SetVolumeBody>(payload);
         break;
+    case Opcode::SeekReq:
+        check_body<SeekBody>(payload);
+        break;
     case Opcode::CommandAck:
     case Opcode::CommandNak:
         check_body<CommandResultBody>(payload);

@@ -152,6 +152,32 @@ TEST_CASE("PlaybackStateBody refuses an unknown state or volume over 100", "[ipc
     CHECK(decode_body<PlaybackStateBody>(payload).has_value());
 }
 
+TEST_CASE("SeekBody round-trips and is little-endian", "[ipc][messages]") {
+    const SeekBody sent{.position_micros = 83'000'000}; // 1:23
+    const auto received = round_trip(Opcode::SeekReq, sent);
+    REQUIRE(received.has_value());
+    CHECK(received->position_micros == 83'000'000);
+
+    const auto bytes =
+        std::bit_cast<std::array<std::byte, 8>>(SeekBody{.position_micros = 0x0102030405060708});
+    CHECK(bytes[0] == std::byte{0x08});
+    CHECK(bytes[7] == std::byte{0x01});
+}
+
+TEST_CASE("SeekBody refuses a position that doesn't fit a signed 64-bit count", "[ipc][messages]") {
+    CHECK(decode_body<SeekBody>(std::bit_cast<std::array<std::byte, 8>>(SeekBody{0})).has_value());
+    CHECK(decode_body<SeekBody>(
+              std::bit_cast<std::array<std::byte, 8>>(SeekBody{.position_micros = kMaxSeekMicros}))
+              .has_value());
+
+    // One past the top: as std::chrono::microseconds this would be negative.
+    std::array<std::byte, sizeof(SeekBody)> payload{};
+    payload[7] = std::byte{0x80};
+    CHECK(decode_body<SeekBody>(payload).error() == BodyError::BadValue);
+    payload.fill(std::byte{0xFF});
+    CHECK(decode_body<SeekBody>(payload).error() == BodyError::BadValue);
+}
+
 TEST_CASE("LoadTrackBody round-trips every source", "[ipc][messages]") {
     for (const TrackSource source :
          {TrackSource::Tone, TrackSource::ClearFilm, TrackSource::WidevineFilm}) {
@@ -241,6 +267,7 @@ TEST_CASE("every body refuses a payload one byte short or long", "[ipc][messages
     };
     check_sizes(HelloBody{});
     check_sizes(SetVolumeBody{});
+    check_sizes(SeekBody{});
     check_sizes(CommandResultBody{});
     check_sizes(PlaybackStateBody{});
     check_sizes(LoadTrackBody{});

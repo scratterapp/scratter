@@ -15,6 +15,7 @@
 //   PauseReq             (none)               client
 //   StopReq              (none)               client
 //   SetVolumeReq         SetVolumeBody        client
+//   SeekReq              SeekBody             client, to jump to a point in the track
 //   CommandAck           CommandResultBody    daemon, when a request worked
 //   CommandNak           CommandResultBody    daemon, when it didn't
 //   PlaybackStateEvent   PlaybackStateBody    daemon, whenever play state or volume changes
@@ -38,7 +39,7 @@
 // as the header and for the same reasons (see ipc_protocol.hpp): no padding,
 // little-endian on both platforms, converted with std::bit_cast and memcpy.
 //
-// Other opcodes (SeekReq, the queue messages...) get bodies when
+// Other opcodes (the queue messages...) get bodies when
 // the code that needs them is written.
 
 #include "common/ipc_protocol.hpp"
@@ -83,6 +84,20 @@ struct SetVolumeBody {
 };
 
 inline constexpr std::uint8_t kMaxVolumePercent = 100;
+
+// SeekReq. Jump to `position_micros` from the start of the track. Always an
+// absolute position: a relative jump ("+10 s") is worked out by the sender
+// from the position it last heard, the way MPRIS's Seek(offset) already is.
+// A position past the end is clamped to the end by the daemon. The tone has
+// no length, so a seek on it gets CommandNak / NotSupported.
+struct SeekBody {
+    std::uint64_t position_micros;
+};
+
+// The biggest position a SeekBody may carry. The daemon keeps positions in
+// std::chrono::microseconds, which is signed 64-bit, so anything above this
+// would turn negative on the way in.
+inline constexpr std::uint64_t kMaxSeekMicros = 0x7FFF'FFFF'FFFF'FFFF;
 
 // The answer to a request, carried by CommandAck (status Ok) and CommandNak
 // (any other status). request_seq_id is the seq_id from the request's header,
@@ -153,6 +168,7 @@ concept WireBody = std::is_trivially_copyable_v<T> && std::has_unique_object_rep
 
 static_assert(WireBody<HelloBody> && sizeof(HelloBody) == 32);
 static_assert(WireBody<SetVolumeBody> && sizeof(SetVolumeBody) == 1);
+static_assert(WireBody<SeekBody> && sizeof(SeekBody) == 8);
 static_assert(WireBody<CommandResultBody> && sizeof(CommandResultBody) == 16);
 static_assert(offsetof(CommandResultBody, request_opcode) == 8);
 static_assert(offsetof(CommandResultBody, status) == 9);
@@ -176,6 +192,10 @@ static_assert(offsetof(TrackChangedBody, title) == 24);
 
 [[nodiscard]] constexpr bool is_valid(const SetVolumeBody& body) noexcept {
     return body.volume_percent <= kMaxVolumePercent;
+}
+
+[[nodiscard]] constexpr bool is_valid(const SeekBody& body) noexcept {
+    return body.position_micros <= kMaxSeekMicros;
 }
 
 [[nodiscard]] constexpr bool is_valid(const CommandResultBody& body) noexcept {
