@@ -4,6 +4,7 @@
 
 #include "daemon/audio_engine/audio_path.hpp"
 #include "daemon/audio_engine/sine_generator.hpp"
+#include "daemon/audio_engine/tone_pacer.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -73,6 +74,92 @@ TEST_CASE("top_up fills the ring buffer to the target and no further", "[audio_p
     SineGenerator sine(kRate);
     CHECK(audio->top_up(sine) == AudioPath::kTargetFrames);
     CHECK(audio->top_up(sine) == 0);
+}
+
+TEST_CASE("write_tone writes what it's asked for, up to a full ring", "[audio_path]") {
+    auto audio = std::make_unique<AudioPath>(kRate);
+    SineGenerator sine(kRate);
+    CHECK(audio->write_tone(sine, 1000) == 1000); // more than one packet, not a multiple
+    CHECK(audio->write_tone(sine, 0) == 0);
+    // Past the target, unlike top_up(), and no further than the capacity.
+    CHECK(audio->write_tone(sine, AudioPath::kCapacityFrames) == AudioPath::kCapacityFrames - 1000);
+    CHECK(audio->write_tone(sine, 10) == 0);
+}
+
+TEST_CASE("the tone pacer counts frames by the clock, without rounding drift", "[audio_path]") {
+    using am::audio::TonePacer;
+    using namespace std::chrono_literals;
+    TonePacer pacer(kRate);
+    const TonePacer::Clock::time_point t0{};
+
+    CHECK_FALSE(pacer.running());
+    CHECK(pacer.due(t0 + 1s) == 0); // not started
+
+    pacer.start(t0);
+    CHECK(pacer.due(t0) == 0);
+    CHECK(pacer.due(t0 + 10ms) == 480);
+    CHECK(pacer.due(t0 + 10ms) == 0); // asked twice for the same moment
+    // 1/3 ms is 16 frames exactly at 48 kHz; 7 µs steps are 0.336 frames
+    // each. Whatever the steps, the total is the elapsed time times the rate.
+    std::size_t total = 480;
+    auto now = t0 + 10ms;
+    for (int i = 0; i < 1000; ++i) {
+        now += 7us;
+        total += pacer.due(now);
+    }
+    CHECK(total == 480 + 336); // 7 ms
+    CHECK(pacer.due(t0 + 3600s) == 3600u * kRate - total);
+
+    pacer.stop();
+    CHECK(pacer.due(t0 + 3601s) == 0);
+}
+
+namespace {
+
+// Plays the tone the way the daemon does, for `seconds` simulated seconds, and
+// returns the drift the controller settled on. Each 10 ms tick the producer
+// writes, then the sound card asks `callbacks` times for 480 / callbacks
+// frames (one 10 ms exclusive period, or a shared stream's shorter ones).
+// `producer_ppm` is how far the tone's clock runs from the sound card's: the
+// producer writes that much more (or less) than 480 frames a tick. `paced`
+// writes the tone by the clock; otherwise it's topped up to the target each
+// tick, the old way.
+float settled_drift_ppm(bool paced, double producer_ppm, int callbacks, int seconds) {
+    auto audio = std::make_unique<AudioPath>(kRate);
+    SineGenerator sine(kRate);
+    std::vector<float> out(static_cast<std::size_t>(480 / callbacks) * AudioPath::kChannels);
+    audio->top_up(sine);
+    double owed = 0.0;
+    for (int tick = 0; tick < seconds * 100; ++tick) {
+        if (paced) {
+            owed += 480.0 * (1.0 + producer_ppm * 1e-6);
+            const auto frames = static_cast<std::size_t>(owed);
+            owed -= static_cast<double>(audio->write_tone(sine, frames));
+        } else {
+            audio->top_up(sine);
+        }
+        for (int i = 0; i < callbacks; ++i) {
+            audio->render(out);
+        }
+    }
+    return audio->drift_ppm();
+}
+
+} // namespace
+
+TEST_CASE("a tone written by the clock lets the drift controller settle (#85)", "[audio_path]") {
+    for (const int callbacks : {1, 4}) {
+        CAPTURE(callbacks);
+        // Same clocks: nothing to correct.
+        CHECK(std::abs(settled_drift_ppm(true, 0.0, callbacks, 120)) < 20.0f);
+        // The tone's clock 100 ppm slow: the sound card has to play 100 ppm
+        // slower.
+        CHECK(std::abs(settled_drift_ppm(true, -100.0, callbacks, 120) + 100.0f) < 20.0f);
+    }
+    // Topping up each tick doesn't let it settle: the fill render() sees is
+    // under the target for every callback after the first, and the integral
+    // runs toward the -1000 ppm clamp. This is what amctl showed (#85).
+    CHECK(settled_drift_ppm(false, 0.0, 4, 120) < -500.0f);
 }
 
 TEST_CASE("playing renders the tone and moves the position", "[audio_path]") {

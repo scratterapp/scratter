@@ -63,6 +63,7 @@
 #include "common/telemetry_shm.hpp"
 #include "daemon/audio_engine/audio_path.hpp"
 #include "daemon/audio_engine/sine_generator.hpp"
+#include "daemon/audio_engine/tone_pacer.hpp"
 #include "daemon/cef_host/cef_host.hpp"
 #include "daemon/cef_host/test_film_page.hpp"
 #include "daemon/control_server.hpp"
@@ -559,6 +560,7 @@ int main(int argc, char** argv) {
     // last thing the sound card got was silence. Play starts it again at
     // once, because publish() runs the tick.
     bool sink_running = sink.has_value();
+    am::audio::TonePacer tone_pacer(sample_rate);
     tick = [&] {
         if (switching) {
             if (audio->state() != PlaybackState::Stopped) {
@@ -593,8 +595,26 @@ int main(int argc, char** argv) {
                              sink_running ? "restart" : "pause", changed.error().message().c_str());
             }
         }
+        // The tone. While it plays through a sound card it's written at the
+        // sample rate by the clock, like a real source (tone_pacer.hpp, #85).
+        // Otherwise, and when it starts playing, the ring is filled to the
+        // target so play starts at once. Without a sound card nothing reads
+        // the ring, so it's just kept at the target.
         if (!is_film(source) && !switching && !seeking) {
-            audio->top_up(sine);
+            if (sink && audio->state() == PlaybackState::Playing) {
+                const auto now = am::audio::TonePacer::Clock::now();
+                if (tone_pacer.running()) {
+                    audio->write_tone(sine, tone_pacer.due(now));
+                } else {
+                    audio->top_up(sine);
+                    tone_pacer.start(now);
+                }
+            } else {
+                tone_pacer.stop();
+                audio->top_up(sine);
+            }
+        } else {
+            tone_pacer.stop();
         }
         telemetry->write(make_snapshot(*audio, sink.has_value(), length_of(source)));
         if (media) {
