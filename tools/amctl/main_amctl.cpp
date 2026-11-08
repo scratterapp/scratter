@@ -125,10 +125,12 @@ int show_status(const Arguments& args) {
         std::printf(
             "{\"state\":\"%s\",\"position_micros\":%llu,\"duration_micros\":%llu,"
             "\"volume_percent\":%u,"
-            "\"sample_rate_hz\":%u,\"ring_buffer_fill\":%.3f,\"clock_drift_ppm\":%.3f}\n",
+            "\"sample_rate_hz\":%u,\"exclusive\":%s,\"ring_buffer_fill\":%.3f,"
+            "\"clock_drift_ppm\":%.3f}\n",
             state_name(s.playback_state).data(), static_cast<unsigned long long>(s.pts_micros),
             static_cast<unsigned long long>(s.duration_micros),
             static_cast<unsigned>(s.volume_percent), s.sample_rate_hz,
+            s.exclusive_mode_active != 0 ? "true" : "false",
             static_cast<double>(s.ring_buffer_fill_pct), static_cast<double>(s.clock_drift_ppm));
         return kExitOk;
     }
@@ -144,8 +146,9 @@ int show_status(const Arguments& args) {
     if (s.sample_rate_hz == 0) {
         std::printf("output:   none (daemon started with --no-audio)\n");
     } else {
-        std::printf("output:   %u Hz, ring buffer %.0f%% full, clock drift %+.1f ppm\n",
-                    s.sample_rate_hz, static_cast<double>(s.ring_buffer_fill_pct) * 100.0,
+        std::printf("output:   %u Hz%s, ring buffer %.0f%% full, clock drift %+.1f ppm\n",
+                    s.sample_rate_hz, s.exclusive_mode_active != 0 ? " exclusive" : "",
+                    static_cast<double>(s.ring_buffer_fill_pct) * 100.0,
                     static_cast<double>(s.clock_drift_ppm));
     }
     return kExitOk;
