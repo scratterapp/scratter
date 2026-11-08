@@ -131,12 +131,13 @@ def parse_arguments():
 
 
 def find_program(build: Path, name: str) -> Path:
-    # scratterd and amctl land at the top of the build folder, am-ui next to
-    # its sources in src/client/. That one goes first: an older build put a
-    # small am-ui at the top too, and it can still be lying around.
-    for path in [build / "src" / "client" / name, build / name]:
-        if path.is_file():
-            return path
+    # The program is at the top of the build folder or, for am-ui in some
+    # build layouts, next to its sources in src/client/. A build folder can
+    # hold a stale copy in the other place from an older layout, so take the
+    # newest of the two.
+    found = [p for p in [build / name, build / "src" / "client" / name] if p.is_file()]
+    if found:
+        return max(found, key=lambda p: p.stat().st_mtime)
     sys.exit(f"can't find {name} in {build}; build first, or point --build at the right folder")
 
 
