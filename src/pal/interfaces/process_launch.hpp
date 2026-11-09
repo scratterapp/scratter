@@ -8,9 +8,11 @@
 //   // The am-ui next to this daemon (browser_files.hpp's executable_dir()),
 //   // so it's the matching build and not whichever one is first on $PATH.
 //   // The build puts the two side by side, and so does `cmake --install`.
+//   // The full file name, with .exe on Windows: CreateProcessW doesn't add
+//   // it to a full path. The daemon gets it from CMake (AM_UI_NAME).
 //   auto dir = am::pal::executable_dir();
 //   if (dir) {
-//       if (auto started = am::pal::launch_ui(reactor, *dir / "am-ui", {}); !started) {
+//       if (auto started = am::pal::launch_ui(reactor, *dir / AM_UI_NAME, {}); !started) {
 //           log started.error().message();
 //       }
 //   }
@@ -53,7 +55,8 @@ namespace am::pal {
 
 class Reactor;
 
-// Starts `program` with `args` (not counting the program's own name, which
+// Starts `program` (a full path, file name and all, .exe included on
+// Windows) with `args` (not counting the program's own name, which
 // goes first as usual) as a process of its own, and returns once it has
 // started. The daemon passes `--name NAME` when it runs under a name other
 // than the default, so the window connects to this daemon and not another.

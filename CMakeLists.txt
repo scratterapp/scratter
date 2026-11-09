@@ -37,6 +37,10 @@ add_executable(${AM_DAEMON_TARGET}
 )
 target_link_libraries(${AM_DAEMON_TARGET} PRIVATE am_pal am_common)
 am_enable_warnings(${AM_DAEMON_TARGET})
+# The window the daemon starts when the desktop asks to see the player (MPRIS
+# Raise, issue #41): its file name, with .exe on Windows. It sits next to the
+# daemon, in the build folder and once installed.
+target_compile_definitions(${AM_DAEMON_TARGET} PRIVATE AM_UI_NAME="$<TARGET_FILE_NAME:am-ui>")
 
 if(AM_WITH_CEF)
     if(AM_ENABLE_ASAN OR AM_ENABLE_TSAN)
@@ -108,6 +112,11 @@ am_enable_warnings(am_client_core)
 
 # The app window, am-ui. Its CMakeLists.txt also fetches SDL3 and Dear ImGui.
 add_subdirectory(src/client)
+
+# `cmake --install` on Linux: the programs, the launcher entry and the icon.
+if(LINUX)
+    add_subdirectory(packaging/linux)
+endif()
 
 enable_testing()
 add_subdirectory(tests)

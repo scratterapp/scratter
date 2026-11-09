@@ -301,6 +301,9 @@ int main(int argc, char** argv) {
     const char* renderer_name = SDL_GetRendererName(renderer.get());
     am::client::NowPlayingView now_playing{renderer_name != nullptr ? renderer_name : ""};
 
+    // The daemon's raise_count when the window last came to the front.
+    std::uint64_t raises_seen = 0;
+
     am::client::FramePacer pacer;
     pacer.set_animating(options->frame_limit.has_value());
     int frames_drawn = 0;
@@ -338,6 +341,18 @@ int main(int argc, char** argv) {
         const bool connected =
             state.status == am::client::LinkStatus::Connected && state.has_playback;
         telemetry.update(state);
+        // The player was clicked in the desktop's media widget (MPRIS Raise,
+        // #41): come to the front. On Wayland the compositor decides, and it
+        // may only flash the window in the taskbar instead; X11 and Windows
+        // usually do as asked.
+        if (state.raise_count != raises_seen) {
+            raises_seen = state.raise_count;
+            if ((SDL_GetWindowFlags(window.get()) & SDL_WINDOW_MINIMIZED) != 0) {
+                SDL_RestoreWindow(window.get());
+            }
+            SDL_RaiseWindow(window.get());
+            pacer.on_event();
+        }
         // The clock on screen moves once a second while music plays.
         pacer.set_ticking(connected && state.playback == am::common::PlaybackState::Playing);
 

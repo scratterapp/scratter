@@ -526,7 +526,7 @@ scratter/
 │   │   │   ├── signalfd_shutdown.cpp  # SIGINT/SIGTERM blocked and read through a signalfd
 │   │   │   ├── mpris_controls.cpp     # sd-bus MPRIS v2: org.mpris.MediaPlayer2.<name>, fd watched by the reactor
 │   │   │   ├── browser_files.cpp      # ~/.cache/<app>/browser, /proc/self/exe, known WidevineCdm folders
-│   │   │   ├── process_launch.cpp     # Starts am-ui (stub until #41's Linux PR)
+│   │   │   ├── process_launch.cpp     # posix_spawn of am-ui, collected through a pidfd on the reactor
 │   │   │   └── cef_main_args.cpp      # CefMainArgs from argc and argv
 │   │   └── win32/                     # Owner: Windows developer
 │   │       ├── iocp_reactor.cpp       # IOCP + PostQueuedCompletionStatus + timer in the wait timeout
@@ -586,6 +586,7 @@ scratter/
 │   ├── ipc_ping_pong.cpp              # IPC round-trip latency (target: median under 25 µs)
 │   └── audio_render.cpp               # CPU our audio code (write_planar, render) takes per second of audio
 ├── packaging/
+│   ├── linux/                         # scratter.desktop template, hicolor icons (make-icons.sh builds them from docs/assets/scratter-logo.png), `cmake --install` rules
 │   └── windows/                       # am-ui.rc (the icon in am-ui.exe), scratter.ico, and make-icon.ps1, which builds it from docs/assets/scratter-logo.png
 ├── third_party/
 │   ├── cef/                           # Our CEF build goes here (linux64/, windows64/); ignored by git
