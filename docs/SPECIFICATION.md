@@ -297,7 +297,8 @@ enum class Opcode : uint8_t {
     CommandNak        = 0x81,
     TrackChangedEvent = 0x82,
     EmeErrorEvent     = 0x83,
-    PlaybackStateEvent = 0x84
+    PlaybackStateEvent = 0x84,
+    RaiseWindowEvent  = 0x85
 };
 
 struct alignas(8) FrameHeader {
@@ -334,6 +335,7 @@ In the repo this lives in `src/common/ipc_protocol.hpp` under `am::common`, next
 | `PlaybackStateEvent` | `PlaybackStateBody` | 16 | `position_micros` (u64), `state` (u8, the telemetry page's `PlaybackState`), `volume_percent` (u8), 6 reserved zero bytes |
 | `LoadTrackReq` | `LoadTrackBody` | 16 | `catalog_id` (u64, 0 for the test sources), `source` (u8: 0 Tone, 1 ClearFilm, 2 WidevineFilm; Catalog comes with Apple Music), 7 reserved zero bytes. A daemon built without CEF answers the films with `CommandNak` / `NotSupported`. |
 | `TrackChangedEvent` | `TrackChangedBody` | 88 | `catalog_id` (u64), `duration_micros` (u64, 0 for the tone or when not known yet), `source` (u8), 7 reserved zero bytes, `title`: 64 bytes of UTF-8, zero-padded, cut at a character boundary. Sent after each switch and right after `HelloAck`. |
+| `RaiseWindowEvent` | none | 0 | Header-only. The daemon sends it to every connected window (a client whose `HelloReq` name is `kWindowPeerName`, "am-ui") when the desktop asks to raise the player (MPRIS `Raise`). The window brings itself to the front. With no window connected the daemon starts one instead (`src/pal/interfaces/process_launch.hpp`). |
 
 The other opcodes get bodies when the code that needs them is written. Until the first release, adding opcodes or bodies keeps `kProtocolVersion` at 2; after it, any change to an existing body's layout or meaning bumps it.
 
@@ -511,6 +513,7 @@ scratter/
 │   │   │   ├── credential_vault.hpp   # Keyring / DPAPI token storage interface
 │   │   │   ├── media_controls.hpp     # OS media transport (MPRIS / SMTC) interface
 │   │   │   ├── browser_files.hpp      # CEF's profile folder, the program's folder, the installed Widevine CDM
+│   │   │   ├── process_launch.hpp     # The daemon starts am-ui (MPRIS Raise with no window open)
 │   │   │   └── cef_main_args.hpp      # CefMainArgs per OS; its .cpp files build am_pal_cef (only with AM_WITH_CEF)
 │   │   ├── linux/                     # Owner: Linux developer
 │   │   │   ├── epoll_reactor.cpp      # epoll + eventfd + timerfd
@@ -523,6 +526,7 @@ scratter/
 │   │   │   ├── signalfd_shutdown.cpp  # SIGINT/SIGTERM blocked and read through a signalfd
 │   │   │   ├── mpris_controls.cpp     # sd-bus MPRIS v2: org.mpris.MediaPlayer2.<name>, fd watched by the reactor
 │   │   │   ├── browser_files.cpp      # ~/.cache/<app>/browser, /proc/self/exe, known WidevineCdm folders
+│   │   │   ├── process_launch.cpp     # Starts am-ui (stub until #41's Linux PR)
 │   │   │   └── cef_main_args.cpp      # CefMainArgs from argc and argv
 │   │   └── win32/                     # Owner: Windows developer
 │   │       ├── iocp_reactor.cpp       # IOCP + PostQueuedCompletionStatus + timer in the wait timeout
@@ -534,6 +538,7 @@ scratter/
 │   │       ├── console_shutdown.cpp   # SetConsoleCtrlHandler, onto the reactor thread through Reactor::wake()
 │   │       ├── smtc_controls.cpp      # SystemMediaTransportControls (WinRT ABI with WRL), hidden window on its own thread
 │   │       ├── browser_files.cpp      # CEF profile folder and installed Widevine on Windows
+│   │       ├── process_launch.cpp     # Starts am-ui (stub: not supported yet)
 │   │       └── cef_main_args.cpp      # CefMainArgs from GetModuleHandleW(nullptr)
 │   ├── net/                           # Target: am_net (Static Library - Async HTTP & JSON)
 │   │   ├── curl_reactor_bridge.cpp    # Binds curl_multi_socket_action to pal::Reactor
