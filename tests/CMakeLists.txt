@@ -121,6 +121,20 @@ if(WIN32)
     am_enable_warnings(test_smtc_controls)
     catch_discover_tests(test_smtc_controls DISCOVERY_MODE PRE_TEST
                          PROPERTIES SKIP_REGULAR_EXPRESSION "AM_TEST_SKIPPED")
+
+    # launch_ui() starting a stand-in window (launch_child), which reports the
+    # arguments and standard input it got.
+    add_executable(launch_child launch_child.cpp)
+    target_link_libraries(launch_child PRIVATE am_win32_headers)
+    am_enable_warnings(launch_child)
+
+    add_executable(test_process_launch test_process_launch.cpp)
+    target_link_libraries(test_process_launch PRIVATE am_pal am_common Catch2::Catch2WithMain)
+    target_compile_definitions(test_process_launch PRIVATE
+        AM_LAUNCH_CHILD="$<TARGET_FILE:launch_child>")
+    add_dependencies(test_process_launch launch_child)
+    am_enable_warnings(test_process_launch)
+    catch_discover_tests(test_process_launch DISCOVERY_MODE PRE_TEST)
 endif()
 
 if(LINUX)
