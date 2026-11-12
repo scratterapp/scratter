@@ -174,6 +174,7 @@ frames while the windows came and went.
 | --- | --- | --- | --- | --- | --- |
 | 2026-11-07 | #43: the first measurement, Release build, 50 of 50 windows | 89 ms (127) | 128 ms (178) | 0 late, 0 dropped | Cloud container: SDL's offscreen driver and software renderer, no GPU, the tone (`--tone-length 600`) on a PipeWire null sink instead of the film. About 40 ms is creating the software renderer and about 40 ms is drawing the first frame, most of it rasterizing the fonts' glyphs. Not robbie's PC: a real GPU should be quicker at the drawing but slower to create the context |
 | 2026-11-07 | #43 on robbie's PC, `linux-cef-release`, `--clear-film`, 50 of 50 windows | 94 ms (121) | 99 ms (127) | 0 late, 0 dropped | robbie's PC, Hyprland (Wayland). 90 ms of the first frame is after main(): making the window, its GPU renderer and the first frame with its fonts. The daemon's state follows about 5 ms later |
+| 2026-11-12 | #43 on Windows, `windows-msvc-release`, the tone (`--tone-length 600`) through WASAPI shared mode, 50 of 50 windows | 216 ms (253) | 218 ms (253) | 0 late, 0 dropped | kero's PC, Windows 11, Realtek speakers. 207 ms of the first frame is after main(), so it's the window, its Direct3D renderer and the first frame, not the daemon: its state follows about 2 ms later. Over the 100 ms target; not looked into yet |
 
 The target was 5 ms in the spec's first draft and is now a median under
 100 ms from launch to the daemon's state, met on robbie's PC
