@@ -13,10 +13,11 @@ It starts the daemon (by default build/linux-cef-release/scratterd
 --clear-film; a Release build, so the start-up times mean something) and
 waits until it plays. Then, 50 times in a row, it starts am-ui with
 --print-startup-time, waits until the window shows the daemon's state, and
-closes it again: every other time cleanly (SIGTERM, which SDL turns into the
-same quit as the window's close button) and every other time with kill -9, as
-if it crashed. A window that sticks around or crashes on a clean close fails
-the run.
+closes it again: every other time cleanly and every other time with kill -9
+(TerminateProcess on Windows), as if it crashed. A clean close is SIGTERM on
+Linux, which SDL turns into the same quit as the window's close button; on
+Windows it's WM_CLOSE, the message the close button itself sends. A window
+that sticks around or crashes on a clean close fails the run.
 
 Sound: while it plays, the daemon prints "audio: N late audio buffers, M
 frames dropped so far" whenever either number goes up. A late buffer is a gap
@@ -35,10 +36,14 @@ percentile and slowest of each; launches.csv has every launch.
 Everything lands in relaunch-results/<date-time>/: summary.txt, launches.csv,
 daemon.log and ui.log (what the windows printed besides the timings).
 
-Linux only (kill -9, and the clocks are compared as CLOCK_MONOTONIC). Needs a
-desktop session for the window, or SDL_VIDEO_DRIVER=offscreen without one.
-Python 3 and nothing else. The daemon must not already be running under the
-same name; use --name to run next to one you use.
+Linux and Windows. Needs a desktop session for the window; on Linux,
+SDL_VIDEO_DRIVER=offscreen works without one. On Windows a clean close needs a
+real window to send WM_CLOSE to, so offscreen windows can't be closed cleanly
+there. On Windows the default build folder is build/windows-msvc-release, which
+has no CEF: point --build at a CEF build (build/windows-cef) for the films, or
+pass -- to play the tone. Python 3 and nothing else (on Windows, `py` runs it).
+The daemon must not already be running under the same name; use --name to run
+next to one you use.
 
 The summary ends in PASSED or FAILED. Exit code: 0 for PASSED, 1 for FAILED,
 2 for bad arguments.
@@ -49,16 +54,25 @@ import csv
 import datetime
 import json
 import os
+import queue
 import re
-import selectors
 import signal
 import statistics
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+WINDOWS = os.name == "nt"
+
+# The clock am-ui's "steady clock" readings come from: std::chrono::steady_clock
+# is CLOCK_MONOTONIC on Linux, which time.monotonic() reads, and
+# QueryPerformanceCounter with MSVC, which time.perf_counter() reads on Windows
+# (time.monotonic() there is GetTickCount64 until Python 3.13: another clock,
+# and only 16 ms fine).
+now = time.perf_counter if WINDOWS else time.monotonic
 
 # What the daemon prints when there are new late buffers or dropped frames
 # (main_daemon.cpp's tick), and when it quits.
@@ -91,8 +105,9 @@ def parse_arguments():
     parser.add_argument(
         "--build",
         type=Path,
-        default=REPO / "build" / "linux-cef-release",
-        help="build folder holding scratterd, amctl and am-ui (default build/linux-cef-release)",
+        default=REPO / "build" / ("windows-msvc-release" if WINDOWS else "linux-cef-release"),
+        help="build folder holding scratterd, amctl and am-ui "
+        "(default build/linux-cef-release, or build/windows-msvc-release on Windows)",
     )
     parser.add_argument(
         "--name",
@@ -131,6 +146,8 @@ def parse_arguments():
 
 
 def find_program(build: Path, name: str) -> Path:
+    if WINDOWS:
+        name += ".exe"
     # The program is at the top of the build folder or, for am-ui in some
     # build layouts, next to its sources in src/client/. A build folder can
     # hold a stale copy in the other place from an older layout, so take the
@@ -175,8 +192,8 @@ def settled_glitches(log_path: Path) -> tuple[int, int]:
 
 def wait_until_playing(daemon, amctl: Path, args) -> dict | None:
     """The first status that shows the daemon playing, or None after the timeout."""
-    deadline = time.monotonic() + args.start_timeout
-    while time.monotonic() < deadline and daemon.poll() is None:
+    deadline = now() + args.start_timeout
+    while now() < deadline and daemon.poll() is None:
         status = playback_status(amctl, args.name)
         if status and status.get("state") == "playing":
             return status
@@ -187,42 +204,82 @@ def wait_until_playing(daemon, amctl: Path, args) -> dict | None:
 # ---- One window ----------------------------------------------------------------
 
 
+def read_lines(pipe, lines: queue.Queue):
+    """Hands each line am-ui prints to `lines`, then None when it closes its end.
+
+    A thread of its own, because select() can't wait on a pipe on Windows.
+    """
+    for raw in iter(pipe.readline, b""):
+        lines.put(raw.decode(errors="replace"))
+    lines.put(None)
+
+
+def post_close(pid: int) -> bool:
+    """Windows: sends WM_CLOSE to the process's windows, like their close button.
+
+    False if it has no window to send it to.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    found = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def each(hwnd, _):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and user32.IsWindowVisible(hwnd):
+            found.append(hwnd)
+        return True
+
+    user32.EnumWindows(each, 0)
+    WM_CLOSE = 0x0010
+    for hwnd in found:
+        user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+    return bool(found)
+
+
+def close_window(ui: subprocess.Popen, clean: bool) -> str:
+    """Closes am-ui cleanly or kills it. Returns a problem, or ""."""
+    if not clean:
+        ui.kill()  # SIGKILL on Linux, TerminateProcess on Windows
+        return ""
+    if not WINDOWS:
+        ui.send_signal(signal.SIGTERM)
+        return ""
+    if post_close(ui.pid):
+        return ""
+    ui.kill()
+    return "no window to send WM_CLOSE to"
+
+
 def run_window(am_ui: Path, args, clean: bool, ui_log) -> dict:
     """Starts am-ui, waits for its first frame with the daemon's state, closes it.
 
     Returns one row of launches.csv. "problem" is empty when all went well.
     """
     row = {"how": "close" if clean else "kill -9", "problem": ""}
-    launched = time.monotonic()
+    launched = now()
     ui = subprocess.Popen(
         with_name(am_ui, args.name, "--print-startup-time"),
         stdout=subprocess.PIPE,
         stderr=ui_log,
     )
-    # Reads the pipe's raw bytes and splits the lines here. A buffered
-    # readline() could take both timing lines from the pipe at once and leave
-    # the second in Python's buffer, where select() can't see it.
-    fd = ui.stdout.fileno()
-    selector = selectors.DefaultSelector()
-    selector.register(fd, selectors.EVENT_READ)
+    lines: queue.Queue = queue.Queue()
+    reader = threading.Thread(target=read_lines, args=(ui.stdout, lines), daemon=True)
+    reader.start()
     deadline = launched + args.window_timeout
-    pending = b""
-    lines: list[str] = []
     connected = False
     while not connected:
-        if not lines:
-            left = deadline - time.monotonic()
-            if left <= 0 or not selector.select(timeout=left):
-                row["problem"] = "no frame with the daemon's state in time"
-                break
-            chunk = os.read(fd, 4096)
-            if not chunk:
-                row["problem"] = f"am-ui quit by itself (exit code {ui.wait()}); see ui.log"
-                break
-            *complete, pending = (pending + chunk).split(b"\n")
-            lines.extend(part.decode(errors="replace") + "\n" for part in complete)
-            continue
-        line = lines.pop(0)
+        try:
+            line = lines.get(timeout=max(0.0, deadline - now()))
+        except queue.Empty:
+            row["problem"] = "no frame with the daemon's state in time"
+            break
+        if line is None:
+            row["problem"] = f"am-ui quit by itself (exit code {ui.wait()}); see ui.log"
+            break
         if match := FIRST_FRAME.search(line):
             row["main_to_frame_ms"] = float(match[1])
             row["launch_to_frame_ms"] = round((float(match[2]) - launched) * 1000, 2)
@@ -232,16 +289,22 @@ def run_window(am_ui: Path, args, clean: bool, ui_log) -> dict:
             connected = True
         else:
             ui_log.write(line)
-    selector.close()
 
     if ui.poll() is None:
-        ui.send_signal(signal.SIGTERM if clean else signal.SIGKILL)
+        if problem := close_window(ui, clean):
+            row["problem"] = row["problem"] or problem
     try:
         ui.wait(timeout=5)
     except subprocess.TimeoutExpired:
         ui.kill()
         ui.wait()
-        row["problem"] = row["problem"] or "still open 5 s after SIGTERM"
+        row["problem"] = row["problem"] or "still open 5 s after being asked to close"
+    # The reader gets to the end of the pipe once am-ui is gone. Whatever it
+    # read after the state line still goes to ui.log.
+    reader.join(timeout=5)
+    while not lines.empty():
+        if (line := lines.get()) is not None:
+            ui_log.write(line)
     ui.stdout.close()
     row["exit_code"] = ui.returncode
     if clean and ui.returncode != 0 and not row["problem"]:
@@ -325,7 +388,9 @@ def stop_daemon(daemon: subprocess.Popen, log_path: Path) -> dict:
     """Stops the daemon like Ctrl-C would and reads its last words from the log."""
     crashed = daemon.poll() is not None
     if not crashed:
-        daemon.send_signal(signal.SIGTERM)
+        # On Windows: Ctrl-Break to the daemon's own process group, which its
+        # console handler (console_shutdown.cpp) treats like Ctrl-C.
+        daemon.send_signal(signal.CTRL_BREAK_EVENT if WINDOWS else signal.SIGTERM)
         try:
             daemon.wait(timeout=30)
         except subprocess.TimeoutExpired:
@@ -357,10 +422,14 @@ def main() -> int:
     command = with_name(daemon_path, args.name, *args.daemon_args)
     print(f"starting {' '.join(command)}")
     with open(log_path, "w") as log, open(out / "ui.log", "w") as ui_log:
-        # start_new_session: Ctrl-C in this terminal reaches only the script.
-        daemon = subprocess.Popen(
-            command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
-        )
+        # A session (process group on Windows) of its own: Ctrl-C in this
+        # terminal reaches only the script, and on Windows the script can send
+        # the daemon a Ctrl-Break that reaches nobody else.
+        if WINDOWS:
+            group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        else:
+            group = {"start_new_session": True}
+        daemon = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, **group)
         rows = []
         before = after = (0, 0)
         played = None
@@ -373,7 +442,7 @@ def main() -> int:
             else:
                 before = settled_glitches(log_path)
                 start_status = playback_status(amctl, args.name)
-                started = time.monotonic()
+                started = now()
                 print(f"playing; opening and closing the window {args.times} times")
                 for i in range(1, args.times + 1):
                     row = run_window(am_ui, args, clean=i % 2 == 1, ui_log=ui_log)
@@ -385,7 +454,7 @@ def main() -> int:
                         print("the daemon quit")
                         break
                 end_status = playback_status(amctl, args.name)
-                elapsed = time.monotonic() - started
+                elapsed = now() - started
                 after = settled_glitches(log_path)
                 # Only a daemon with sound output moves its play position. The
                 # films go round to 0 at the end; add one length back for that.

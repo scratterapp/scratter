@@ -151,6 +151,20 @@ python3 tools/relaunch/relaunch.py
 
 which plays `--clear-film`, opens the window 50 times (every other one closed
 cleanly, the rest with `kill -9`) and writes `relaunch-results/<date-time>/summary.txt`.
+
+On Windows, from a Developer PowerShell:
+
+```powershell
+cmake --preset windows-msvc-release
+cmake --build --preset windows-msvc-release
+py tools/relaunch/relaunch.py -- --tone-length 600
+```
+
+A clean close there is `WM_CLOSE`, what the window's close button sends, and
+`kill -9` is `TerminateProcess`. The release preset has no CEF, so this plays
+the tone. For the films, point `--build` at a CEF build and leave out the
+`--`; `build/windows-cef` is a debug build, so its start-up times are slower
+than a release build's would be.
 "Launch" is just before the script starts `am-ui`, so the times include loading
 the program; "after main()" leaves that out. Times are medians, with the
 slowest in brackets. "Glitches" are the daemon's late audio buffers and dropped

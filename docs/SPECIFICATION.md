@@ -575,7 +575,7 @@ scratter/
 │   │   ├── main_amctl.cpp             # Every request the daemon handles, over IPC; status from telemetry
 │   │   └── amctl_args.hpp             # Command-line parsing, and which command sends each opcode
 │   ├── relaunch/
-│   │   └── relaunch.py                # Linux-only Python script: the phase 5 gate. Opens and closes am-ui 50 times while the daemon plays, checks the sound never skipped, collects start-up times
+│   │   └── relaunch.py                # Python script (Linux and Windows): the phase 5 gate. Opens and closes am-ui 50 times while the daemon plays, checks the sound never skipped, collects start-up times
 │   ├── perf/
 │   │   └── footprint.py               # Linux-only Python script: memory (RSS, PSS), CPU, wake-ups and GPU use of a running daemon, per process, and its busiest threads (by wake-ups for every process with --threads)
 │   ├── soak/
