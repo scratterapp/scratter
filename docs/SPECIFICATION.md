@@ -555,6 +555,7 @@ scratter/
 │   │   └── audio_engine/              # PI clock-drift controller, SIMD resampler, FFT tap
 │   │       ├── audio_path.hpp         # Ring buffer (tone or CEF writes it) -> drift -> resampler -> volume; the sink's render callback
 │   │       ├── sine_generator.hpp     # 440 Hz test tone, the producer until CEF arrives
+│   │       ├── tone_pacer.hpp         # How much tone is due by the clock, so it feeds the ring like a real source
 │   │       ├── drift_controller.hpp   # EMA + PI controller: ring buffer fill -> playback ratio
 │   │       └── polyphase_resampler.hpp # 16-tap windowed-sinc resampler at that ratio (scalar for now)
 │   └── client/                        # Target: am-ui (Executable - Links am_client_core, am_common, am_pal, am_net, SDL3, ImGui)

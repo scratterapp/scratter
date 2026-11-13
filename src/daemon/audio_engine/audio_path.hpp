@@ -10,7 +10,7 @@
 // Three kinds of thread touch an AudioPath, and each member function says which:
 //
 //   - the producer writes into the ring buffer. That's the reactor thread
-//     with top_up() when the daemon plays the test tone, or CEF's audio
+//     with top_up() and write_tone() when the daemon plays the test tone, or CEF's audio
 //     thread with write_planar() when it plays a page. Never both: the ring
 //     buffer has room for one producer only.
 //   - the reactor thread (the daemon's main thread) changes the play state
@@ -106,7 +106,8 @@ class AudioPath {
     // --- Producer: the reactor thread (tone) --------------------------------
 
     // Writes the tone until the ring buffer holds kTargetFrames, kPacketFrames
-    // at a time like CEF would. Returns how many frames it wrote.
+    // at a time like CEF would. Returns how many frames it wrote. For filling
+    // up before playback starts; while it plays, use write_tone() (below).
     std::size_t top_up(SineGenerator& sine) noexcept {
         std::size_t written = 0;
         for (;;) {
@@ -117,13 +118,32 @@ class AudioPath {
             if (filled >= kTargetFrames) {
                 return written;
             }
-            const std::size_t frames = std::min(kTargetFrames - filled, kPacketFrames);
-            const std::size_t first = std::min(frames * kChannels, space.first.size());
-            sine.fill(space.first.first(first));
-            sine.fill(space.second.first(frames * kChannels - first));
-            ring_.commit_write(frames);
-            written += frames;
+            written += write_sine(sine, space, std::min(kTargetFrames - filled, kPacketFrames));
         }
+    }
+
+    // Writes `frames` frames of the tone, or as many as fit, kPacketFrames at
+    // a time. Returns how many it wrote. While the tone plays, the daemon
+    // writes it at the sample rate by the clock (tone_pacer.hpp), the way CEF
+    // delivers a page's audio. Topping up to the target instead would make
+    // the fill follow what render() takes, whatever ratio the drift controller
+    // picks, so the controller could never settle, and its integral would run
+    // to the clamp (issue #85). Frames that don't fit are dropped and counted
+    // in dropped_frames(), like write_planar()'s, so a stalled sound card
+    // shows up in the daemon's glitch report with the tone too.
+    std::size_t write_tone(SineGenerator& sine, std::size_t frames) noexcept {
+        std::size_t written = 0;
+        while (written < frames) {
+            auto space = ring_.reserve_write(std::min(frames - written, kPacketFrames));
+            if (space.frames_reserved == 0) {
+                break; // full
+            }
+            written += write_sine(sine, space, space.frames_reserved);
+        }
+        if (written < frames) {
+            dropped_frames_.fetch_add(frames - written, std::memory_order_relaxed);
+        }
+        return written;
     }
 
     // --- Producer: CEF's audio thread (a page) ------------------------------
@@ -366,6 +386,17 @@ class AudioPath {
     }
 
   private:
+    // Fills the first `frames` frames of `space` with the tone and commits
+    // them. `space` must hold at least that many.
+    std::size_t write_sine(SineGenerator& sine, const RingBuffer::WriteReservation& space,
+                           std::size_t frames) noexcept {
+        const std::size_t first = std::min(frames * kChannels, space.first.size());
+        sine.fill(space.first.first(first));
+        sine.fill(space.second.first(frames * kChannels - first));
+        ring_.commit_write(frames);
+        return frames;
+    }
+
     RingBuffer ring_;
     std::uint32_t sample_rate_hz_;
     std::size_t fade_frames_;
