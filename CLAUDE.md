@@ -195,25 +195,21 @@ Sanitizer flags apply to every target, Catch2 included.
 
 ## Where to start
 
-Follow the spec's bootstrap order. Steps 1 and 2 are shared contracts and block
-both platforms, so they come first.
+The pinned roadmap issue (#6) on GitHub is the list of what's next; pick an issue
+from it as `docs/COLLABORATION.md` describes. For orientation, the spec's bootstrap
+order and where each step stands:
 
-1. `src/common/spsc_ring_buffer.hpp` and `src/common/telemetry_shm.hpp` (both done), with
-   multi-threaded stress tests under `linux-tsan`. *(shared)*
-2. `src/common/ipc_protocol.hpp` (32-byte `FrameHeader`, done; CRC32C in `crc32c.hpp`, done) and
-   `src/pal/interfaces/ipc_channel.hpp`. *(shared)* Then the transports:
-   `src/pal/linux/unix_seqpacket_ipc.cpp` *(Linux)* and
-   `src/pal/win32/named_pipe_ipc.cpp` *(Windows)*, with a ping-pong latency test.
-3. Audio sinks playing a synthetic 440 Hz sine from the ring buffer:
-   `src/pal/linux/pipewire_sink.cpp` *(Linux)* and `src/pal/win32/wasapi_sink.cpp`
-   *(Windows)*.
-4. Headless CEF and `CefAudioHandler` in `src/daemon/`. *(shared)*
-5. `src/net/` (libcurl + simdjson) and the ImGui client in `src/client/`. *(shared)*
+1. Ring buffer and telemetry page in `src/common/`. *(shared, done)*
+2. IPC frame, CRC32C and `ipc_channel.hpp`, then the Unix socket and named pipe
+   transports. *(shared, then per platform, done)*
+3. Audio sinks playing a 440 Hz tone from the ring buffer: PipeWire and WASAPI.
+   *(per platform, done; the ALSA fallback is parked)*
+4. Headless CEF and `CefAudioHandler` in `src/daemon/cef_host/`. *(shared, plays
+   Google's test films; Apple Music through MusicKit JS is #4)*
+5. `src/net/` (libcurl + simdjson) and the ImGui client in `src/client/`. *(shared;
+   the window and its daemon link are in, `src/net/` hasn't started)*
 
-Shared memory (`posix_shm.cpp` / `win32_shm.cpp`), the credential vault
-(`secret_vault.cpp` / `dpapi_vault.cpp`) and media controls (`mpris_controls.cpp` /
-`smtc_controls.cpp`) are per-platform work that can proceed once their interface in
-`src/pal/interfaces/` is agreed.
+Shared memory, the credential vault and media controls are done on both platforms.
 
 ## Spec vs repo layout
 

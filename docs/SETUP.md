@@ -104,8 +104,8 @@ The "Desktop development with C++" workload brings MSVC and a Windows 10/11 SDK
 (`Microsoft.VisualStudio.2022.BuildTools`, workload `Microsoft.VisualStudio.Workload.VCTools`).
 
 WASAPI, DPAPI, Named Pipes, IOCP, DirectX 11 and C++/WinRT (SMTC) all ship with the
-Windows SDK. libcurl, simdjson and ImGui will come from vcpkg or `FetchContent` once
-that's decided. CEF needs its own Windows build with AAC turned on, unpacked into
+Windows SDK. CMake fetches SDL3 and ImGui itself, as on Linux. libcurl and simdjson will come
+from vcpkg or `FetchContent` once that's decided. CEF needs its own Windows build with AAC turned on, unpacked into
 `third_party/cef/` (spec section 3.1.1).
 
 Build, from **Developer PowerShell for VS 2022** (so `cl.exe` is on the path):

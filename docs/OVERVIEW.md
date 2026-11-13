@@ -6,7 +6,7 @@
     
 - **Survives Closing the Window:** Because the audio engine runs as an invisible background daemon (`scratterd`), closing the graphical window (`am-ui`) does not stop the music. It simply frees all graphical memory while playback continues in the background.
     
-- **Opens and Attaches in Under 5 Milliseconds:** Launching the graphical interface (`am-ui`) does not boot a browser or reload a web page. It opens a native GPU-accelerated window that attaches to the running background daemon almost instantaneously.
+- **Opens and Attaches in Under 100 Milliseconds:** Launching the graphical interface (`am-ui`) does not boot a browser or reload a web page. It opens a native GPU-accelerated window that attaches to the running background daemon almost instantly.
     
 - **Integrates with OS Media Keys & Overlays:** Hardware media keys (Play, Pause, Next, Volume) and desktop media applets (GNOME/KDE media players on Linux, the Windows 11 media flyout) talk directly to the background daemon, working seamlessly whether the UI window is open or closed.
     
@@ -40,7 +40,7 @@ When the user logs into their computer, the background daemon (`scratterd`) star
 
 ### Step 2: Instant UI Launch & Native Search (`am-ui`)
 
-The user launches `am-ui`. A native Vulkan (Linux) or DirectX 11 (Windows) window appears in under 5 milliseconds. When the user types a search query or clicks a playlist, `am-ui` does **not** ask the browser to load a page—it fires an asynchronous HTTP/2 request directly to Apple’s REST API using `libcurl`, parses the response with `simdjson`, and draws the tracklist immediately.
+The user launches `am-ui`. A native window (SDL3, drawn with OpenGL or Vulkan on Linux and Direct3D on Windows) appears in under 100 milliseconds. When the user types a search query or clicks a playlist, `am-ui` does **not** ask the browser to load a page—it fires an asynchronous HTTP/2 request directly to Apple’s REST API using `libcurl`, parses the response with `simdjson`, and draws the tracklist immediately.
 
 ### Step 3: The Binary Play Command (Control Plane)
 
