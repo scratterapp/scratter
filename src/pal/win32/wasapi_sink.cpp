@@ -1,5 +1,5 @@
 // Windows implementation of am::pal::AudioSink (src/pal/interfaces/audio_sink.hpp)
-// on WASAPI shared mode.
+// on WASAPI, shared or exclusive.
 //
 // The sink runs one thread of its own, the audio thread, and every WASAPI call
 // happens on it: setup during open(), Start and Stop when start() and stop()
@@ -11,8 +11,8 @@
 // the callback can't be running.
 //
 // The stream is event-driven. WASAPI sets an event once per engine period, and
-// the thread fills whatever part of the buffer has been played since. There are
-// two ways to set the stream up, best first:
+// the thread fills whatever part of the buffer has been played since. A shared
+// stream can be set up two ways, best first:
 //
 //   - IAudioClient3::InitializeSharedAudioStream at the engine's minimum
 //     period, often 3 ms instead of the default 10 ms. It needs our format to
@@ -22,6 +22,22 @@
 //   - Otherwise (a 5.1 mix, say, or no IAudioClient3), IAudioClient::Initialize
 //     with AUTOCONVERTPCM, which has Windows convert our format at the
 //     requested rate to whatever the device runs, at the default period.
+//
+// An exclusive stream (OutputMode::Exclusive, issue #13) skips the Windows
+// mixer: the device runs at exactly the requested rate and channel count, or
+// open() fails, and nothing else can play on it until the sink is destroyed.
+// Exclusive mode takes only formats the driver itself accepts, often integer
+// PCM only, so open() tries 32-bit float, then 32-bit, 24-bit (in 32 bits or
+// packed in 3 bytes) and 16-bit integers, and uses the first one the device
+// takes. For an integer format the callback renders into a float buffer
+// allocated at setup, and fill() converts it into WASAPI's buffer.
+//
+// Event-driven exclusive streams work in whole periods: the buffer is one
+// period long, and each event asks for all of it. The period is the device's
+// default (usually 10 ms). Some drivers want the buffer to be a multiple of
+// 128 bytes and say AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED; then the period is
+// worked out again from the buffer size they suggest and the stream set up
+// once more, as Microsoft's documentation for IAudioClient::Initialize says.
 //
 // The thread registers with MMCSS as "Pro Audio", which is how Windows gives an
 // audio thread higher priority without admin rights. If MMCSS is unavailable
@@ -43,8 +59,11 @@
 #include <ksmedia.h>
 #include <wrl/client.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <span>
 #include <utility>
@@ -89,20 +108,121 @@ DWORD default_channel_mask(std::uint32_t channels) noexcept {
     }
 }
 
-// 32-bit float interleaved, which is what the render callback writes.
-WAVEFORMATEXTENSIBLE float_format(std::uint32_t rate, std::uint32_t channels, DWORD mask) {
+// How one sample sits in WASAPI's buffer. Shared mode is always Float32.
+enum class SampleType : std::uint8_t {
+    Float32,     // what the render callback writes, copied as is
+    Int32,       // 32-bit integer, all 32 bits used
+    Int24In32,   // 24-bit integer in the top 3 bytes of a 32-bit slot
+    Int24Packed, // 24-bit integer in 3 bytes
+    Int16,       // 16-bit integer
+};
+
+// Best first: the order open() tries them in exclusive mode.
+constexpr SampleType kExclusiveTypes[] = {SampleType::Float32, SampleType::Int32,
+                                          SampleType::Int24In32, SampleType::Int24Packed,
+                                          SampleType::Int16};
+
+struct SampleLayout {
+    WORD container_bits; // wBitsPerSample: how much room a sample takes
+    WORD valid_bits;     // wValidBitsPerSample: how many of those bits carry it
+};
+
+constexpr SampleLayout layout_of(SampleType type) noexcept {
+    switch (type) {
+    case SampleType::Float32:
+    case SampleType::Int32:
+        return {32, 32};
+    case SampleType::Int24In32:
+        return {32, 24};
+    case SampleType::Int24Packed:
+        return {24, 24};
+    case SampleType::Int16:
+        return {16, 16};
+    }
+    return {32, 32};
+}
+
+// Interleaved PCM of `type`, in the extensible form exclusive mode needs to
+// see the valid bits and the speaker positions.
+WAVEFORMATEXTENSIBLE pcm_format(SampleType type, std::uint32_t rate, std::uint32_t channels,
+                                DWORD mask) {
+    const SampleLayout layout = layout_of(type);
     WAVEFORMATEXTENSIBLE f{};
     f.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
     f.Format.nChannels = static_cast<WORD>(channels);
     f.Format.nSamplesPerSec = rate;
-    f.Format.wBitsPerSample = 32;
-    f.Format.nBlockAlign = static_cast<WORD>(channels * sizeof(float));
+    f.Format.wBitsPerSample = layout.container_bits;
+    f.Format.nBlockAlign = static_cast<WORD>(channels * layout.container_bits / 8);
     f.Format.nAvgBytesPerSec = rate * f.Format.nBlockAlign;
     f.Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
-    f.Samples.wValidBitsPerSample = 32;
+    f.Samples.wValidBitsPerSample = layout.valid_bits;
     f.dwChannelMask = mask;
-    f.SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+    f.SubFormat =
+        type == SampleType::Float32 ? KSDATAFORMAT_SUBTYPE_IEEE_FLOAT : KSDATAFORMAT_SUBTYPE_PCM;
     return f;
+}
+
+// 32-bit float interleaved, which is what the render callback writes.
+WAVEFORMATEXTENSIBLE float_format(std::uint32_t rate, std::uint32_t channels, DWORD mask) {
+    return pcm_format(SampleType::Float32, rate, channels, mask);
+}
+
+// A float sample in [-1, 1] as a signed integer of `bits` bits, rounded to
+// the nearest step. Out-of-range input is clipped rather than wrapped around,
+// which would be a loud click. Double, because a float can't hold 2^31 - 1
+// and 1.0f * 2147483647.0f rounds up past INT32_MAX.
+std::int32_t to_int(float sample, int bits) noexcept {
+    const double full_scale = static_cast<double>((std::int64_t{1} << (bits - 1)) - 1);
+    const double clipped = std::clamp(static_cast<double>(sample), -1.0, 1.0);
+    return static_cast<std::int32_t>(std::lround(clipped * full_scale));
+}
+
+// Writes `samples` into `out` as `type`. No allocation, no locks, no calls
+// into the OS: this runs on the audio thread with the render callback.
+void convert(std::span<const float> samples, SampleType type, BYTE* out) noexcept {
+    switch (type) {
+    case SampleType::Float32:
+        std::memcpy(out, samples.data(), samples.size_bytes());
+        return;
+    case SampleType::Int32:
+        for (const float s : samples) {
+            const std::int32_t v = to_int(s, 32);
+            std::memcpy(out, &v, 4);
+            out += 4;
+        }
+        return;
+    case SampleType::Int24In32:
+        for (const float s : samples) {
+            // Shifted up so the 24 bits sit at the top of the slot, the way
+            // the format says, with the bottom byte zero.
+            const auto v =
+                static_cast<std::int32_t>(static_cast<std::uint32_t>(to_int(s, 24)) << 8);
+            std::memcpy(out, &v, 4);
+            out += 4;
+        }
+        return;
+    case SampleType::Int24Packed:
+        for (const float s : samples) {
+            const auto v = static_cast<std::uint32_t>(to_int(s, 24));
+            out[0] = static_cast<BYTE>(v & 0xFF);
+            out[1] = static_cast<BYTE>((v >> 8) & 0xFF);
+            out[2] = static_cast<BYTE>((v >> 16) & 0xFF);
+            out += 3;
+        }
+        return;
+    case SampleType::Int16:
+        for (const float s : samples) {
+            const auto v = static_cast<std::int16_t>(to_int(s, 16));
+            std::memcpy(out, &v, 2);
+            out += 2;
+        }
+        return;
+    }
+}
+
+// 100-nanosecond units (REFERENCE_TIME) for `frames` at `rate`, rounded.
+REFERENCE_TIME duration_of(UINT32 frames, std::uint32_t rate) noexcept {
+    return static_cast<REFERENCE_TIME>(10'000'000.0 * frames / rate + 0.5);
 }
 
 } // namespace
@@ -112,12 +232,17 @@ struct AudioSink::Impl {
 
     AudioFormat requested;
     AudioFormat format;
+    OutputMode mode = OutputMode::Shared;
     RenderCallback render;
 
     // Only the audio thread touches these.
     ComPtr<IAudioClient> client;
     ComPtr<IAudioRenderClient> render_client;
     UINT32 buffer_frames = 0;
+    SampleType sample_type = SampleType::Float32;
+    // Where the callback renders when the device takes integers (exclusive
+    // mode only): one buffer's worth, allocated during setup.
+    std::unique_ptr<float[]> scratch;
     bool playing = false;
 
     HANDLE thread = nullptr;
@@ -213,7 +338,11 @@ struct AudioSink::Impl {
             return hr_error(hr); // no output device: "Element not found"
         }
 
-        if (!initialize_low_latency(device.Get())) {
+        if (mode == OutputMode::Exclusive) {
+            if (const std::error_code error = initialize_exclusive(device.Get())) {
+                return error;
+            }
+        } else if (!initialize_low_latency(device.Get())) {
             if (const std::error_code error = initialize_converting(device.Get())) {
                 return error;
             }
@@ -226,7 +355,112 @@ struct AudioSink::Impl {
         if (SUCCEEDED(hr)) {
             hr = client->GetService(IID_PPV_ARGS(&render_client));
         }
-        return FAILED(hr) ? hr_error(hr) : std::error_code{};
+        if (FAILED(hr)) {
+            return hr_error(hr);
+        }
+        if (sample_type != SampleType::Float32) {
+            scratch = std::make_unique<float[]>(static_cast<std::size_t>(buffer_frames) *
+                                                format.channels);
+        }
+        return {};
+    }
+
+    // Exclusive mode: the requested rate and channel count in the best sample
+    // type the device takes, at its default period.
+    //
+    // IsFormatSupported() isn't the last word. Some drivers (Bluetooth
+    // headphones, for one) say yes to every format and then refuse each one
+    // in Initialize(), so a type only counts once Initialize() takes it, and
+    // an "unsupported format" from either moves on to the next type.
+    std::error_code initialize_exclusive(IMMDevice* device) {
+        const DWORD mask = default_channel_mask(requested.channels);
+        // What the last refusal said. Usually "unsupported format", but it
+        // can also be that exclusive mode is turned off for the device, or
+        // that another app is using it.
+        HRESULT refused = AUDCLNT_E_UNSUPPORTED_FORMAT;
+        for (const SampleType type : kExclusiveTypes) {
+            WAVEFORMATEXTENSIBLE wanted =
+                pcm_format(type, requested.sample_rate_hz, requested.channels, mask);
+            ComPtr<IAudioClient> fresh;
+            HRESULT hr = try_exclusive(device, wanted, fresh);
+            if (SUCCEEDED(hr)) {
+                client = std::move(fresh);
+                sample_type = type;
+                format = requested;
+                return {};
+            }
+            refused = hr;
+            if (hr != AUDCLNT_E_UNSUPPORTED_FORMAT) {
+                break; // not about the format, so another type won't help
+            }
+        }
+        return exclusive_error(refused);
+    }
+
+    // One exclusive Initialize() for `wanted` into `out`, with the retry for
+    // a driver that wants an aligned buffer. A client that failed
+    // Initialize() can't be initialized again, so each try gets a new one.
+    static HRESULT try_exclusive(IMMDevice* device, WAVEFORMATEXTENSIBLE& wanted,
+                                 ComPtr<IAudioClient>& out) {
+        ComPtr<IAudioClient> fresh;
+        HRESULT hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, &fresh);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        // In exclusive mode there's no "closest match" to hand back; the
+        // answer is just yes (S_OK) or no.
+        hr = fresh->IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE, &wanted.Format, nullptr);
+        if (hr != S_OK) {
+            return FAILED(hr) ? hr : AUDCLNT_E_UNSUPPORTED_FORMAT;
+        }
+        REFERENCE_TIME default_period = 0;
+        REFERENCE_TIME min_period = 0;
+        hr = fresh->GetDevicePeriod(&default_period, &min_period);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        // Event-driven exclusive streams pass the period twice: as the
+        // buffer's length and as how often the event fires.
+        hr = fresh->Initialize(AUDCLNT_SHAREMODE_EXCLUSIVE, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                               default_period, default_period, &wanted.Format, nullptr);
+        if (hr == AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED) {
+            // The size the driver can do, as a period.
+            UINT32 aligned_frames = 0;
+            hr = fresh->GetBufferSize(&aligned_frames);
+            if (FAILED(hr)) {
+                return hr;
+            }
+            const REFERENCE_TIME aligned =
+                duration_of(aligned_frames, wanted.Format.nSamplesPerSec);
+            fresh.Reset();
+            hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, &fresh);
+            if (SUCCEEDED(hr)) {
+                hr = fresh->Initialize(AUDCLNT_SHAREMODE_EXCLUSIVE,
+                                       AUDCLNT_STREAMFLAGS_EVENTCALLBACK, aligned, aligned,
+                                       &wanted.Format, nullptr);
+            }
+        }
+        if (SUCCEEDED(hr)) {
+            out = std::move(fresh);
+        }
+        return hr;
+    }
+
+    // The errors the AudioSink interface names, from what Initialize said.
+    static std::error_code exclusive_error(HRESULT hr) noexcept {
+        switch (hr) {
+        case AUDCLNT_E_DEVICE_IN_USE:
+            // Another app has it in exclusive mode, or is playing through it
+            // in shared mode right now.
+            return std::make_error_code(std::errc::device_or_resource_busy);
+        case AUDCLNT_E_UNSUPPORTED_FORMAT:
+        case AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED:
+            // The second: "Allow applications to take exclusive control of
+            // this device" is off in the device's Sound settings.
+            return std::make_error_code(std::errc::not_supported);
+        default:
+            return hr_error(hr);
+        }
     }
 
     // The IAudioClient3 path. Returns false, leaving `client` empty, if it
@@ -347,11 +581,17 @@ struct AudioSink::Impl {
     // the WASAPI calls around it are Windows' side of the cycle, like
     // PipeWire's on Linux.
     void fill(bool silence) {
-        UINT32 queued = 0;
-        if (FAILED(client->GetCurrentPadding(&queued))) {
-            return; // the device went away (see the TODO at the top)
+        // Shared: whatever has been played since the last event. Exclusive and
+        // event-driven: always the whole buffer, which is one period; WASAPI
+        // keeps a second one of its own playing meanwhile.
+        UINT32 frames = buffer_frames;
+        if (mode == OutputMode::Shared) {
+            UINT32 queued = 0;
+            if (FAILED(client->GetCurrentPadding(&queued))) {
+                return; // the device went away (see the TODO at the top)
+            }
+            frames = buffer_frames - queued;
         }
-        const UINT32 frames = buffer_frames - queued;
         if (frames == 0) {
             return;
         }
@@ -363,8 +603,14 @@ struct AudioSink::Impl {
             render_client->ReleaseBuffer(frames, AUDCLNT_BUFFERFLAGS_SILENT);
             return;
         }
-        render(std::span<float>(reinterpret_cast<float*>(data),
-                                static_cast<std::size_t>(frames) * format.channels));
+        const std::size_t samples = static_cast<std::size_t>(frames) * format.channels;
+        if (sample_type == SampleType::Float32) {
+            render(std::span<float>(reinterpret_cast<float*>(data), samples));
+        } else {
+            const std::span<float> rendered(scratch.get(), samples);
+            render(rendered);
+            convert(rendered, sample_type, data);
+        }
         render_client->ReleaseBuffer(frames, 0);
     }
 };
@@ -375,14 +621,10 @@ std::expected<AudioSink, std::error_code> AudioSink::open(const AudioFormat& req
         requested.sample_rate_hz == 0) {
         return std::unexpected(std::make_error_code(std::errc::invalid_argument));
     }
-    if (mode == OutputMode::Exclusive) {
-        // TODO(kero): AUDCLNT_SHAREMODE_EXCLUSIVE, #13.
-        return std::unexpected(std::make_error_code(std::errc::not_supported));
-    }
-
     auto impl = std::make_unique<Impl>();
     impl->requested = requested;
     impl->format = requested;
+    impl->mode = mode;
     impl->render = std::move(render);
 
     for (HANDLE* event : {&impl->buffer_event, &impl->request_event, &impl->done_event}) {
@@ -414,6 +656,6 @@ std::expected<void, std::error_code> AudioSink::stop() { return impl_->ask(Impl:
 
 AudioFormat AudioSink::format() const noexcept { return impl_->format; }
 
-OutputMode AudioSink::mode() const noexcept { return OutputMode::Shared; }
+OutputMode AudioSink::mode() const noexcept { return impl_->mode; }
 
 } // namespace am::pal

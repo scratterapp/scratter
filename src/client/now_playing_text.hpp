@@ -134,11 +134,12 @@ inline const char* source_label(common::TrackSource source) {
     return "";
 }
 
-// The fold-away line for hand testing: "48000 Hz · buffer 52% · drift +3.1 ppm".
+// The fold-away line for hand testing: "48000 Hz · buffer 52% · drift +3.1 ppm",
+// with "48000 Hz exclusive" when the daemon has the sound card to itself.
 inline std::string telemetry_line(const common::TelemetrySnapshot& snapshot) {
-    char text[96];
-    std::snprintf(text, sizeof text, "%u Hz  \xC2\xB7  buffer %.0f%%  \xC2\xB7  drift %+.1f ppm",
-                  snapshot.sample_rate_hz,
+    char text[112];
+    std::snprintf(text, sizeof text, "%u Hz%s  \xC2\xB7  buffer %.0f%%  \xC2\xB7  drift %+.1f ppm",
+                  snapshot.sample_rate_hz, snapshot.exclusive_mode_active != 0 ? " exclusive" : "",
                   static_cast<double>(snapshot.ring_buffer_fill_pct) * 100.0,
                   static_cast<double>(snapshot.clock_drift_ppm));
     return text;

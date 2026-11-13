@@ -1,6 +1,6 @@
 // The daemon: plays audio and answers commands until it's told to quit.
 //
-//   scratterd [--name NAME] [--no-audio] [--tone-length SECONDS]
+//   scratterd [--name NAME] [--no-audio | --exclusive] [--tone-length SECONDS]
 //             [--test-film | --clear-film] [--widevine-dir DIR] [--no-sandbox]
 //             [--ui PROGRAM]
 //
@@ -12,6 +12,12 @@
 //                 (org.mpris.MediaPlayer2.NAME).
 //   --no-audio    don't open the sound card. Everything else works; the play
 //                 position just doesn't move. For CI machines with no audio.
+//   --exclusive   take the sound card for ourselves (WASAPI exclusive mode on
+//                 Windows, issue #13): no Windows mixer in between, and no
+//                 other app can play until the daemon quits. If it can't be
+//                 had, the daemon says why and shares the output instead.
+//                 Linux has no exclusive output yet (#7), so there it always
+//                 shares.
 //   --tone-length SECONDS
 //                 give the tone a length, so it can be seeked in and goes
 //                 round to 0 at the end like the films. The tests use it to
@@ -86,6 +92,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <expected>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -128,6 +135,7 @@ struct Options {
     std::string name{am::common::kDaemonName};
     std::string media_name{am::common::kAppName};
     bool audio = true;
+    bool exclusive = false;                 // --exclusive
     TrackSource source = TrackSource::Tone; // what plays first
     microseconds tone_length{0};            // 0: the tone has no end
     std::string ui_program;                 // --ui; empty: am-ui next to the daemon
@@ -143,6 +151,8 @@ std::optional<Options> parse_arguments(std::span<char*> args) {
             options.media_name = options.name;
         } else if (arg == "--no-audio") {
             options.audio = false;
+        } else if (arg == "--exclusive") {
+            options.exclusive = true;
         } else if (arg == "--tone-length" && i + 1 < args.size()) {
             const std::string_view text = args[++i];
             unsigned seconds = 0;
@@ -188,16 +198,44 @@ std::uint64_t frames_in(microseconds time, std::uint32_t sample_rate) {
     return static_cast<std::uint64_t>(time.count()) * sample_rate / 1'000'000;
 }
 
-TelemetrySnapshot make_snapshot(const AudioPath& audio, bool audio_open, microseconds length) {
+TelemetrySnapshot make_snapshot(const AudioPath& audio,
+                                const std::optional<am::pal::AudioSink>& sink,
+                                microseconds length) {
     TelemetrySnapshot s{};
     s.pts_micros = audio.position_micros();
     s.duration_micros = static_cast<std::uint64_t>(length.count());
     s.ring_buffer_fill_pct = audio.ring_fill();
     s.clock_drift_ppm = audio.drift_ppm();
-    s.sample_rate_hz = audio_open ? audio.sample_rate_hz() : 0;
+    s.sample_rate_hz = sink ? audio.sample_rate_hz() : 0;
+    s.exclusive_mode_active = sink && sink->mode() == am::pal::OutputMode::Exclusive ? 1 : 0;
     s.playback_state = audio.state();
     s.volume_percent = audio.volume();
     return s;
+}
+
+// Opens the sound card. With --exclusive it asks for the device to itself
+// first, and if that can't be had (another app is playing, the device can't
+// do 48 kHz on its own, the platform has no exclusive mode yet) it says why
+// and shares it like everyone else.
+//
+// The render callback reads `audio` through the pointer, which main() fills
+// in before the sink starts.
+std::expected<am::pal::AudioSink, std::error_code> open_sink(bool exclusive,
+                                                             std::unique_ptr<AudioPath>& audio) {
+    const am::pal::AudioFormat format{.sample_rate_hz = kSampleRate,
+                                      .channels = AudioPath::kChannels};
+    auto render = [&audio](std::span<float> out) noexcept { audio->render(out); };
+    if (!exclusive) {
+        return am::pal::AudioSink::open(format, render);
+    }
+    auto opened = am::pal::AudioSink::open(format, render, am::pal::OutputMode::Exclusive);
+    if (opened) {
+        std::fprintf(stderr, "audio output: exclusive\n");
+        return opened;
+    }
+    std::fprintf(stderr, "no exclusive audio output (%s), sharing it instead\n",
+                 opened.error().message().c_str());
+    return am::pal::AudioSink::open(format, render);
 }
 
 } // namespace
@@ -206,7 +244,7 @@ int main(int argc, char** argv) {
     const auto options = parse_arguments(std::span(argv, static_cast<std::size_t>(argc)));
     if (!options) {
         std::fprintf(stderr,
-                     "usage: %s [--name NAME] [--no-audio] [--tone-length SECONDS] "
+                     "usage: %s [--name NAME] [--no-audio | --exclusive] [--tone-length SECONDS] "
                      "[--test-film | --clear-film] [--widevine-dir DIR] [--no-sandbox] "
                      "[--ui PROGRAM]\n",
                      argv[0]);
@@ -256,9 +294,7 @@ int main(int argc, char** argv) {
     std::optional<am::pal::AudioSink> sink;
     std::uint32_t sample_rate = kSampleRate;
     if (options->audio) {
-        auto opened = am::pal::AudioSink::open(
-            {.sample_rate_hz = kSampleRate, .channels = AudioPath::kChannels},
-            [&audio](std::span<float> out) noexcept { audio->render(out); });
+        auto opened = open_sink(options->exclusive, audio);
         if (!opened) {
             std::fprintf(stderr,
                          "couldn't open the audio output: %s (--no-audio runs without it)\n",
@@ -342,7 +378,7 @@ int main(int argc, char** argv) {
     }
     TelemetryPage* telemetry =
         std::construct_at(reinterpret_cast<TelemetryPage*>(shm->writable_bytes().data()));
-    telemetry->write(make_snapshot(*audio, sink.has_value(), length_of(source)));
+    telemetry->write(make_snapshot(*audio, sink, length_of(source)));
 
     // Republish telemetry as soon as a command changes something, not just on
     // the next tick, so `amctl pause; amctl status` shows the new state. The
@@ -512,7 +548,7 @@ int main(int argc, char** argv) {
         }
         // The page first, so a client that reads it as soon as the event
         // arrives (`amctl seek` then `amctl status`) sees the new position.
-        telemetry->write(make_snapshot(*audio, sink.has_value(), length_of(source)));
+        telemetry->write(make_snapshot(*audio, sink, length_of(source)));
         server->broadcast_state();
     };
 
@@ -657,7 +693,7 @@ int main(int argc, char** argv) {
         if (!is_film(source) && !switching && !seeking) {
             audio->top_up(sine);
         }
-        telemetry->write(make_snapshot(*audio, sink.has_value(), length_of(source)));
+        telemetry->write(make_snapshot(*audio, sink, length_of(source)));
         const std::uint64_t late = audio->late_buffers();
         const std::uint64_t dropped = audio->dropped_frames();
         const auto now = std::chrono::steady_clock::now();

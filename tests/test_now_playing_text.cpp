@@ -54,6 +54,9 @@ TEST_CASE("the details line shows rate, buffer fill and drift", "[now_playing]")
     snapshot.ring_buffer_fill_pct = 0.52f;
     snapshot.clock_drift_ppm = 3.14f;
     CHECK(telemetry_line(snapshot) == "48000 Hz  \xC2\xB7  buffer 52%  \xC2\xB7  drift +3.1 ppm");
+    snapshot.exclusive_mode_active = 1;
+    CHECK(telemetry_line(snapshot) ==
+          "48000 Hz exclusive  \xC2\xB7  buffer 52%  \xC2\xB7  drift +3.1 ppm");
 }
 
 TEST_CASE("a refused switch says why, and each source has a label", "[now_playing]") {

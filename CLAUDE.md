@@ -67,7 +67,7 @@ What's real so far: everything in `src/common/` except `arena_allocator.hpp`, ev
 interface in `src/pal/interfaces/`, the Linux reactor, IPC
 socket, shared memory, PipeWire sink, keyring vault, MPRIS media controls and signal handling in
 `src/pal/linux/`, their Windows counterparts in `src/pal/win32/` (IOCP reactor, named
-pipe, file mapping, WASAPI sink, DPAPI vault, SMTC media controls, console Ctrl-C) plus the Windows CEF host
+pipe, file mapping, WASAPI sink (shared, and exclusive with `scratterd --exclusive`), DPAPI vault, SMTC media controls, console Ctrl-C) plus the Windows CEF host
 (a CEF built with `third_party/cef-patches/widevine-cdm-dir.patch`, issue #8), and the
 drift controller and resampler in `src/daemon/audio_engine/`.
 Still stubs: Apple Music itself (#4), `src/net/`, the ALSA sink and most of `am-ui`. It opens its window (SDL3 + Dear ImGui, drawn through
