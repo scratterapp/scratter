@@ -145,7 +145,7 @@ struct DaemonLink::Impl {
         channel->set_readable_callback([this] { read_messages(); });
 
         const auto hello = encode_message(make_header(Opcode::HelloReq, take_seq_id()),
-                                          HelloBody{.name = make_peer_name("am-ui")});
+                                          HelloBody{.name = make_peer_name(kWindowPeerName)});
         if (!send_frame(hello)) {
             return; // send_frame() already hung up
         }
@@ -311,6 +311,13 @@ struct DaemonLink::Impl {
                 s.track_title = std::string(track_title(*body));
                 s.track_duration_micros = body->duration_micros;
             });
+            return true;
+        }
+        case Opcode::RaiseWindowEvent: {
+            if (!expect_no_body(payload)) {
+                return false;
+            }
+            publish([](DaemonState& s) { ++s.raise_count; });
             return true;
         }
         case Opcode::CommandAck:

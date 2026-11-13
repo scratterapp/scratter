@@ -121,6 +121,20 @@ if(WIN32)
     am_enable_warnings(test_smtc_controls)
     catch_discover_tests(test_smtc_controls DISCOVERY_MODE PRE_TEST
                          PROPERTIES SKIP_REGULAR_EXPRESSION "AM_TEST_SKIPPED")
+
+    # launch_ui() starting a stand-in window (launch_child), which reports the
+    # arguments and standard input it got.
+    add_executable(launch_child launch_child.cpp)
+    target_link_libraries(launch_child PRIVATE am_win32_headers)
+    am_enable_warnings(launch_child)
+
+    add_executable(test_process_launch test_process_launch.cpp)
+    target_link_libraries(test_process_launch PRIVATE am_pal am_common Catch2::Catch2WithMain)
+    target_compile_definitions(test_process_launch PRIVATE
+        AM_LAUNCH_CHILD="$<TARGET_FILE:launch_child>")
+    add_dependencies(test_process_launch launch_child)
+    am_enable_warnings(test_process_launch)
+    catch_discover_tests(test_process_launch DISCOVERY_MODE PRE_TEST)
 endif()
 
 if(LINUX)
@@ -166,6 +180,22 @@ if(LINUX)
         # can't clash with a real one.
         set_tests_properties(soak_smoke PROPERTIES
                              ENVIRONMENT "XDG_RUNTIME_DIR=${soak_dir}/runtime")
+
+        # The window relaunch test (tools/relaunch/relaunch.py, the phase 5
+        # gate) with 4 windows instead of 50, the tone with no sound card, and
+        # the window drawn offscreen like am_ui_opens_and_closes below.
+        # Short folder and daemon names: the socket path has to fit in 107
+        # bytes, and CI's build folder is deep.
+        set(relaunch_dir "${CMAKE_CURRENT_BINARY_DIR}/relaunch")
+        file(MAKE_DIRECTORY "${relaunch_dir}/runtime")
+        file(CHMOD "${relaunch_dir}/runtime" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+        add_test(NAME relaunch_smoke
+                 COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/relaunch/relaunch.py"
+                         --build "$<TARGET_FILE_DIR:${AM_DAEMON_TARGET}>" --times 4
+                         --name relaunch --out "${relaunch_dir}/results"
+                         -- --no-audio)
+        set_tests_properties(relaunch_smoke PROPERTIES
+                             ENVIRONMENT "XDG_RUNTIME_DIR=${relaunch_dir}/runtime;SDL_VIDEO_DRIVER=offscreen;SDL_RENDER_DRIVER=software;SDL_FRAMEBUFFER_ACCELERATION=0")
     endif()
 endif()
 

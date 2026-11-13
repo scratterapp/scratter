@@ -35,7 +35,9 @@
 
 #include <fcntl.h>
 
+#include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -455,6 +457,129 @@ TEST_CASE("the daemon seeks, clamps at the end and tells everyone", "[daemon][se
     CHECK(run_amctl({"--name", name, "seek", "-5:00"}) == 0); // stops at 0
     CHECK(page.read().pts_micros == 0);
 
+    REQUIRE(::kill(daemon.pid, SIGTERM) == 0);
+    CHECK(daemon.wait_for_exit(10s) == 0);
+}
+
+// Children of `pid` that have exited but haven't been collected (zombies,
+// "Z" in /proc/<pid>/stat).
+int zombie_children_of(pid_t pid) {
+    int zombies = 0;
+    std::error_code error;
+    for (const auto& entry : std::filesystem::directory_iterator("/proc", error)) {
+        const std::string pid_text = entry.path().filename().string();
+        if (pid_text.find_first_not_of("0123456789") != std::string::npos) {
+            continue; // /proc/self, /proc/net and so on
+        }
+        std::ifstream in(entry.path() / "stat");
+        std::string stat((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        // "<pid> (<name>) <state> <ppid> ...": the name can hold spaces and
+        // brackets, so start after the last ')'.
+        const auto close = stat.rfind(')');
+        if (close == std::string::npos) {
+            continue;
+        }
+        char state = 0;
+        long parent = 0;
+        if (std::sscanf(stat.c_str() + close + 1, " %c %ld", &state, &parent) == 2 &&
+            state == 'Z' && parent == pid) {
+            ++zombies;
+        }
+    }
+    return zombies;
+}
+
+// Clicking the player in the media widget calls MPRIS Raise (issue #41). With
+// no window connected the daemon starts one (here a stand-in script, through
+// --ui, that notes it ran and exits); with one connected it sends that window
+// a RaiseWindowEvent instead.
+TEST_CASE("MPRIS Raise starts a window, or brings the open one forward", "[daemon][raise]") {
+    RuntimeDir dir;
+    const std::string name = unique_name() + "-raise";
+    const auto started_file = dir.path / "ui-started";
+    const auto signals_file = dir.path / "ui-signals";
+    const auto args_file = dir.path / "ui-args";
+    const auto stand_in = dir.path / "fake-ui";
+    {
+        std::ofstream script(stand_in);
+        script << "#!/bin/sh\necho started >> '" << started_file.string() << "'\n"
+               << "grep '^SigBlk' /proc/$$/status > '" << signals_file.string() << "'\n"
+               << "echo \"$*\" > '" << args_file.string() << "'\n";
+    }
+    REQUIRE(::chmod(stand_in.c_str(), 0700) == 0);
+    auto times_started = [&] {
+        const std::string text = read_file(started_file);
+        return std::count(text.begin(), text.end(), '\n');
+    };
+
+    Daemon daemon(name, {"--ui", stand_in.string()});
+    auto reactor = Reactor::create();
+    REQUIRE(reactor.has_value());
+    Client client(std::move(*reactor));
+    REQUIRE(client.connect(name)); // the daemon is up, MPRIS included
+
+    sd_bus* bus = nullptr;
+    if (sd_bus_open_user(&bus) < 0) {
+        WARN("no D-Bus session bus here, skipping");
+        return;
+    }
+    const std::string bus_name = "org.mpris.MediaPlayer2." + name;
+    auto raise = [&] {
+        return sd_bus_call_method(bus, bus_name.c_str(), "/org/mpris/MediaPlayer2",
+                                  "org.mpris.MediaPlayer2", "Raise", nullptr, nullptr, "");
+    };
+
+    // The socket is up before the media controls are (startup steps 3 and
+    // 6), so the first call can find nobody on the bus yet. Try until the
+    // daemon answers.
+    auto deadline = std::chrono::steady_clock::now() + 5s;
+    int first = raise();
+    while (first < 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(20ms);
+        first = raise();
+    }
+    // This client hasn't said hello, so it isn't a window: Raise starts one.
+    CHECK(first >= 0);
+    deadline = std::chrono::steady_clock::now() + 5s;
+    while (times_started() == 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(20ms);
+    }
+    CHECK(times_started() == 1);
+    // The daemon blocks SIGINT and SIGTERM for its signalfd. The window must
+    // not inherit that, or it would ignore Ctrl-C and `kill`.
+    deadline = std::chrono::steady_clock::now() + 5s;
+    // The stand-in writes the arguments file last.
+    while (read_file(args_file).empty() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(20ms);
+    }
+    CHECK(read_file(signals_file) == "SigBlk:\t0000000000000000\n");
+    // This daemon runs under a name of its own, so the window is told which
+    // daemon to connect to.
+    CHECK(read_file(args_file) == "--name " + name + "\n");
+
+    // A second click while that window is still starting (it hasn't
+    // connected) doesn't start another.
+    CHECK(raise() >= 0);
+    std::this_thread::sleep_for(300ms);
+    CHECK(times_started() == 1);
+
+    // The stand-in has exited, and the daemon collected it: no zombie left.
+    deadline = std::chrono::steady_clock::now() + 5s;
+    while (zombie_children_of(daemon.pid) > 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(20ms);
+    }
+    CHECK(zombie_children_of(daemon.pid) == 0);
+
+    // Now say hello as a window. Raise reaches it, and nothing new starts.
+    client.send(Opcode::HelloReq, HelloBody{.name = make_peer_name(kWindowPeerName)});
+    REQUIRE(client.wait_for(Opcode::HelloAck).has_value());
+    CHECK(raise() >= 0);
+    const auto event = client.wait_for(Opcode::RaiseWindowEvent);
+    REQUIRE(event.has_value());
+    CHECK(event->empty()); // header-only
+    CHECK(times_started() == 1);
+
+    sd_bus_flush_close_unref(bus);
     REQUIRE(::kill(daemon.pid, SIGTERM) == 0);
     CHECK(daemon.wait_for_exit(10s) == 0);
 }

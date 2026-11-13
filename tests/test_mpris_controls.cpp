@@ -192,6 +192,40 @@ TEST_CASE("MPRIS method calls reach the callback", "[mpris]") {
     }
 }
 
+// Raise() is on the root interface, not the player's. Clicking the player in
+// the media widget calls it (issue #41).
+TEST_CASE("MPRIS Raise reaches the callback, and the desktop knows our .desktop file", "[mpris]") {
+    Harness h("raise");
+    if (!h.controls) {
+        return;
+    }
+    constexpr const char* kRoot = "org.mpris.MediaPlayer2";
+    bool answered = false;
+    std::optional<int> can_raise;
+    std::string desktop_entry = "(error)";
+    REQUIRE(h.run_client([&](const Client& c) {
+        const char* bus = c.bus_name.c_str();
+        answered = sd_bus_call_method(c.bus, bus, kPath, kRoot, "Raise", nullptr, nullptr, "") >= 0;
+        int value = 0;
+        if (sd_bus_get_property_trivial(c.bus, bus, kPath, kRoot, "CanRaise", nullptr, 'b',
+                                        &value) >= 0) {
+            can_raise = value;
+        }
+        char* entry = nullptr;
+        if (sd_bus_get_property_string(c.bus, bus, kPath, kRoot, "DesktopEntry", nullptr, &entry) >=
+            0) {
+            desktop_entry = entry;
+            free(entry); // NOLINT: sd-bus hands back malloc'd memory
+        }
+    }));
+    CHECK(answered);
+    CHECK(can_raise == 1);
+    // The installed file is <app>.desktop whatever name the player runs under.
+    CHECK(desktop_entry == am::common::kAppName);
+    REQUIRE(h.requests.size() == 1);
+    CHECK(h.requests[0].kind == Kind::Raise);
+}
+
 TEST_CASE("MPRIS clients see what the daemon sets", "[mpris]") {
     Harness h("properties");
     if (!h.controls) {

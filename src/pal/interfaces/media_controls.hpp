@@ -12,7 +12,7 @@
 // closed. Traffic goes both ways:
 //
 //   in  (desktop -> daemon): play, pause, play/pause, stop, next, previous,
-//                            seek, set volume. One callback, on the reactor
+//                            seek, set volume, raise the window. One callback, on the reactor
 //                            thread, with a MediaRequest saying which.
 //   out (daemon -> desktop): what's playing (title, artist, album, artwork,
 //                            length), whether it's playing, the position and
@@ -93,6 +93,9 @@ struct MediaRequest {
         Previous,
         Seek,      // jump to `position`
         SetVolume, // set the volume to `volume_percent`
+        Raise,     // show the app window: bring it to the front, or start it.
+                   // MPRIS sends it when the player in the media widget is
+                   // clicked. SMTC has nothing like it, so Windows never does.
     };
 
     Kind kind = Kind::Play;
