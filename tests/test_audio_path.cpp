@@ -81,9 +81,13 @@ TEST_CASE("write_tone writes what it's asked for, up to a full ring", "[audio_pa
     SineGenerator sine(kRate);
     CHECK(audio->write_tone(sine, 1000) == 1000); // more than one packet, not a multiple
     CHECK(audio->write_tone(sine, 0) == 0);
+    CHECK(audio->dropped_frames() == 0);
     // Past the target, unlike top_up(), and no further than the capacity.
+    // What doesn't fit is dropped and counted, like write_planar()'s.
     CHECK(audio->write_tone(sine, AudioPath::kCapacityFrames) == AudioPath::kCapacityFrames - 1000);
+    CHECK(audio->dropped_frames() == 1000);
     CHECK(audio->write_tone(sine, 10) == 0);
+    CHECK(audio->dropped_frames() == 1010);
 }
 
 TEST_CASE("the tone pacer counts frames by the clock, without rounding drift", "[audio_path]") {

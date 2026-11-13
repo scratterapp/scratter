@@ -128,15 +128,20 @@ class AudioPath {
     // delivers a page's audio. Topping up to the target instead would make
     // the fill follow what render() takes, whatever ratio the drift controller
     // picks, so the controller could never settle, and its integral would run
-    // to the clamp (issue #85).
+    // to the clamp (issue #85). Frames that don't fit are dropped and counted
+    // in dropped_frames(), like write_planar()'s, so a stalled sound card
+    // shows up in the daemon's glitch report with the tone too.
     std::size_t write_tone(SineGenerator& sine, std::size_t frames) noexcept {
         std::size_t written = 0;
         while (written < frames) {
             auto space = ring_.reserve_write(std::min(frames - written, kPacketFrames));
             if (space.frames_reserved == 0) {
-                return written; // full: the rest is dropped, like write_planar() does
+                break; // full
             }
             written += write_sine(sine, space, space.frames_reserved);
+        }
+        if (written < frames) {
+            dropped_frames_.fetch_add(frames - written, std::memory_order_relaxed);
         }
         return written;
     }
