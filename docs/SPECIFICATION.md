@@ -29,7 +29,7 @@ This specification defines a decoupled, dual-binary native architecture modeled 
 
 1. **`scratterd` (Resident Media & DRM Daemon):** A headless background service that encapsulates an off-screen Chromium Embedded Framework (CEF) runtime strictly for Widevine L3 EME license negotiation and stream decryption, tapping decoded 32-bit float Pulse-Code Modulation (PCM) frames directly into a lock-free Single-Producer Single-Consumer (SPSC) ring buffer that feeds the native OS audio subsystem (`PipeWire` on Linux; Low-Latency `WASAPI` on Windows) and exposes OS media transport controls (`MPRIS v2` / `SMTC`).
     
-2. **`am-ui` (Detachable Native Frontend):** A stateless, hardware-accelerated Dear ImGui client (drawn through SDL3's renderer: `OpenGL`/`Vulkan` on Linux, `Direct3D` on Windows) coupled with an asynchronous `libcurl` + `simdjson` metadata engine. `am-ui` communicates with `scratterd` over a zero-copy-aligned local Control Plane and reads real-time playback telemetry from a lock-free shared-memory page, allowing the GUI process to terminate and relaunch in less than 5 milliseconds without interrupting active audio playback.
+2. **`am-ui` (Detachable Native Frontend):** A stateless, hardware-accelerated Dear ImGui client (drawn through SDL3's renderer: `OpenGL`/`Vulkan` on Linux, `Direct3D` on Windows) coupled with an asynchronous `libcurl` + `simdjson` metadata engine. `am-ui` communicates with `scratterd` over a zero-copy-aligned local Control Plane and reads real-time playback telemetry from a lock-free shared-memory page, allowing the GUI process to terminate and relaunch in less than 100 milliseconds (Phase 5) without interrupting active audio playback.
     
 
 ### Quantitative Target Benchmarks vs. Monolithic Electron Baselines

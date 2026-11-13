@@ -14,9 +14,9 @@ Desktop Apple Music users on Linux (particularly rolling-release distributions l
 |**Dimension**|**Cider v1 / Cider 2 (Electron)**|**Official Windows App (WinUI / WebView2)**|**scratterd + am-ui (Ours)**|
 |---|---|---|---|
 |**License & Ecosystem**|v1: Abandoned FOSS<br><br>  <br><br>v2: Proprietary / Closed-source|Proprietary (Windows-only)|**100% Open-Source** with first-class Arch Linux (`PKGBUILD`) & Windows support|
-|**UI & Catalog Engine**|Full Chromium DOM + JS Framework|Hybrid XAML + WebView2 runtime|**Native C++23 + Dear ImGui** (`Vulkan`/`DX11`) + `libcurl` + `simdjson`|
+|**UI & Catalog Engine**|Full Chromium DOM + JS Framework|Hybrid XAML + WebView2 runtime|**Native C++23 + Dear ImGui** (SDL3: OpenGL/Vulkan, Direct3D) + `libcurl` + `simdjson`|
 |**Idle System RAM**|650 MB – 1.2 GB RAM|500 MB – 900 MB RAM|**Less than 115 MB** (daemon only) / **Less than 160 MB** (with UI open)|
-|**Window Close Behavior**|Minimizes full browser to tray (keeps DOM & GPU process alive)|Keeps heavy background processes resident|**True `mpd`-style detach:** `am-ui` exits completely; re-attaches in **less than 5 ms**|
+|**Window Close Behavior**|Minimizes full browser to tray (keeps DOM & GPU process alive)|Keeps heavy background processes resident|**True `mpd`-style detach:** `am-ui` exits completely; re-attaches in **less than 100 ms**|
 |**VRAM Consumed While Gaming**|250 MB – 600 MB (DOM textures & Skia caches)|150 MB – 400 MB|**0 MB** (UI closed) / **~12 MB** (UI minimized with swapchain suspended)|
 |**In-Game GPU & VRR Impact**|**High:** Background compositor ticks cause GPU context switches & break G-Sync/FreeSync|**Moderate-High:** Secondary DWM swapchain overhead|**Zero:** Daemon runs with `--disable-gpu`; UI suspends draw calls on unfocus or detaches completely|
 |**Audio Path**|Chromium generic internal mixer|Windows shared mixer (`audiodg.exe`)|**In-memory PCM tap (`CefAudioHandler`)** $\rightarrow$ lock-free SPSC buffer $\rightarrow$ direct `PipeWire` / `WASAPI`|

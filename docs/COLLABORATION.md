@@ -6,7 +6,7 @@ conditionals.
 
 ## Rules
 
-- Do not add `#ifdef _WIN32` or `#ifdef __linux__` to `src/daemon/` or `src/client/`.
+- Do not add `#ifdef _WIN32` or `#ifdef __linux__` (or any OS check) outside `src/pal/`.
 - Shared contracts live in `src/common/` and `src/pal/interfaces/`; changes require
   review from both developers.
 - Put Linux implementations in `src/pal/linux/` and Windows implementations in
@@ -24,7 +24,6 @@ conditionals.
 | PipeWire | WASAPI |
 | sd-bus MPRIS v2 | WinRT SMTC |
 | libsecret | DPAPI |
-| Vulkan | DirectX 11 |
 
 ## Module roadmap
 

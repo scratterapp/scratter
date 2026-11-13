@@ -27,9 +27,10 @@ Scratter is split into two processes, like `mpd` + `ncmpcpp`:
 - **`am-ui`** is a detachable Dear ImGui client. Closing the UI does not stop
   background playback.
 
-**Status:** early development, not usable yet. On Linux the daemon plays a test tone
-and Google's Widevine test film, answers remote commands (`amctl`) and shows up in the
-desktop's media controls. Apple Music itself, the Windows side and the UI are still
+**Status:** early development, not usable yet. On Linux and Windows the daemon plays
+a test tone and Google's Widevine test films, answers remote commands (`amctl`) and
+shows up in the desktop's media controls, and the window shows what's playing with
+play/pause, seek and volume. Apple Music itself (sign-in, library, search) is still
 to come. Platform behavior belongs behind the Platform Abstraction Layer (`src/pal/`).
 
 **New here, or an AI agent?** Start with [CLAUDE.md](CLAUDE.md): it covers who owns
@@ -40,7 +41,7 @@ what, the rules, how to build, and what to work on first.
 | Capability | Scratter | Cider v1 (abandoned) | Cider 2 | Official Windows app |
 | --- | --- | --- | --- | --- |
 | Open-source path for Arch Linux and Windows | Yes | Partial/abandoned | No, proprietary Electron | No |
-| UI attach/detach latency | Target sub-5 ms | N/A | N/A | N/A |
+| UI attach/detach latency | Target under 100 ms | N/A | N/A | N/A |
 | Playback after UI closes | Yes, daemon remains active | No | No | No |
 | Gaming impact | Daemon uses `--disable-gpu` (0 MB VRAM target); UI suspends its swapchain on unfocus/minimize or closes during gaming | N/A | Electron overhead | App remains resident |
 
