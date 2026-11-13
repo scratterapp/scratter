@@ -27,11 +27,11 @@
 //             (a "zombie") until its parent collects its exit status, so the
 //             Linux version watches a pidfd for the window on `reactor` and
 //             collects it when it exits.
-//   Windows:  not written yet (function_not_supported). CreateProcessW, for
-//             kero; Windows has no zombies, so it won't need the reactor. Do
-//             close both handles CreateProcessW hands back (hProcess and
-//             hThread in PROCESS_INFORMATION) once it has started, or every
-//             launch leaks two handles.
+//   Windows:  CreateProcessW. Windows has no zombies, so it doesn't need the
+//             reactor: it closes both handles CreateProcessW hands back
+//             (hProcess and hThread) once the window has started, and keeps
+//             nothing. Arguments go from UTF-8 to UTF-16 and are quoted so
+//             the window's C runtime splits them back unchanged.
 //
 // Errors are std::error_code, like the other interfaces:
 //
@@ -39,6 +39,8 @@
 //   std::errc::no_such_file_or_directory
 //                                      `program` isn't there (a build that
 //                                      didn't make am-ui, say)
+//   std::errc::invalid_argument        Windows: an argument isn't valid UTF-8,
+//                                      so it can't become UTF-16 unchanged
 //   anything else                      what the OS said
 //
 // It runs on the reactor thread, like everything else the daemon does. Each

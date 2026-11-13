@@ -538,7 +538,7 @@ scratter/
 │   │       ├── console_shutdown.cpp   # SetConsoleCtrlHandler, onto the reactor thread through Reactor::wake()
 │   │       ├── smtc_controls.cpp      # SystemMediaTransportControls (WinRT ABI with WRL), hidden window on its own thread
 │   │       ├── browser_files.cpp      # CEF profile folder and installed Widevine on Windows
-│   │       ├── process_launch.cpp     # Starts am-ui (stub: not supported yet)
+│   │       ├── process_launch.cpp     # CreateProcessW of am-ui, passing only its standard handles
 │   │       └── cef_main_args.cpp      # CefMainArgs from GetModuleHandleW(nullptr)
 │   ├── net/                           # Target: am_net (Static Library - Async HTTP & JSON)
 │   │   ├── curl_reactor_bridge.cpp    # Binds curl_multi_socket_action to pal::Reactor
@@ -624,6 +624,8 @@ scratter/
     ├── test_media_controls.cpp        # MediaControls contract, daemon side (skips where there's no media control service)
     ├── test_mpris_controls.cpp        # Linux-only: plays the desktop's side of MPRIS over D-Bus (skips with no session bus)
     ├── test_smtc_controls.cpp         # Windows-only: the desktop's side of SMTC through Windows' session manager (skips with no desktop session)
+    ├── test_process_launch.cpp        # Windows-only: launch_ui() quoting, standard handles, missing program, no leaked handles
+    ├── launch_child.cpp               # Stand-in window for that test: reports the arguments and standard input it got
     ├── test_browser_files.cpp         # Linux-only: where the browser profile goes, and that it's private (0700)
     ├── tsan.supp                      # TSan suppressions for GLib (libsecret's D-Bus thread), used by the linux-tsan preset
     ├── manual/play_sine.cpp           # Not in ctest: plays 440 Hz through the sink, counts late buffers
