@@ -50,14 +50,18 @@ remote for it: `amctl pause`, `amctl volume 30`, `amctl load clear-film`, `amctl
 It can send every request the daemon handles, and `tests/test_daemon.cpp` fails if
 the daemon learns one amctl lacks (`coverage()` in `tools/amctl/amctl_args.hpp`).
 On Linux the daemon also shows up in the desktop's media widget over MPRIS, so the
-media keys and `playerctl play-pause` pause it too. Built with CEF (the `linux-cef`
+media keys and `playerctl play-pause` pause it too, and clicking the player there
+brings the window forward or starts it (#41). `cmake --install` puts in a launcher
+entry and icon (`packaging/linux/`). Built with CEF (the `linux-cef`
 preset, off by default because CEF only exists where someone built it),
 `scratterd --test-film` plays Google's Widevine test film through a headless
 CEF instead of the tone (`src/daemon/cef_host/`, issue #76), and `amctl load` switches
 between the tone and the two films while it runs, starting CEF the first time (#38). The films
 can be seeked in from amctl, the window's position bar and MPRIS (#39); the tone has no
 length, except with `--tone-length`, which the tests use. `tests/test_daemon.cpp` starts the daemon
-and drives it, directly, through amctl and over MPRIS.
+and drives it, directly, through amctl and over MPRIS. `tools/relaunch/relaunch.py` is the
+phase 5 gate: it opens and closes `am-ui` 50 times while the daemon plays and fails
+if the sound skipped (#43).
 
 What's real so far: everything in `src/common/` except `arena_allocator.hpp`, every
 interface in `src/pal/interfaces/`, the Linux reactor, IPC

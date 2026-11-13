@@ -115,7 +115,7 @@ TEST_CASE("every known opcode round-trips and every other byte is rejected", "[i
             CHECK(result.error() == FrameError::UnknownOpcode);
         }
     }
-    CHECK(known == 22); // the number of opcodes in spec 3.2.1
+    CHECK(known == 23); // the number of opcodes in spec 3.2.1
 }
 
 TEST_CASE("payload length limits", "[ipc]") {

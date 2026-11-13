@@ -2,7 +2,8 @@
 
 // The daemon's side of the control IPC: accepts clients (am-ui, amctl, the
 // tests), answers their requests, and tells all of them when the play state
-// or volume changes.
+// or volume changes. It also tells the windows among them to come to the
+// front when the desktop asks (raise_windows()).
 //
 //   Client sends          Daemon answers
 //   HelloReq              HelloAck with its name, then a PlaybackStateEvent and
@@ -21,6 +22,10 @@
 //   a bad body            CommandNak with BadRequest
 //   any other request     CommandNak with NotSupported
 //   a broken frame        nothing; the client is disconnected
+//
+// RaiseWindowEvent is the one message that isn't an answer or a broadcast:
+// main() calls raise_windows() when the desktop asks to see the player, and
+// it goes only to clients that said hello as a window.
 //
 // When a request changes the play state or volume, the server calls
 // `on_change` before it sends the CommandAck. main() uses it to republish the
@@ -81,6 +86,12 @@ class ControlServer {
     // Sends every client a TrackChangedEvent with what plays now. main()
     // calls it when a switch is done.
     void broadcast_track();
+
+    // Sends a RaiseWindowEvent to every connected window (a client whose
+    // hello said common::kWindowPeerName), so it comes to the front. Returns
+    // how many got it; 0 means no window is open, and main() starts one
+    // instead. For MPRIS Raise, issue #41.
+    int raise_windows();
 
   private:
     struct Client {

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=@AM_DISPLAY_NAME@
+GenericName=Music Player
+Comment=Unofficial Apple Music player
+Exec=@AM_UI_PATH@
+Icon=@AM_APP_NAME@
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=music;player;apple;
+StartupNotify=true
+StartupWMClass=@AM_APP_NAME@
