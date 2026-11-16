@@ -10,8 +10,6 @@
 </p>
 
 <p align="center">
-  <b>Apple Music, native. The music outlives the window.</b>
-  <br>
   <a href="#try-it">Try it</a> ·
   <a href="#how-it-fits-together">How it works</a> ·
   <a href="#under-the-hood">Under the hood</a> ·
@@ -25,9 +23,9 @@
 > endorsed by Apple Inc.** Apple Music is a trademark of Apple Inc. You need your own
 > Apple Music subscription.
 
-Scratter is a small, native Apple Music player for Linux and Windows. The music keeps
-playing when you close the window, the window opens again in a blink, and it doesn't
-carry a whole web browser around just to show you a playlist.
+Scratter is a native Apple Music player for Linux and Windows. Playback runs in a
+background process, so closing the window doesn't stop the music, and the window
+itself is plain C++ rather than a web page.
 
 > [!WARNING]
 > **Early development, not usable for Apple Music yet.** The player, the window, media
@@ -42,7 +40,7 @@ carry a whole web browser around just to show you a playlist.
   handling Cyrillic, Greek and Vietnamese.</sub>
 </p>
 
-## The idea in one minute
+## Why two programs
 
 Apple Music protects its songs with DRM (Google's Widevine on Linux and Windows), and
 the only practical way to play them outside Apple's own apps is through a real browser
@@ -97,7 +95,7 @@ flowchart LR
     tele -. "read many times a second,<br/>no messages needed" .-> win
 ```
 
-There are three paths between the two programs, each picked for its job:
+The two programs talk in three ways:
 
 1. **Commands** (play, pause, seek, volume, load a track) go from the window to the
    daemon as small binary messages over a Unix socket on Linux or a named pipe on
@@ -106,8 +104,8 @@ There are three paths between the two programs, each picked for its job:
    lock-free ring buffer, and the sound card's thread pulls it out without ever
    waiting on a lock, so the music doesn't stutter when something else is busy.
 3. **Live status** (where the song is, whether the buffer is healthy) is written by the
-   daemon into a page of shared memory that the window simply reads, so a smooth
-   progress bar costs nothing.
+   daemon into a page of shared memory that the window reads directly, without
+   sending the daemon any messages.
 
 Everything that differs between Linux and Windows lives behind one set of interfaces
 in `src/pal/` (the Platform Abstraction Layer). The rest of the code is the same on
@@ -115,72 +113,74 @@ both systems.
 
 ## Under the hood
 
-Each piece in one plain sentence, then the detail for people who want it. The
-full design is in [docs/SPECIFICATION.md](docs/SPECIFICATION.md) section 3.
+The full design is in [docs/SPECIFICATION.md](docs/SPECIFICATION.md) section 3.
 
-**The hidden browser** (`src/daemon/cef_host/`). It plays the protected stream so
-we don't have to.
-CEF runs windowless, with the GPU off, extensions off and a single renderer
-process. The Widevine CDM is loaded from wherever the system already has it; we
-never ship it. Chromium's own audio output is replaced by
-`CefAudioHandler::OnAudioStreamPacket`, which hands us decoded float PCM in
-memory. Stock CEF does this for protected audio without patches; we only rebuild
-CEF so it can decode AAC ([docs/CEF.md](docs/CEF.md)).
+### Hidden browser (`src/daemon/cef_host/`)
 
-**The ring buffer** (`src/common/spsc_ring_buffer.hpp`). A cushion of sound between
-the browser and the sound card.
-A lock-free single-producer, single-consumer queue: the CEF thread writes, the
-audio thread reads, and they only share two atomic counters. It aims to hold
-about 85 ms (4096 frames at 48 kHz). The Phase 1 gate pushed 100 million frames
-through it across two CPU cores under ThreadSanitizer.
+CEF plays the protected stream for us. It runs windowless, with the GPU off,
+extensions off and a single renderer process. The Widevine CDM is loaded from
+wherever the system already has it; we never ship it. Chromium's own audio output
+is replaced by `CefAudioHandler::OnAudioStreamPacket`, which hands us decoded float
+PCM in memory. Stock CEF does this for protected audio without patches; we only
+rebuild CEF so it can decode AAC ([docs/CEF.md](docs/CEF.md)).
 
-**The drift controller and resampler** (`src/daemon/audio_engine/`). Keeps two
-clocks that never quite agree from slowly over- or under-filling the cushion.
-The browser produces audio on the system clock; the sound card consumes it on
-its own crystal, typically 10 to 200 parts per million apart. Every callback, an
-exponential moving average smooths the buffer's fill level and a PI controller
-turns the error into a playback ratio, clamped to ±1000 ppm (inaudible). A
-16-tap windowed-sinc polyphase resampler plays at that ratio. The test injects a
-+150 ppm skew for a simulated hour and checks the fill stays within ±3% of
-target.
+### Ring buffer (`src/common/spsc_ring_buffer.hpp`)
 
-**The sound output** (`src/pal/linux/`, `src/pal/win32/`). Talks to the system's
-own audio.
+A lock-free single-producer, single-consumer queue between the browser and the
+sound card: the CEF thread writes, the audio thread reads, and they only share two
+atomic counters. It aims to hold about 85 ms of audio (4096 frames at 48 kHz). The
+Phase 1 gate pushed 100 million frames through it across two CPU cores under
+ThreadSanitizer.
+
+### Drift controller and resampler (`src/daemon/audio_engine/`)
+
+The browser produces audio on the system clock and the sound card consumes it on
+its own crystal, typically 10 to 200 parts per million apart. Left alone, the ring
+buffer would slowly fill up or run dry. On every callback an exponential moving
+average smooths the buffer's fill level and a PI controller turns the error into a
+playback ratio, clamped to ±1000 ppm, which is too small to hear. A 16-tap
+windowed-sinc polyphase resampler plays at that ratio. The test injects a +150 ppm
+skew for a simulated hour and checks the fill stays within ±3% of target.
+
+### Sound output (`src/pal/linux/`, `src/pal/win32/`)
+
 PipeWire on Linux, WASAPI on Windows (shared mode, or exclusive with
-`--exclusive`). The rule for our callback: after the stream starts, it never
-allocates memory, takes a lock or makes a system call, so nothing it does can
-make the sound skip. On pause it fades out, then stops the stream so the audio
-thread sleeps instead of playing silence.
+`--exclusive`). After the stream starts, our callback never allocates memory, takes
+a lock or makes a system call, so nothing it does can make the sound skip. On pause
+it fades out and then stops the stream, so the audio thread sleeps instead of
+playing silence.
 
-**The control channel** (`src/common/ipc_protocol.hpp`, `ipc_messages.hpp`). How
-the window and `amctl` tell the daemon what to do.
-Every message is a fixed 32-byte header (magic number, length, sequence id,
-timestamp, version, opcode, flags and a CRC32C checksum of the header) and up to
-64 KiB of payload, sent over a
-`SOCK_SEQPACKET` Unix socket on Linux and a message-mode named pipe on Windows,
-so each message arrives whole. Payloads are padding-free structs checked at
-compile time. CI fuzzes the frame parser with 10 million mutated inputs under
+### Control channel (`src/common/ipc_protocol.hpp`, `ipc_messages.hpp`)
+
+This is how the window and `amctl` send commands. Every message is a fixed 32-byte
+header (magic number, length, sequence id, timestamp, version, opcode, flags and a
+CRC32C checksum of the header) and up to 64 KiB of payload. It goes over a
+`SOCK_SEQPACKET` Unix socket on Linux and a message-mode named pipe on Windows, so
+each message arrives whole. Payloads are padding-free structs checked at compile
+time. CI fuzzes the frame parser with 10 million mutated inputs under
 AddressSanitizer. The median round trip is 7.5 µs.
 
-**The telemetry page** (`src/common/telemetry_shm.hpp`). How the window knows the
-song position without asking.
+### Telemetry page (`src/common/telemetry_shm.hpp`)
+
 One page of shared memory that the daemon writes up to 120 times a second and the
-window maps read-only. A sequence lock (SeqLock) lets the reader detect and retry
-a half-written copy while the writer never waits; the payload is stored as
-atomic 64-bit words so even a torn read is well-defined behaviour.
+window maps read-only, which is how the window shows the song position without
+asking. A sequence lock (SeqLock) lets the reader detect and retry a half-written
+copy while the writer never waits. The payload is stored as atomic 64-bit words, so
+even a torn read is well-defined.
 
-**The reactor** (`src/pal/linux/`, `src/pal/win32/`). One thread that waits for
-everything at once.
-`epoll` on Linux, I/O completion ports on Windows. The daemon's socket, its
-shutdown signal and D-Bus (for MPRIS) all run on it, so the daemon's control side is a
-single thread with no locks.
+### Reactor (`src/pal/linux/`, `src/pal/win32/`)
 
-**Media controls and sign-in storage.** MPRIS over sd-bus on Linux and SMTC on
-Windows let the media keys and the desktop's widget drive the daemon even with
-the window closed. Credentials go in the Secret Service keyring (libsecret) on
-Linux and DPAPI on Windows.
+`epoll` on Linux, I/O completion ports on Windows. The daemon's socket, its shutdown
+signal and D-Bus (for MPRIS) all run on this one thread, so the control side of the
+daemon needs no locks.
 
-## By the numbers
+### Media controls and sign-in storage
+
+MPRIS over sd-bus on Linux and SMTC on Windows let the media keys and the desktop's
+media widget control the daemon even with the window closed. Credentials go in the
+Secret Service keyring (libsecret) on Linux and DPAPI on Windows.
+
+## Performance
 
 Measured on robbie's PC (CachyOS, 6 cores) with the optimized build playing the
 Widevine test film. How to measure, and every change that moved a number, are in
@@ -217,8 +217,8 @@ hasn't been looked into yet.
 | Signing in to Apple Music, library, search, playlists | Not started | Not started |
 | Packaged releases | None | None |
 
-By the phases in the spec's roadmap ([section 6](docs/SPECIFICATION.md)), each of
-which ends in a test gate:
+Progress through the roadmap phases in [the spec's section 6](docs/SPECIFICATION.md).
+Each phase ends in a test gate:
 
 | Phase | What it is | State |
 | --- | --- | --- |
@@ -233,8 +233,8 @@ The biggest open item is the Apple Music connection itself (issue
 token, and we don't have one yet. The live list of what's done and what's next is the
 pinned **[roadmap issue #6](https://github.com/scratterapp/scratter/issues/6)**.
 
-This is roughly where the window is heading once the library exists. It's a design
-mockup, not working code, and every name in it is made up:
+The playlist view below is a design mockup for when the library exists. It isn't
+working code, and the names in it are made up.
 
 <p align="center">
   <img src="docs/assets/playlist-mockup.png" alt="Design mockup of a playlist view with a sidebar, track list and a player bar" width="720">
@@ -251,8 +251,8 @@ cmake --build --preset linux-debug
 ctest --preset linux-debug
 ```
 
-Then start the daemon in one terminal (it plays a 440 Hz test tone, so turn your volume down), and open the
-window or use the remote from a second one:
+Start the daemon in one terminal. It plays a 440 Hz test tone, so turn your volume
+down first. Then open the window or use the remote from a second terminal:
 
 ```sh
 ./build/linux-debug/scratterd
@@ -266,7 +266,7 @@ On Windows, use the `windows-msvc-debug` preset from a Developer PowerShell for
 VS 2022. Playing the Widevine test film needs our own CEF build; that recipe is in
 [docs/CEF.md](docs/CEF.md).
 
-## A few words you'll see a lot
+## Glossary
 
 | Word | What it means here |
 | --- | --- |
@@ -279,7 +279,7 @@ VS 2022. Playing the Widevine test film needs our own CEF build; that recipe is 
 | Ring buffer | A fixed-size circular queue. One thread writes sound in, another reads it out, and neither waits for the other. |
 | PAL | Platform Abstraction Layer (`src/pal/`): the only place where Linux and Windows code differ. |
 
-## The code, briefly
+## Repository layout
 
 ```
 src/common/       shared building blocks: ring buffer, IPC messages, telemetry page
@@ -299,8 +299,8 @@ Two people build Scratter in parallel: robbie ([@cocoa55](https://github.com/coc
 owns the Linux side and kero ([@kerelosgayed](https://github.com/kerelosgayed)) owns the
 Windows side. Shared code is reviewed by both.
 
-**New here, or an AI agent?** Read [CLAUDE.md](CLAUDE.md) first. Despite the name it's
-for everyone: who owns what, the rules (no exceptions, warnings are errors, no
+**New here, or an AI agent?** Read [CLAUDE.md](CLAUDE.md) first. It's for everyone,
+not just Claude, and covers who owns what, the rules (no exceptions, warnings are errors, no
 platform `#ifdef`s outside `src/pal/`, no allocation in the audio callback), how to
 build and test, and where to start. Then
 [docs/COLLABORATION.md](docs/COLLABORATION.md) covers how to pick up an issue and
@@ -323,7 +323,7 @@ work it.
 
 ## What Scratter will never do
 
-- **It's a player, nothing more.** No recording, saving or exporting of decrypted audio,
+- **Playback only.** No recording, saving or exporting of decrypted audio,
   and no way around the DRM. The browser engine unlocks the audio inside the daemon and
   it goes straight to your speakers.
 - **We never ship the Widevine module.** It comes from Google and stays wherever it's
