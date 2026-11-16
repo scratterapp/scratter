@@ -9,6 +9,17 @@
   <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20Windows-555.svg" alt="Linux and Windows">
 </p>
 
+<p align="center">
+  <b>Apple Music, native. The music outlives the window.</b>
+  <br>
+  <a href="#try-it">Try it</a> ·
+  <a href="#how-it-fits-together">How it works</a> ·
+  <a href="#under-the-hood">Under the hood</a> ·
+  <a href="#where-it-stands">Status</a> ·
+  <a href="#working-on-it">Contributing</a> ·
+  <a href="https://github.com/scratterapp/scratter/issues/6">Roadmap</a>
+</p>
+
 > [!IMPORTANT]
 > Scratter is an unofficial, independent project. It is **not affiliated with or
 > endorsed by Apple Inc.** Apple Music is a trademark of Apple Inc. You need your own
@@ -102,6 +113,94 @@ Everything that differs between Linux and Windows lives behind one set of interf
 in `src/pal/` (the Platform Abstraction Layer). The rest of the code is the same on
 both systems.
 
+## Under the hood
+
+Each piece in one plain sentence, then the detail for people who want it. The
+full design is in [docs/SPECIFICATION.md](docs/SPECIFICATION.md) section 3.
+
+**The hidden browser** (`src/daemon/cef_host/`). It plays the protected stream so
+we don't have to.
+CEF runs windowless, with the GPU off, extensions off and a single renderer
+process. The Widevine CDM is loaded from wherever the system already has it; we
+never ship it. Chromium's own audio output is replaced by
+`CefAudioHandler::OnAudioStreamPacket`, which hands us decoded float PCM in
+memory. Stock CEF does this for protected audio without patches; we only rebuild
+CEF so it can decode AAC ([docs/CEF.md](docs/CEF.md)).
+
+**The ring buffer** (`src/common/spsc_ring_buffer.hpp`). A cushion of sound between
+the browser and the sound card.
+A lock-free single-producer, single-consumer queue: the CEF thread writes, the
+audio thread reads, and they only share two atomic counters. It aims to hold
+about 85 ms (4096 frames at 48 kHz). The Phase 1 gate pushed 100 million frames
+through it across two CPU cores under ThreadSanitizer.
+
+**The drift controller and resampler** (`src/daemon/audio_engine/`). Keeps two
+clocks that never quite agree from slowly over- or under-filling the cushion.
+The browser produces audio on the system clock; the sound card consumes it on
+its own crystal, typically 10 to 200 parts per million apart. Every callback, an
+exponential moving average smooths the buffer's fill level and a PI controller
+turns the error into a playback ratio, clamped to ±1000 ppm (inaudible). A
+16-tap windowed-sinc polyphase resampler plays at that ratio. The test injects a
++150 ppm skew for a simulated hour and checks the fill stays within ±3% of
+target.
+
+**The sound output** (`src/pal/linux/`, `src/pal/win32/`). Talks to the system's
+own audio.
+PipeWire on Linux, WASAPI on Windows (shared mode, or exclusive with
+`--exclusive`). The rule for our callback: after the stream starts, it never
+allocates memory, takes a lock or makes a system call, so nothing it does can
+make the sound skip. On pause it fades out, then stops the stream so the audio
+thread sleeps instead of playing silence.
+
+**The control channel** (`src/common/ipc_protocol.hpp`, `ipc_messages.hpp`). How
+the window and `amctl` tell the daemon what to do.
+Every message is a fixed 32-byte header (magic number, length, sequence id,
+timestamp, version, opcode, flags and a CRC32C checksum of the header) and up to
+64 KiB of payload, sent over a
+`SOCK_SEQPACKET` Unix socket on Linux and a message-mode named pipe on Windows,
+so each message arrives whole. Payloads are padding-free structs checked at
+compile time. CI fuzzes the frame parser with 10 million mutated inputs under
+AddressSanitizer. The median round trip is 7.5 µs.
+
+**The telemetry page** (`src/common/telemetry_shm.hpp`). How the window knows the
+song position without asking.
+One page of shared memory that the daemon writes up to 120 times a second and the
+window maps read-only. A sequence lock (SeqLock) lets the reader detect and retry
+a half-written copy while the writer never waits; the payload is stored as
+atomic 64-bit words so even a torn read is well-defined behaviour.
+
+**The reactor** (`src/pal/linux/`, `src/pal/win32/`). One thread that waits for
+everything at once.
+`epoll` on Linux, I/O completion ports on Windows. The daemon's socket, its
+shutdown signal and D-Bus (for MPRIS) all run on it, so the daemon's control side is a
+single thread with no locks.
+
+**Media controls and sign-in storage.** MPRIS over sd-bus on Linux and SMTC on
+Windows let the media keys and the desktop's widget drive the daemon even with
+the window closed. Credentials go in the Secret Service keyring (libsecret) on
+Linux and DPAPI on Windows.
+
+## By the numbers
+
+Measured on robbie's PC (CachyOS, 6 cores) with the optimized build playing the
+Widevine test film. How to measure, and every change that moved a number, are in
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+
+| Measure | First measured (2026-10-19) | Now | Goal |
+| --- | --- | --- | --- |
+| Memory really used, all processes, playing | 693 MB | 422 MB | under 500 MB |
+| CPU while playing, all processes | 9.8% of one core | 2.7% | under 5% |
+| CPU while paused | not measured | 0.6% | under 0.5% |
+| Video memory used by the daemon | 0 MB | 0 MB | stays 0 MB |
+| Window command round trip (median) | 7.5 µs | 7.5 µs | under 25 µs |
+| Open the window to showing the daemon's state (median of 50) | | 99 ms | under 100 ms |
+| Sound glitches while the window opened and closed 50 times | | 0 | 0 |
+
+Almost all of the memory is Chromium, which Widevine needs. The daemon playing
+the plain test tone, without CEF, uses about 4 MB. On Windows the window
+currently takes about 216 ms to show the daemon's state (kero's PC), which
+hasn't been looked into yet.
+
 ## Where it stands
 
 | Part | Linux | Windows |
@@ -117,6 +216,17 @@ both systems.
 | Launcher entry and app icon | Yes | Icon only |
 | Signing in to Apple Music, library, search, playlists | Not started | Not started |
 | Packaged releases | None | None |
+
+By the phases in the spec's roadmap ([section 6](docs/SPECIFICATION.md)), each of
+which ends in a test gate:
+
+| Phase | What it is | State |
+| --- | --- | --- |
+| 1 | Lock-free ring buffer, shared memory, the control channel | Done on both |
+| 2 | Real-time audio output and the clock-drift loop | Done on both |
+| 3 | Hidden browser, Widevine, sign-in storage | Browser, Widevine and storage done; Apple Music sign-in not started |
+| 4 | Network and catalog engine, media controls | Media controls done; `src/net/` (libcurl + simdjson) not started |
+| 5 | The detachable window | Window and the 50-relaunch gate done; library views and the visualizer not started |
 
 The biggest open item is the Apple Music connection itself (issue
 [#4](https://github.com/scratterapp/scratter/issues/4)). It needs an Apple developer
@@ -196,17 +306,20 @@ build and test, and where to start. Then
 [docs/COLLABORATION.md](docs/COLLABORATION.md) covers how to pick up an issue and
 work it.
 
-### Documentation
+### Where to go next
 
-- [docs/OVERVIEW.md](docs/OVERVIEW.md): what the system does, end to end, with a walkthrough of playing a song
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): process and data boundaries
-- [docs/SPECIFICATION.md](docs/SPECIFICATION.md): the full technical spec and phase roadmap
-- [docs/RATIONALE.md](docs/RATIONALE.md): why this exists, compared with Cider and the official app
-- [docs/COLLABORATION.md](docs/COLLABORATION.md): how the two platform owners work in parallel
-- [docs/CEF.md](docs/CEF.md): the hidden browser in the daemon, and how to build our CEF
-- [docs/BENCHMARKS.md](docs/BENCHMARKS.md): measured performance and how to measure it
-- [docs/SETUP.md](docs/SETUP.md): installing dependencies
-- [docs/windows/START_HERE.md](docs/windows/START_HERE.md): the entry point for Windows work
+| I want to... | Read |
+| --- | --- |
+| Understand what the system does, start to finish | [docs/OVERVIEW.md](docs/OVERVIEW.md) |
+| See the process and data boundaries | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Read the full technical design and the phase gates | [docs/SPECIFICATION.md](docs/SPECIFICATION.md) |
+| Know why this exists next to Cider and the official app | [docs/RATIONALE.md](docs/RATIONALE.md) |
+| Install the build tools | [docs/SETUP.md](docs/SETUP.md) |
+| Pick up an issue and work it | [docs/COLLABORATION.md](docs/COLLABORATION.md), then the [roadmap](https://github.com/scratterapp/scratter/issues/6) |
+| Build our CEF or work on the hidden browser | [docs/CEF.md](docs/CEF.md) |
+| Measure or improve performance | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) |
+| Work on the Windows side | [docs/windows/START_HERE.md](docs/windows/START_HERE.md) |
+| Report a security problem | [SECURITY.md](SECURITY.md) |
 
 ## What Scratter will never do
 
