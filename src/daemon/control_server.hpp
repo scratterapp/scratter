@@ -77,6 +77,7 @@ class ControlServer {
     // Its callbacks point back at this object, so it can't be copied or moved.
     ControlServer(const ControlServer&) = delete;
     ControlServer& operator=(const ControlServer&) = delete;
+    ~ControlServer() = default;
 
     // Sends every client a PlaybackStateEvent with the current state and
     // volume. The server does this itself after its own commands; main()

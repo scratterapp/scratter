@@ -23,7 +23,8 @@
 #include <thread>
 #include <vector>
 
-extern char** environ;
+// POSIX says the program declares environ itself; glibc only does it with _GNU_SOURCE.
+extern char** environ; // NOLINT(readability-redundant-declaration)
 
 namespace am::test {
 
@@ -39,6 +40,8 @@ struct RuntimeDir {
         path = templ;
         REQUIRE(::setenv("XDG_RUNTIME_DIR", path.c_str(), 1) == 0);
     }
+    RuntimeDir(const RuntimeDir&) = delete;
+    RuntimeDir& operator=(const RuntimeDir&) = delete;
     ~RuntimeDir() {
         std::error_code ignored;
         std::filesystem::remove_all(path, ignored);
@@ -68,6 +71,7 @@ struct Daemon {
         std::vector<std::string> args = {AM_DAEMON_PATH, "--name", name, "--no-audio"};
         args.insert(args.end(), extra.begin(), extra.end());
         std::vector<char*> argv;
+        argv.reserve(args.size() + 1);
         for (auto& arg : args) {
             argv.push_back(arg.data());
         }
@@ -78,6 +82,8 @@ struct Daemon {
             ::signal(SIGABRT, kill_daemon_on_abort);
         }
     }
+    Daemon(const Daemon&) = delete;
+    Daemon& operator=(const Daemon&) = delete;
     ~Daemon() {
         if (pid > 0) {
             ::kill(pid, SIGKILL);

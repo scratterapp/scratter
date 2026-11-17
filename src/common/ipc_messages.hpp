@@ -258,7 +258,7 @@ template <WireBody Body>
 [[nodiscard]] std::array<std::byte, kFrameHeaderBytes + sizeof(Body)>
 encode_message(FrameHeader header, const Body& body) noexcept {
     header.payload_bytes = sizeof(Body);
-    std::array<std::byte, kFrameHeaderBytes + sizeof(Body)> frame;
+    std::array<std::byte, kFrameHeaderBytes + sizeof(Body)> frame{};
     const FrameHeaderBytes head = encode_header(header);
     const auto tail = std::bit_cast<std::array<std::byte, sizeof(Body)>>(body);
     std::ranges::copy(head, frame.begin());
@@ -275,7 +275,7 @@ decode_body(std::span<const std::byte> payload) noexcept {
     if (payload.size() != sizeof(Body)) {
         return std::unexpected(BodyError::WrongSize);
     }
-    std::array<std::byte, sizeof(Body)> raw;
+    std::array<std::byte, sizeof(Body)> raw{};
     std::memcpy(raw.data(), payload.data(), sizeof(Body));
     const auto body = std::bit_cast<Body>(raw);
     if (!is_valid(body)) {

@@ -36,6 +36,8 @@ Checks: >
   readability-duplicate-include
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*/(src|tests|tools|bench)/.*'
+# Fetched libraries (Catch2, SDL3, ImGui) live under build/_deps.
+ExcludeHeaderFilterRegex: '.*/_deps/.*'
 CheckOptions:
   cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
   cppcoreguidelines-special-member-functions.AllowMissingMoveFunctionsWhenCopyIsDeleted: true
