@@ -55,3 +55,7 @@ top-level CMake, or `cmake/` intentionally run both platform builds.
    for anything that parses bytes or does pointer math.
 5. Open a PR. CODEOWNERS asks kero to review only when it touches Windows-only files;
    for a shared-contract change, tag both robbie and kero yourself.
+
+`CLAUDE.md` has the longer checklist (asking first, tests that pin down current
+behavior, the checks to run before calling a PR done), written so an AI agent can
+follow it step by step.

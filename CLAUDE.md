@@ -38,6 +38,20 @@ For performance work, [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) has the measure
 baseline, the goals and how to measure; add a line to its log for every change
 that moves a number.
 
+## Quick reference
+
+| What | Here |
+| --- | --- |
+| Language | C++23 (`CMAKE_CXX_STANDARD 23`). The code already uses `std::expected`, concepts and `std::span`; don't rewrite it down to C++20. Exceptions and RTTI are off. |
+| Compilers | GCC or Clang on Linux (CI uses `clang-20`), MSVC 2022 on Windows |
+| Build | `cmake --preset linux-debug` then `cmake --build --preset linux-debug` (Windows: `windows-msvc-debug`) |
+| Test | `ctest --preset linux-debug` (Windows: `ctest --preset windows-msvc-debug`) |
+| Sanitizers | `linux-asan` (AddressSanitizer + UBSan), `linux-tsan` (ThreadSanitizer), `linux-fuzz` (libFuzzer) |
+| Format | `clang-format -i <files you changed>` (`.clang-format`; CI doesn't check it) |
+| Lint | No clang-tidy setup yet (see Open decisions) |
+| Coverage | No coverage tooling yet (see Open decisions) |
+| Task list | GitHub issues; the pinned roadmap is issue #6. There is no `TODO.md`. |
+
 ## Current state
 
 Phase 1, Linux phase 2 and the daemon skeleton are done. `scratterd` (built as
@@ -116,6 +130,10 @@ on the Windows side, and the Windows issues in order.
   `<sys/socket.h>`, PipeWire, etc.) out of shared headers.
 - **Warnings are errors.** `cmake/CompilerWarnings.cmake` builds with
   `-Wall -Wextra -Wpedantic -Wconversion -Werror` (MSVC: `/W4 /WX /permissive-`).
+  Clang's `-Wconversion` also turns on `-Wsign-conversion` and GCC's doesn't, so
+  code that builds clean with GCC can still fail in CI; build with Clang too (see
+  Build and test). Keep every check on. If a warning or sanitizer blocks you and
+  the fix isn't clear, stop and say so instead of silencing it.
 - **No exceptions, no RTTI.** Everything builds with `-fno-exceptions -fno-rtti`
   (MSVC: `/EHs-c- /GR-`). Report errors with return values (`std::expected`, error
   codes), not `throw`, and don't use `dynamic_cast` or `typeid`.
@@ -127,7 +145,29 @@ on the Windows side, and the Windows issues in order.
   bypass, and never ship the Widevine CDM. The spec's Non-goals section has the list.
 - **Never commit** credentials, tokens, CEF binaries, or Widevine blobs. `.gitignore`
   already excludes `third_party/cef/*`, `*widevine*`, `*.token`, `*.key` and `.env*`.
-- Follow `.clang-format` and `.editorconfig`.
+- Follow `.clang-format` and `.editorconfig`. (`.clang-format` says
+  `Standard: c++20` because clang-format has no C++23 setting; the code is still
+  C++23.)
+
+## Code standards
+
+The goal is code a newcomer, human or AI, can read and change. Plain and direct
+beats clever; don't add an abstraction until a second user needs it.
+
+- Use RAII for every resource (file descriptors, handles, mappings, CEF objects).
+  `std::unique_ptr` owns; references and `std::span` borrow.
+- Report errors with `std::expected` or an error code, and mark functions that
+  return one `[[nodiscard]]`. Mark other functions `[[nodiscard]]` and `constexpr`
+  where they qualify; `src/common/` is full of examples.
+- `const` by default. Initialize every variable where it's declared.
+- Use `enum class`, `std::array`, `std::string_view`, `std::optional` and
+  `std::span` where they fit. Prefer standard algorithms and ranges over a raw loop
+  when they read better; a plain loop is fine in the audio path and in other places
+  where it's clearer.
+- Every new feature gets tests. `constexpr` code also gets `static_assert` checks.
+- Match the style of the code and tests around you: names, layout and how the
+  test file is organized.
+- Delete dead code outright instead of commenting it out. Git keeps the history.
 - **No AI attribution anywhere in the repo's history or on GitHub.** Don't add
   `Co-Authored-By` trailers for Claude or any other AI, AI session links, or
   "Generated with/by Claude Code" lines to commits, PR descriptions, PR or issue
@@ -168,6 +208,15 @@ cmake --build --preset linux-tsan
 ctest --preset linux-tsan
 ```
 
+`linux-debug` uses the system compiler (GCC on most Linux setups). To build the same
+thing with Clang, as CI does, give it its own build folder:
+
+```sh
+cmake --preset linux-debug -B build/linux-clang -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake --build build/linux-clang
+ctest --test-dir build/linux-clang --output-on-failure
+```
+
 Windows, from a Developer PowerShell for VS 2022:
 
 ```powershell
@@ -192,6 +241,42 @@ as a separate ctest test. Because the project builds without exceptions, a faili
 a failure. `tests/test_sanity.cpp` is the example to copy. When a file gets its
 first `TEST_CASE`, add its name to `AM_TESTS` in `tests/CMakeLists.txt`.
 Sanitizer flags apply to every target, Catch2 included.
+
+## Working a task
+
+`docs/COLLABORATION.md` has the short version for both developers. This is the full
+checklist, written so an AI agent can follow it as is.
+
+1. Take one issue at a time from the roadmap (#6). Before building it, check the
+   open PRs and recent branches: the other developer may already be on it.
+2. Ask about anything ambiguous before starting, including which platform you're
+   on if the request doesn't say.
+3. Branch from `main` with a plain name (`feature/…`, `fix/…`, `docs/…`).
+4. Write or update the tests first, and start from a failing test where you can.
+   Before changing code that has thin tests, add tests that pin down what it does
+   today. If today's behavior looks wrong, keep the test matching it, open an issue
+   that describes intended versus actual behavior, and let robbie and kero decide.
+5. Make the smallest change that finishes the issue. Put unrelated improvements
+   you notice in a new issue rather than in this PR.
+6. If an approach fails twice, stop and write up the problem and the alternatives
+   instead of trying a third variation.
+7. Before calling it done, check that all of these ran clean, and say so in the PR:
+   - the build, with GCC and with Clang on Linux (MSVC on Windows);
+   - the full test suite, plus `linux-asan` for anything that parses bytes or does
+     pointer math and `linux-tsan` for anything with threads;
+   - `clang-format` on the files you changed.
+
+   Windows-only changes can't be built in a Linux container; say so and let the
+   Windows CI job check them.
+8. Open the PR with `Closes #N` so the issue closes on merge, and list any new
+   issues you found or opened.
+
+## Commits
+
+- Small commits, each a short imperative description of the change ("Add seek to
+  amctl").
+- A commit message holds only the description of the change. No `Co-Authored-By`
+  for an AI, no "Generated with" line, no session link (see the last item under Rules).
 
 ## Where to start
 
@@ -230,6 +315,10 @@ These aren't settled. Raise them with robbie and kero rather than picking one si
   build CEF with AAC turned on (spec 3.1.1). Still open: where the build runs for
   releases (it takes hours, and it needs redoing for CEF security updates) and how
   the AAC patent question is handled before a public release.
+- Static analysis and coverage. There's no `.clang-tidy` config and no coverage
+  build yet, so neither is a required check. Adding them means choosing which
+  clang-tidy checks to turn on and how to measure coverage of code that only runs on
+  one platform or with CEF.
 - Where the daemon's Apple Music developer token comes from: a token signed with
   your own Apple Developer account (ties users' activity to it, and the key must stay
   private), or the token Apple's web player uses (a clearer terms problem).
