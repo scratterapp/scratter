@@ -148,6 +148,11 @@ on the Windows side, and the Windows issues in order.
 - Follow `.clang-format` and `.editorconfig`. (`.clang-format` says
   `Standard: c++20` because clang-format has no C++23 setting; the code is still
   C++23.)
+- **No AI attribution anywhere in the repo's history or on GitHub.** Don't add
+  `Co-Authored-By` trailers for Claude or any other AI, AI session links, or
+  "Generated with/by Claude Code" lines to commits, PR descriptions, PR or issue
+  comments, or reviews, and don't commit under an AI identity. Commits are authored
+  by the human you are working for.
 
 ## Code standards
 
@@ -168,11 +173,6 @@ beats clever; don't add an abstraction until a second user needs it.
 - Match the style of the code and tests around you: names, layout and how the
   test file is organized.
 - Delete dead code outright instead of commenting it out. Git keeps the history.
-- **No AI attribution anywhere in the repo's history or on GitHub.** Don't add
-  `Co-Authored-By` trailers for Claude or any other AI, AI session links, or
-  "Generated with/by Claude Code" lines to commits, PR descriptions, PR or issue
-  comments, or reviews, and don't commit under an AI identity. Commits are authored
-  by the human you are working for.
 
 ## Build and test
 
