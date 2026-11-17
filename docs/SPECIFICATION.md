@@ -484,10 +484,12 @@ scratter/
 ├── LEGAL.md                           # Notice: unofficial, not affiliated with Apple
 ├── SECURITY.md                        # How to report a vulnerability, and what counts as one
 ├── CMakeLists.txt                     # Root build definition, C++23 flags, sanitizer options
-├── CMakePresets.json                  # Configure/build/test presets: linux-debug/-asan/-tsan/-fuzz/-release/-cef/-cef-release, windows-msvc-debug/-release
+├── CMakePresets.json                  # Configure/build/test presets: linux-debug/-asan/-tsan/-coverage/-fuzz/-release/-cef/-cef-release, windows-msvc-debug/-release
+├── .clang-tidy                        # clang-tidy checks, run by CI (tests/.clang-tidy relaxes two for tests)
 ├── cmake/
 │   ├── FindCEF.cmake                  # Our AAC-enabled CEF build in third_party/cef/ as CEF::CEF, when AM_WITH_CEF is on (never the Widevine CDM)
-│   ├── CompilerWarnings.cmake         # -Wall -Wextra -Wpedantic -Werror -Wconversion, no exceptions/RTTI
+│   ├── CompilerWarnings.cmake         # -Wall -Wextra -Wpedantic -Werror -Wconversion -Wshadow, no exceptions/RTTI
+│   ├── Coverage.cmake                 # --coverage on every target, when AM_ENABLE_COVERAGE is on (linux-coverage preset)
 │   ├── EmbedFile.cmake                # am_embed_file(): compiles a file (am-ui's fonts) into a program as a byte array
 │   ├── Hardening.cmake                # Stack protector, FORTIFY_SOURCE, bounds-checked std containers, PIE, full RELRO (MSVC: /guard:cf, /CETCOMPAT)
 │   └── Sanitizers.cmake               # ASan+UBSan / TSan flags applied to every target
@@ -675,7 +677,7 @@ These are out of scope on purpose, to keep the project a player. Don't add them,
     
 - **Verification Gate:**
     
-    - Zero warnings under `-Wall -Wextra -Wpedantic -Wconversion -Werror`.
+    - Zero warnings under `-Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror`.
         
     - 100 million SPSC frames transferred across two pinned CPU cores under ThreadSanitizer (`TSan`) with zero data races and bitwise-identical output verification.
         
