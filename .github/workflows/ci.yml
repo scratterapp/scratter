@@ -115,6 +115,30 @@ jobs:
             build/linux-fuzz/timeout-*
           if-no-files-found: ignore
 
+  # clang-tidy with the repo's .clang-tidy, over our own code (src, tests,
+  # tools, bench) as the linux-debug build compiles it. Any finding fails the
+  # job. Windows-only and CEF files aren't in that build, so they aren't checked.
+  clang-tidy:
+    name: clang-tidy
+    needs: changes
+    if: needs.changes.outputs.linux == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y clang-20 clang-tidy-20 ninja-build pkg-config libpipewire-0.3-dev libsecret-1-dev libsystemd-dev
+          sudo apt-get install --no-install-recommends -y libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl-dev libgl-dev libdecor-0-dev
+      - name: Configure
+        run: cmake --preset linux-debug -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_C_COMPILER=clang-20
+      - name: Build
+        # Builds first so generated headers exist when clang-tidy reads the code.
+        run: cmake --build --preset linux-debug
+      - name: clang-tidy
+        run: run-clang-tidy-20 -p build/linux-debug -quiet -j "$(nproc)" "$PWD/(src|tests|tools|bench)/"
+
   # Builds the daemon with CEF (the linux-cef preset) so the CEF host keeps
   # compiling, in a debug build and in the optimized one we measure and listen
   # with (linux-cef-release). It uses Google's prebuilt CEF of the same version

@@ -101,7 +101,7 @@ struct DaemonLink::Impl {
         {
             std::lock_guard lock(mutex);
             const DaemonState before = state;
-            change(state);
+            std::forward<Change>(change)(state);
             changed = !(before == state);
         }
         if (changed && on_change) {

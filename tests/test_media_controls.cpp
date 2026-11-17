@@ -30,7 +30,6 @@ using am::common::PlaybackState;
 using am::pal::MediaControls;
 using am::pal::MediaRequest;
 using am::pal::Reactor;
-using am::pal::TrackInfo;
 
 namespace {
 

@@ -13,6 +13,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(AM_ENABLE_ASAN "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(AM_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+option(AM_ENABLE_COVERAGE "Instrument the build for code coverage" OFF)
 option(AM_BUILD_FUZZERS "Build the libFuzzer targets in tests/ (Clang only)" OFF)
 # CEF only exists on machines that built it (it takes hours), so it's off by
 # default and CI builds without it. The linux-cef preset turns it on.
@@ -21,6 +22,7 @@ option(AM_WITH_CEF "Build the daemon with CEF from third_party/cef/ (see cmake/F
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
 include(Sanitizers)
+include(Coverage)
 include(Hardening)
 
 add_library(am_common INTERFACE)

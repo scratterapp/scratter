@@ -1,0 +1,6 @@
+# Tests do arithmetic on small constants (2 * 1000 samples, 10 * kRate frames)
+# that can't overflow, and spell it the way the test reads best.
+InheritParentConfig: true
+Checks: >
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-integer-division

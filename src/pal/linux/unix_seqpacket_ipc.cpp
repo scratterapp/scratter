@@ -235,7 +235,10 @@ struct IpcChannel::Impl {
     }
 
     static void call(const std::shared_ptr<Callback>& stored) {
-        const std::shared_ptr<Callback> callback = stored; // our own reference
+        // A copy on purpose: the callback may close this channel and drop
+        // `stored`, and this reference keeps it alive until it returns.
+        // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
+        const std::shared_ptr<Callback> callback = stored;
         if (callback && *callback) {
             (*callback)();
         }
@@ -300,7 +303,7 @@ std::expected<IoStatus, std::error_code> IpcChannel::send(std::span<const std::b
 
     // MSG_NOSIGNAL: without it, sending to a closed socket kills the whole
     // process with SIGPIPE instead of returning EPIPE.
-    ssize_t sent;
+    ssize_t sent = 0;
     do {
         sent = ::send(impl_->fd, message.data(), message.size(), MSG_NOSIGNAL);
     } while (sent < 0 && errno == EINTR);
@@ -339,7 +342,7 @@ std::expected<ReceiveResult, std::error_code> IpcChannel::receive(std::span<std:
     header.msg_iov = &chunk;
     header.msg_iovlen = 1;
 
-    ssize_t received;
+    ssize_t received = 0;
     do {
         received = ::recvmsg(impl_->fd, &header, 0);
     } while (received < 0 && errno == EINTR);
@@ -394,7 +397,7 @@ struct IpcListener::Impl {
         ::unlink(path.c_str());
     }
 
-    void on_event(const IoEvent& event) {
+    void on_event(const IoEvent& event) const {
         if (event.readable) {
             const std::shared_ptr<Callback> callback = on_accept; // see IpcChannel::Impl::call
             if (callback && *callback) {

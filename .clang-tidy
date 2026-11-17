@@ -1,0 +1,42 @@
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-unchecked-optional-access,
+  -bugprone-suspicious-stringview-data-usage,
+  concurrency-*,
+  -concurrency-mt-unsafe,
+  performance-*,
+  -performance-enum-size,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-pro-type-member-init,
+  cppcoreguidelines-special-member-functions,
+  cppcoreguidelines-missing-std-forward,
+  cppcoreguidelines-slicing,
+  cppcoreguidelines-virtual-class-destructor,
+  misc-definitions-in-headers,
+  misc-misplaced-const,
+  misc-redundant-expression,
+  misc-unused-parameters,
+  misc-unused-using-decls,
+  misc-use-internal-linkage,
+  modernize-use-nodiscard,
+  modernize-use-override,
+  modernize-use-nullptr,
+  modernize-use-equals-default,
+  modernize-use-equals-delete,
+  modernize-deprecated-headers,
+  readability-redundant-*,
+  -readability-redundant-member-init,
+  readability-make-member-function-const,
+  readability-container-size-empty,
+  readability-else-after-return,
+  readability-misleading-indentation,
+  readability-duplicate-include
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*/(src|tests|tools|bench)/.*'
+CheckOptions:
+  cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
+  cppcoreguidelines-special-member-functions.AllowMissingMoveFunctionsWhenCopyIsDeleted: true
+  bugprone-unused-return-value.AllowCastToVoid: true
