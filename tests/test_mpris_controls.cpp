@@ -90,7 +90,7 @@ struct Client {
     }
 
     // The xesam:title entry of Metadata, or "(none)".
-    std::string title() const {
+    [[nodiscard]] std::string title() const {
         sd_bus_message* reply = nullptr;
         if (sd_bus_get_property(bus, bus_name.c_str(), kPath, kPlayer, "Metadata", nullptr, &reply,
                                 "a{sv}") < 0) {

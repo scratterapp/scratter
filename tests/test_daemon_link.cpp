@@ -21,7 +21,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <signal.h>
+#include <csignal>
 
 #include <algorithm>
 #include <atomic>
@@ -280,6 +280,8 @@ struct BrokenDaemon {
     std::thread thread;
 
     BrokenDaemon(Reactor r, Mode m) : reactor(std::move(r)), mode(m) {}
+    BrokenDaemon(const BrokenDaemon&) = delete;
+    BrokenDaemon& operator=(const BrokenDaemon&) = delete;
 
     static std::unique_ptr<BrokenDaemon> start(const std::string& name, Mode mode) {
         auto reactor = Reactor::create();

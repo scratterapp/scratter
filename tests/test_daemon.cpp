@@ -27,7 +27,7 @@
 
 #include <systemd/sd-bus.h>
 
-#include <signal.h>
+#include <csignal>
 #include <spawn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -159,6 +159,7 @@ bool telemetry_shows(const TelemetryPage& page, PlaybackState wanted) {
 pid_t start_amctl(std::vector<std::string> args, const std::filesystem::path& output_file = {}) {
     args.insert(args.begin(), AM_AMCTL_PATH);
     std::vector<char*> argv;
+    argv.reserve(args.size() + 1);
     for (auto& arg : args) {
         argv.push_back(arg.data());
     }
@@ -463,7 +464,7 @@ TEST_CASE("the daemon seeks, clamps at the end and tells everyone", "[daemon][se
 
 // Children of `pid` that have exited but haven't been collected (zombies,
 // "Z" in /proc/<pid>/stat).
-int zombie_children_of(pid_t pid) {
+static int zombie_children_of(pid_t pid) {
     int zombies = 0;
     std::error_code error;
     for (const auto& entry : std::filesystem::directory_iterator("/proc", error)) {

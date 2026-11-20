@@ -11,7 +11,7 @@
 
 #include "reactor.hpp"
 
-#include <signal.h>
+#include <csignal>
 #include <sys/signalfd.h>
 #include <unistd.h>
 
@@ -57,7 +57,7 @@ std::expected<ShutdownSignal, std::error_code> ShutdownSignal::watch(Reactor& re
     auto watched = reactor.watch({self->fd}, {.readable = true}, [self](const IoEvent&) {
         // Read every pending signal so the fd stops being readable, then
         // tell the daemon once.
-        signalfd_siginfo info;
+        signalfd_siginfo info{};
         bool got_one = false;
         while (::read(self->fd, &info, sizeof(info)) == static_cast<ssize_t>(sizeof(info))) {
             got_one = true;

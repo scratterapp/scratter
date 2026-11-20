@@ -51,7 +51,8 @@ class PolyphaseResampler {
         // filter's transition band.
         constexpr double kCutoff = 0.9;
         constexpr double kPi = std::numbers::pi;
-        constexpr double kCenter = static_cast<double>(kTaps / 2 - 1);
+        constexpr std::size_t kCenterTap = kTaps / 2 - 1;
+        constexpr double kCenter = static_cast<double>(kCenterTap);
 
         // Row p is for an output frame `p / kPhases` of the way from history
         // frame kTaps/2 - 1 to the next one. There is one extra row (p ==

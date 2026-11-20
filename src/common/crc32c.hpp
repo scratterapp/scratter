@@ -101,7 +101,7 @@ crc32c_hardware(std::span<const std::byte> data) noexcept {
     std::uint64_t crc = 0xFFFFFFFF;
     std::size_t i = 0;
     for (; i + 8 <= data.size(); i += 8) {
-        std::uint64_t chunk;
+        std::uint64_t chunk = 0;
         std::memcpy(&chunk, data.data() + i, 8); // memcpy: data may not be 8-byte aligned
         crc = _mm_crc32_u64(crc, chunk);
     }
@@ -124,7 +124,7 @@ crc32c_hardware(std::span<const std::byte> data) noexcept {
     std::uint32_t crc = 0xFFFFFFFF;
     std::size_t i = 0;
     for (; i + 8 <= data.size(); i += 8) {
-        std::uint64_t chunk;
+        std::uint64_t chunk = 0;
         std::memcpy(&chunk, data.data() + i, 8); // memcpy: data may not be 8-byte aligned
         crc = __crc32cd(crc, chunk);
     }

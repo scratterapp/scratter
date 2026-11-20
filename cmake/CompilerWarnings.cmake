@@ -13,6 +13,7 @@ function(am_enable_warnings target)
             -Wpedantic
             -Werror
             -Wconversion
+            -Wshadow
             -fno-exceptions
             -fno-rtti
         )

@@ -48,8 +48,8 @@ that moves a number.
 | Test | `ctest --preset linux-debug` (Windows: `ctest --preset windows-msvc-debug`) |
 | Sanitizers | `linux-asan` (AddressSanitizer + UBSan), `linux-tsan` (ThreadSanitizer), `linux-fuzz` (libFuzzer) |
 | Format | `clang-format -i <files you changed>` (`.clang-format`; CI doesn't check it) |
-| Lint | No clang-tidy setup yet (see Open decisions) |
-| Coverage | No coverage tooling yet (see Open decisions) |
+| Lint | `run-clang-tidy -p build/linux-debug -quiet "$PWD/(src\|tests\|tools\|bench)/"` (`.clang-tidy`; CI fails on any finding) |
+| Coverage | `linux-coverage` preset, read with `gcovr` (see Build and test) |
 | Task list | GitHub issues; the pinned roadmap is issue #6. There is no `TODO.md`. |
 
 ## Current state
@@ -129,11 +129,13 @@ on the Windows side, and the Windows issues in order.
   platform implements against them. Keep platform headers (`<windows.h>`,
   `<sys/socket.h>`, PipeWire, etc.) out of shared headers.
 - **Warnings are errors.** `cmake/CompilerWarnings.cmake` builds with
-  `-Wall -Wextra -Wpedantic -Wconversion -Werror` (MSVC: `/W4 /WX /permissive-`).
+  `-Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror` (MSVC: `/W4 /WX /permissive-`).
   Clang's `-Wconversion` also turns on `-Wsign-conversion` and GCC's doesn't, so
   code that builds clean with GCC can still fail in CI; build with Clang too (see
-  Build and test). Keep every check on. If a warning or sanitizer blocks you and
-  the fix isn't clear, stop and say so instead of silencing it.
+  Build and test). Keep every check on, clang-tidy's included. If a warning,
+  sanitizer or clang-tidy finding blocks you and the fix isn't clear, stop and say
+  so instead of silencing it. A `// NOLINT(check-name)` is only for code that is
+  right as written, with a comment that says why.
 - **No exceptions, no RTTI.** Everything builds with `-fno-exceptions -fno-rtti`
   (MSVC: `/EHs-c- /GR-`). Report errors with return values (`std::expected`, error
   codes), not `throw`, and don't use `dynamic_cast` or `typeid`.
@@ -191,6 +193,8 @@ Sanitizer builds use the same three commands with a different preset:
 - `linux-asan` runs AddressSanitizer plus UndefinedBehaviorSanitizer (memory errors,
   leaks, signed overflow and other undefined behavior).
 - `linux-tsan` runs ThreadSanitizer (data races between threads).
+- `linux-coverage` builds with `--coverage` so you can see which lines the tests
+  run (details below).
 - `linux-fuzz` is `linux-asan` built with Clang plus the libFuzzer targets
   (`tests/fuzz_*.cpp`); its ctest run includes a short smoke run of each fuzzer.
 - `linux-cef` is `linux-debug` with `AM_WITH_CEF=ON`: the daemon links our CEF
@@ -217,6 +221,32 @@ cmake --build build/linux-clang
 ctest --test-dir build/linux-clang --output-on-failure
 ```
 
+clang-tidy reads the build's `compile_commands.json`, so build first. The command
+checks only our code. It takes a couple of minutes, so while you work, run plain
+`clang-tidy -p build/linux-debug <file>` on the files you changed:
+
+```sh
+run-clang-tidy -p build/linux-debug -quiet "$PWD/(src|tests|tools|bench)/"
+```
+
+`.clang-tidy` turns on the bugprone, performance and concurrency checks, plus a short
+list of others that match the code standards below. It turns off a few, each with a
+reason, and `tests/.clang-tidy` relaxes two more for test code. Windows-only and
+CEF files aren't in the Linux build, so clang-tidy doesn't check them yet.
+
+Coverage (needs `gcovr`: `pacman -S gcovr` on Arch, `apt install gcovr` on Ubuntu):
+
+```sh
+cmake --preset linux-coverage
+cmake --build --preset linux-coverage
+ctest --preset linux-coverage
+gcovr --root . --filter src/ --filter tools/ --gcov-exclude-directories '.*_deps.*' --print-summary --html-details build/linux-coverage/coverage.html build/linux-coverage
+```
+
+On 2026-11-17 the tests ran 80% of the lines and 63% of the branches in the code
+the Linux build compiles. Code that only runs with CEF, or only on Windows, isn't
+in that number.
+
 Windows, from a Developer PowerShell for VS 2022:
 
 ```powershell
@@ -228,7 +258,7 @@ ctest --preset windows-msvc-debug
 CI (`.github/workflows/ci.yml`) path-filters: changes only under `src/pal/linux/`
 skip the Windows job, changes only under `src/pal/win32/` skip the Linux job, and
 everything else runs both. Linux CI runs on Ubuntu, not Arch, and builds and tests
-`linux-debug`, `linux-asan` and `linux-tsan`, plus `linux-cef` and `linux-cef-release`
+`linux-debug`, `linux-asan` and `linux-tsan`, runs clang-tidy, and builds `linux-cef` and `linux-cef-release`
 against Google's prebuilt CEF of the same version (it can't decode AAC, but it
 compiles and links the same). A separate `ipc-fuzz` job runs the IPC
 frame fuzzer for 10 million inputs, the last part of the spec's Phase 1 gate.
@@ -264,7 +294,9 @@ checklist, written so an AI agent can follow it as is.
    - the build, with GCC and with Clang on Linux (MSVC on Windows);
    - the full test suite, plus `linux-asan` for anything that parses bytes or does
      pointer math and `linux-tsan` for anything with threads;
-   - `clang-format` on the files you changed.
+   - clang-tidy (CI runs it too, but it's faster to catch findings locally);
+   - `clang-format` on the files you changed;
+   - coverage of the code you touched is the same or higher (`linux-coverage`).
 
    Windows-only changes can't be built in a Linux container; say so and let the
    Windows CI job check them.
@@ -315,10 +347,9 @@ These aren't settled. Raise them with robbie and kero rather than picking one si
   build CEF with AAC turned on (spec 3.1.1). Still open: where the build runs for
   releases (it takes hours, and it needs redoing for CEF security updates) and how
   the AAC patent question is handled before a public release.
-- Static analysis and coverage. There's no `.clang-tidy` config and no coverage
-  build yet, so neither is a required check. Adding them means choosing which
-  clang-tidy checks to turn on and how to measure coverage of code that only runs on
-  one platform or with CEF.
+- How far to take clang-tidy and coverage. clang-tidy starts with a short list of
+  checks, and Windows and CEF code isn't checked yet. Coverage is measured but has no
+  minimum, and code that only runs on Windows or with CEF isn't measured.
 - Where the daemon's Apple Music developer token comes from: a token signed with
   your own Apple Developer account (ties users' activity to it, and the key must stay
   private), or the token Apple's web player uses (a clearer terms problem).

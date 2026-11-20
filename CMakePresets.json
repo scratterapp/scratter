@@ -36,6 +36,14 @@
             }
         },
         {
+            "name": "linux-coverage",
+            "inherits": "linux-debug",
+            "binaryDir": "${sourceDir}/build/linux-coverage",
+            "cacheVariables": {
+                "AM_ENABLE_COVERAGE": "ON"
+            }
+        },
+        {
             "name": "linux-fuzz",
             "inherits": "linux-asan",
             "binaryDir": "${sourceDir}/build/linux-fuzz",
@@ -105,6 +113,10 @@
             "configurePreset": "linux-tsan"
         },
         {
+            "name": "linux-coverage",
+            "configurePreset": "linux-coverage"
+        },
+        {
             "name": "linux-fuzz",
             "configurePreset": "linux-fuzz"
         },
@@ -156,6 +168,13 @@
             },
             "environment": {
                 "TSAN_OPTIONS": "halt_on_error=1:second_deadlock_stack=1:suppressions=${sourceDir}/tests/tsan.supp"
+            }
+        },
+        {
+            "name": "linux-coverage",
+            "configurePreset": "linux-coverage",
+            "output": {
+                "outputOnFailure": true
             }
         },
         {

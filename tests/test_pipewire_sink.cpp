@@ -18,7 +18,6 @@
 
 namespace {
 
-using am::pal::AudioFormat;
 using am::pal::AudioSink;
 using namespace std::chrono_literals;
 

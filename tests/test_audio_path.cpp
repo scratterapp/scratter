@@ -493,7 +493,7 @@ struct TrackChange {
     float last_sample = 0.0f;
 };
 
-TrackChange play_track_change(std::size_t sink_frames, std::size_t break_frames) {
+static TrackChange play_track_change(std::size_t sink_frames, std::size_t break_frames) {
     auto audio = std::make_unique<AudioPath>(kRate);
     std::vector<float> packet(AudioPath::kPacketFrames);
     std::vector<float> out(sink_frames * AudioPath::kChannels);

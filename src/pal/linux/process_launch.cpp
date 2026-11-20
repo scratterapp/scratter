@@ -32,13 +32,14 @@
 #include <vector>
 
 #include <fcntl.h>
-#include <signal.h>
+#include <csignal>
 #include <spawn.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
-extern char** environ;
+// POSIX says the program declares environ itself; glibc only does it with _GNU_SOURCE.
+extern char** environ; // NOLINT(readability-redundant-declaration)
 
 namespace am::pal {
 namespace {
@@ -107,6 +108,7 @@ std::expected<void, std::error_code> launch_ui(Reactor& reactor,
     words.push_back(program.string());
     words.insert(words.end(), args.begin(), args.end());
     std::vector<char*> argv;
+    argv.reserve(words.size() + 1);
     for (std::string& word : words) {
         argv.push_back(word.data());
     }
