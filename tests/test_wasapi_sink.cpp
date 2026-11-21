@@ -5,12 +5,14 @@
 // project builds without. For listening to it, see tests/manual/play_sine.cpp.
 
 #include "audio_sink.hpp"
+#include "pal/win32/wasapi_sink_testing.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include <system_error>
 #include <thread>
@@ -41,6 +43,18 @@ std::expected<AudioSink, std::error_code> open_silent_sink(Counters& counters) {
             }
             counters.thread.store(std::this_thread::get_id(), std::memory_order_relaxed);
         });
+}
+
+// Waits up to two seconds for the sinks in this process to have set up more
+// than `before` streams in all, which is how a test sees a reopen finish.
+bool wait_for_reopen(std::uint64_t before) {
+    for (int i = 0; i < 200; ++i) {
+        if (am::pal::wasapi_testing::streams_opened() > before) {
+            return true;
+        }
+        std::this_thread::sleep_for(10ms);
+    }
+    return false;
 }
 
 } // namespace
@@ -183,4 +197,95 @@ TEST_CASE("exclusive mode refuses a format no device can do", "[audio][wasapi]")
         // No device at all (CI) says "element not found" instead.
         WARN("no audio output device: " << sink.error().message());
     }
+}
+
+// What the sink does when the default device changes or goes away, on the
+// same device: drop the stream and set up a new one (issue #94).
+TEST_CASE("a playing sink keeps playing through a reopen, in the same format", "[audio][wasapi]") {
+    Counters counters;
+    auto sink = open_silent_sink(counters);
+    if (!sink) {
+        WARN("no audio output device, not testing a reopen: " << sink.error().message());
+        return;
+    }
+    const AudioFormat format = sink->format();
+    REQUIRE(sink->start());
+    std::this_thread::sleep_for(200ms);
+    REQUIRE(counters.calls.load() > 0);
+
+    const std::uint64_t streams = am::pal::wasapi_testing::streams_opened();
+    am::pal::wasapi_testing::reopen_all();
+    REQUIRE(wait_for_reopen(streams));
+
+    // The new stream plays without another start().
+    const int calls = counters.calls.load();
+    std::this_thread::sleep_for(300ms);
+    CHECK(counters.calls.load() > calls);
+    // The daemon set itself up for the first format, so it stays.
+    CHECK(sink->format().sample_rate_hz == format.sample_rate_hz);
+    CHECK(sink->format().channels == format.channels);
+
+    // stop() and start() still work on the new stream.
+    REQUIRE(sink->stop());
+    const int stopped_at = counters.calls.load();
+    std::this_thread::sleep_for(100ms);
+    CHECK(counters.calls.load() == stopped_at);
+    REQUIRE(sink->start());
+    std::this_thread::sleep_for(200ms);
+    REQUIRE(sink->stop());
+    CHECK(counters.calls.load() > stopped_at);
+}
+
+TEST_CASE("a stopped sink stays stopped through a reopen", "[audio][wasapi]") {
+    Counters counters;
+    auto sink = open_silent_sink(counters);
+    if (!sink) {
+        WARN("no audio output device, not testing a reopen: " << sink.error().message());
+        return;
+    }
+    REQUIRE(sink->start());
+    std::this_thread::sleep_for(100ms);
+    REQUIRE(sink->stop());
+    const int calls = counters.calls.load();
+
+    const std::uint64_t streams = am::pal::wasapi_testing::streams_opened();
+    am::pal::wasapi_testing::reopen_all();
+    REQUIRE(wait_for_reopen(streams));
+    std::this_thread::sleep_for(200ms);
+    CHECK(counters.calls.load() == calls);
+
+    // And it plays on the new stream once asked.
+    REQUIRE(sink->start());
+    std::this_thread::sleep_for(200ms);
+    REQUIRE(sink->stop());
+    CHECK(counters.calls.load() > calls);
+}
+
+TEST_CASE("an exclusive sink keeps its format through a reopen", "[audio][wasapi]") {
+    Counters counters;
+    auto sink = AudioSink::open(
+        {.sample_rate_hz = 48000, .channels = 2},
+        [&counters](std::span<float> out) noexcept {
+            for (float& sample : out) {
+                sample = 0.0f;
+            }
+            counters.calls.fetch_add(1, std::memory_order_relaxed);
+        },
+        am::pal::OutputMode::Exclusive);
+    if (!sink) {
+        WARN("no exclusive output here, not testing a reopen: " << sink.error().message());
+        return;
+    }
+    REQUIRE(sink->start());
+    std::this_thread::sleep_for(100ms);
+
+    const std::uint64_t streams = am::pal::wasapi_testing::streams_opened();
+    am::pal::wasapi_testing::reopen_all();
+    REQUIRE(wait_for_reopen(streams));
+    const int calls = counters.calls.load();
+    std::this_thread::sleep_for(200ms);
+    REQUIRE(sink->stop());
+    CHECK(counters.calls.load() > calls);
+    CHECK(sink->mode() == am::pal::OutputMode::Exclusive);
+    CHECK(sink->format().sample_rate_hz == 48000);
 }

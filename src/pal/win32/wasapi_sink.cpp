@@ -43,11 +43,30 @@
 // audio thread higher priority without admin rights. If MMCSS is unavailable
 // the sink still plays, at normal priority.
 //
-// TODO(@kerelosgayed): follow the default device. When it changes or goes away,
-// WASAPI invalidates the stream (AUDCLNT_E_DEVICE_INVALIDATED) and the sink
-// goes quiet; PipeWire moves its stream to the new device by itself.
+// The sink follows the default device (issue #94), the way PipeWire moves its
+// streams by itself. Two things send the thread to open the default device
+// again:
+//
+//   - Windows says the default changed (IMMNotificationClient). Its callback
+//     runs on a thread of Windows' own and only sets an event; the reopen
+//     happens here, and only if the default is a different device.
+//   - The stream is lost (AUDCLNT_E_DEVICE_INVALIDATED): the device was
+//     unplugged, its format was changed in Sound settings, or the audio
+//     service restarted. A lost stream may simply stop setting its event, so
+//     while the sink plays, a buffer event that's late by far more than a
+//     period makes the thread check whether the stream is still there.
+//
+// The new stream keeps the format open() reported, because the daemon set up
+// its audio path and CEF for it. So the IAudioClient3 path is only taken when
+// the new mix runs at that rate, and otherwise AUTOCONVERTPCM converts; an
+// exclusive sink asks the new device for the same format. If no device takes
+// it (none left, or another app holds it in exclusive mode), the sink stays
+// quiet and tries again every couple of seconds and on the next change.
+// Meanwhile start() and stop() still succeed: they record what was asked, and
+// the next stream starts playing if it should.
 
 #include "audio_sink.hpp"
+#include "pal/win32/wasapi_sink_testing.hpp"
 
 #include <windows.h>
 
@@ -58,15 +77,19 @@
 
 #include <ksmedia.h>
 #include <wrl/client.h>
+#include <wrl/implements.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <memory>
 #include <span>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace am::pal {
 
@@ -225,30 +248,117 @@ REFERENCE_TIME duration_of(UINT32 frames, std::uint32_t rate) noexcept {
     return static_cast<REFERENCE_TIME>(10'000'000.0 * frames / rate + 0.5);
 }
 
+// While the sink plays, the buffer event comes every period, 20 ms at most.
+// This long without one, the stream is checked for having been lost.
+constexpr DWORD kStalledMs = 500;
+// How often a sink with no stream tries to open the default device again.
+constexpr DWORD kRetryMs = 2000;
+
+// The errors that mean the stream is gone and only a new one will play.
+bool stream_lost(HRESULT hr) noexcept {
+    return hr == AUDCLNT_E_DEVICE_INVALIDATED || hr == AUDCLNT_E_SERVICE_NOT_RUNNING;
+}
+
+// The default render device for music, or null if there's none.
+ComPtr<IMMDevice> default_device(IMMDeviceEnumerator* devices, HRESULT& hr) {
+    ComPtr<IMMDevice> device;
+    // eMultimedia is the role for music; it's the default device unless the
+    // user picked another one for it.
+    hr = devices->GetDefaultAudioEndpoint(eRender, eMultimedia, &device);
+    return device;
+}
+
+// The device's ID, which stays the same for as long as the device exists.
+// Empty if Windows won't say.
+std::wstring id_of(IMMDevice* device) {
+    LPWSTR id = nullptr;
+    if (FAILED(device->GetId(&id))) {
+        return {};
+    }
+    std::wstring copy(id);
+    ::CoTaskMemFree(id);
+    return copy;
+}
+
+// Sets an event when the default device for music changes. Windows calls it
+// on a thread of its own, where it must not call back into the device
+// enumerator, so it does nothing else. It keeps its own copy of the event,
+// since Windows may hold on to it a little after it's unregistered.
+class DeviceWatcher final
+    : public Microsoft::WRL::RuntimeClass<
+          Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IMMNotificationClient> {
+  public:
+    explicit DeviceWatcher(HANDLE changed) noexcept : changed_(changed) {}
+    DeviceWatcher(const DeviceWatcher&) = delete;
+    DeviceWatcher& operator=(const DeviceWatcher&) = delete;
+    ~DeviceWatcher() override { ::CloseHandle(changed_); }
+
+    STDMETHODIMP OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR) override {
+        if (flow == eRender && role == eMultimedia) {
+            ::SetEvent(changed_);
+        }
+        return S_OK;
+    }
+    STDMETHODIMP OnDeviceStateChanged(LPCWSTR, DWORD) override { return S_OK; }
+    STDMETHODIMP OnDeviceAdded(LPCWSTR) override { return S_OK; }
+    STDMETHODIMP OnDeviceRemoved(LPCWSTR) override { return S_OK; }
+    STDMETHODIMP OnPropertyValueChanged(LPCWSTR, const PROPERTYKEY) override { return S_OK; }
+
+  private:
+    HANDLE changed_;
+};
+
+} // namespace
+
+namespace {
+
+// What wasapi_testing::reopen_all() needs from one sink: the event the
+// device watcher sets, and a flag saying to reopen even on the same device.
+struct ReopenHook {
+    HANDLE device_event = nullptr;
+    std::atomic<bool> force{false};
+};
+
+// The open sinks, for wasapi_testing. Only open() and the destructor change
+// the list, never the audio thread.
+SRWLOCK g_sinks_lock = SRWLOCK_INIT;
+std::vector<ReopenHook*> g_sinks;
+std::atomic<std::uint64_t> g_streams_opened{0};
+
 } // namespace
 
 struct AudioSink::Impl {
     enum class Request { None, Start, Stop, Quit };
 
     AudioFormat requested;
+    // What open() reported. A stream opened later, on another device, keeps it.
     AudioFormat format;
     OutputMode mode = OutputMode::Shared;
     RenderCallback render;
 
     // Only the audio thread touches these.
-    ComPtr<IAudioClient> client;
+    ComPtr<IMMDeviceEnumerator> devices;
+    ComPtr<DeviceWatcher> watcher; // registered with `devices` while not null
+    ComPtr<IAudioClient> client;   // null while there's no stream
     ComPtr<IAudioRenderClient> render_client;
+    std::wstring device_id; // the device `client` plays on
     UINT32 buffer_frames = 0;
     SampleType sample_type = SampleType::Float32;
     // Where the callback renders when the device takes integers (exclusive
-    // mode only): one buffer's worth, allocated during setup.
+    // mode only): one buffer's worth, allocated when a stream is set up.
     std::unique_ptr<float[]> scratch;
-    bool playing = false;
+    std::size_t scratch_samples = 0;
+    bool playing = false; // what start() and stop() last asked for
+    bool running = false; // the stream is started; implies `client`
 
     HANDLE thread = nullptr;
     HANDLE buffer_event = nullptr;  // WASAPI: part of the buffer has been played
     HANDLE request_event = nullptr; // start(), stop() or the destructor wants something
     HANDLE done_event = nullptr;    // the audio thread finished setup or a request
+    HANDLE device_event = nullptr;  // the default device changed, or a test says so
+
+    ReopenHook hook;
+    bool registered = false; // `hook` is in g_sinks
 
     // Written before request_event or done_event is set and read after waiting
     // for it, so the event orders the two threads' accesses. Setup also fills
@@ -261,6 +371,11 @@ struct AudioSink::Impl {
     Impl& operator=(const Impl&) = delete;
 
     ~Impl() {
+        if (registered) {
+            ::AcquireSRWLockExclusive(&g_sinks_lock);
+            std::erase(g_sinks, &hook);
+            ::ReleaseSRWLockExclusive(&g_sinks_lock);
+        }
         if (thread != nullptr) {
             // A thread whose setup failed is already on its way out and never
             // reads this.
@@ -269,7 +384,7 @@ struct AudioSink::Impl {
             ::WaitForSingleObject(thread, INFINITE);
             ::CloseHandle(thread);
         }
-        for (HANDLE event : {buffer_event, request_event, done_event}) {
+        for (HANDLE event : {buffer_event, request_event, done_event, device_event}) {
             if (event != nullptr) {
                 ::CloseHandle(event);
             }
@@ -314,8 +429,12 @@ struct AudioSink::Impl {
             self->run();
         }
 
-        self->render_client.Reset();
-        self->client.Reset();
+        self->close_stream();
+        if (self->watcher) {
+            self->devices->UnregisterEndpointNotificationCallback(self->watcher.Get());
+            self->watcher.Reset();
+        }
+        self->devices.Reset();
         if (mmcss != nullptr) {
             ::AvRevertMmThreadCharacteristics(mmcss);
         }
@@ -323,32 +442,59 @@ struct AudioSink::Impl {
         return 0;
     }
 
+    // The first stream, on the default device. Unlike later ones, it has to
+    // work: with no device at all, open() fails.
     std::error_code set_up() {
-        ComPtr<IMMDeviceEnumerator> devices;
         HRESULT hr = ::CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
                                         IID_PPV_ARGS(&devices));
         if (FAILED(hr)) {
             return hr_error(hr);
         }
-        // eMultimedia is the role for music; it's the default device unless
-        // the user picked another one for it.
-        ComPtr<IMMDevice> device;
-        hr = devices->GetDefaultAudioEndpoint(eRender, eMultimedia, &device);
+        const ComPtr<IMMDevice> device = default_device(devices.Get(), hr);
         if (FAILED(hr)) {
             return hr_error(hr); // no output device: "Element not found"
         }
+        if (const std::error_code error = open_stream(device.Get(), /*first=*/true)) {
+            return error;
+        }
+        watch_devices();
+        return {};
+    }
 
+    // Asks Windows to tell us when the default device changes. If it won't,
+    // the sink still plays, and still recovers a lost stream on the default
+    // device; it just doesn't move when a new default is picked.
+    void watch_devices() {
+        HANDLE copy = nullptr;
+        if (!::DuplicateHandle(::GetCurrentProcess(), device_event, ::GetCurrentProcess(), &copy, 0,
+                               FALSE, DUPLICATE_SAME_ACCESS)) {
+            return;
+        }
+        watcher = Microsoft::WRL::Make<DeviceWatcher>(copy);
+        if (!watcher) {
+            ::CloseHandle(copy);
+            return;
+        }
+        if (FAILED(devices->RegisterEndpointNotificationCallback(watcher.Get()))) {
+            watcher.Reset();
+        }
+    }
+
+    // Sets up a stream on `device` in `format`, or leaves `client` null. The
+    // first one may pick the rate (the mix rate, in shared mode); later ones
+    // keep it.
+    std::error_code open_stream(IMMDevice* device, bool first) {
         if (mode == OutputMode::Exclusive) {
-            if (const std::error_code error = initialize_exclusive(device.Get())) {
+            if (const std::error_code error = initialize_exclusive(device)) {
                 return error;
             }
-        } else if (!initialize_low_latency(device.Get())) {
-            if (const std::error_code error = initialize_converting(device.Get())) {
+        } else if (!initialize_low_latency(device, first)) {
+            if (const std::error_code error = initialize_converting(device)) {
                 return error;
             }
         }
 
-        hr = client->GetBufferSize(&buffer_frames);
+        HRESULT hr = client->GetBufferSize(&buffer_frames);
         if (SUCCEEDED(hr)) {
             hr = client->SetEventHandle(buffer_event);
         }
@@ -356,12 +502,19 @@ struct AudioSink::Impl {
             hr = client->GetService(IID_PPV_ARGS(&render_client));
         }
         if (FAILED(hr)) {
+            render_client.Reset();
+            client.Reset();
             return hr_error(hr);
         }
-        if (sample_type != SampleType::Float32) {
-            scratch = std::make_unique<float[]>(static_cast<std::size_t>(buffer_frames) *
-                                                format.channels);
+        // A new device can have a larger buffer than the last. This is stream
+        // setup, so the allocation is outside the render callback's rule.
+        const std::size_t samples = static_cast<std::size_t>(buffer_frames) * format.channels;
+        if (sample_type != SampleType::Float32 && samples > scratch_samples) {
+            scratch = std::make_unique<float[]>(samples);
+            scratch_samples = samples;
         }
+        device_id = id_of(device);
+        g_streams_opened.fetch_add(1, std::memory_order_relaxed);
         return {};
     }
 
@@ -385,8 +538,7 @@ struct AudioSink::Impl {
             HRESULT hr = try_exclusive(device, wanted, fresh);
             if (SUCCEEDED(hr)) {
                 client = std::move(fresh);
-                sample_type = type;
-                format = requested;
+                sample_type = type; // `format` is already `requested`, from open()
                 return {};
             }
             refused = hr;
@@ -464,8 +616,10 @@ struct AudioSink::Impl {
     }
 
     // The IAudioClient3 path. Returns false, leaving `client` empty, if it
-    // doesn't apply or doesn't work here, and the caller falls back.
-    bool initialize_low_latency(IMMDevice* device) {
+    // doesn't apply or doesn't work here, and the caller falls back. Only the
+    // first stream may take the mix rate; a later one needs the mix to run at
+    // the rate the first one reported.
+    bool initialize_low_latency(IMMDevice* device, bool any_rate) {
         ComPtr<IAudioClient3> client3;
         if (FAILED(device->Activate(__uuidof(IAudioClient3), CLSCTX_ALL, nullptr, &client3))) {
             return false;
@@ -481,7 +635,8 @@ struct AudioSink::Impl {
             mask = reinterpret_cast<const WAVEFORMATEXTENSIBLE*>(mix)->dwChannelMask;
         }
         ::CoTaskMemFree(mix);
-        if (mix_channels != requested.channels) {
+        if (mix_channels != requested.channels ||
+            (!any_rate && mix_rate != format.sample_rate_hz)) {
             return false;
         }
 
@@ -497,19 +652,24 @@ struct AudioSink::Impl {
             return false;
         }
         client = std::move(client3);
-        format = {.sample_rate_hz = mix_rate, .channels = mix_channels};
+        if (any_rate) {
+            // Only during open(): later, format() may be read on another
+            // thread at any time, and it's already this.
+            format = {.sample_rate_hz = mix_rate, .channels = mix_channels};
+        }
         return true;
     }
 
-    // The fallback: Windows converts the requested format to the device's.
+    // The fallback: Windows converts `format` to the device's. For the first
+    // stream that's the requested format; for a later one, the first one's.
     std::error_code initialize_converting(IMMDevice* device) {
         ComPtr<IAudioClient> fresh;
         HRESULT hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, &fresh);
         if (FAILED(hr)) {
             return hr_error(hr);
         }
-        WAVEFORMATEXTENSIBLE wanted = float_format(requested.sample_rate_hz, requested.channels,
-                                                   default_channel_mask(requested.channels));
+        WAVEFORMATEXTENSIBLE wanted = float_format(format.sample_rate_hz, format.channels,
+                                                   default_channel_mask(format.channels));
         hr = fresh->Initialize(AUDCLNT_SHAREMODE_SHARED,
                                AUDCLNT_STREAMFLAGS_EVENTCALLBACK |
                                    AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
@@ -519,28 +679,40 @@ struct AudioSink::Impl {
             return hr_error(hr);
         }
         client = std::move(fresh);
-        format = requested;
         return {};
     }
 
     // The audio thread's loop. Requests come first in the wait list, so a
     // stop() is answered even while the buffer event keeps firing.
     void run() {
-        const HANDLE waits[] = {request_event, buffer_event};
+        const HANDLE waits[] = {request_event, device_event, buffer_event};
         for (;;) {
-            const DWORD woke = ::WaitForMultipleObjects(2, waits, FALSE, INFINITE);
+            // No stream: try for one now and then. Playing: notice a stream
+            // that stopped asking for audio. Paused: nothing to do until asked.
+            DWORD timeout = INFINITE;
+            if (!client) {
+                timeout = kRetryMs;
+            } else if (running) {
+                timeout = kStalledMs;
+            }
+            const DWORD woke = ::WaitForMultipleObjects(3, waits, FALSE, timeout);
             if (woke == WAIT_OBJECT_0) {
                 if (request == Request::Quit) {
-                    if (playing) {
-                        client->Stop();
-                    }
                     return;
                 }
                 result = request == Request::Start ? start_stream() : stop_stream();
                 ::SetEvent(done_event);
             } else if (woke == WAIT_OBJECT_0 + 1) {
-                if (playing) {
-                    fill(/*silence=*/false);
+                default_changed();
+            } else if (woke == WAIT_OBJECT_0 + 2) {
+                if (running && !fill(/*silence=*/false)) {
+                    reopen();
+                }
+            } else if (woke == WAIT_TIMEOUT) {
+                if (!client) {
+                    reopen();
+                } else if (UINT32 queued = 0; stream_lost(client->GetCurrentPadding(&queued))) {
+                    reopen();
                 }
             } else {
                 return; // the wait itself failed; ask() notices the thread is gone
@@ -548,60 +720,121 @@ struct AudioSink::Impl {
         }
     }
 
-    std::error_code start_stream() {
-        if (playing) {
-            return {};
+    // Windows says the default device changed, which it also says when it
+    // only changed for another role or flow, so check that ours did.
+    void default_changed() {
+        HRESULT hr = S_OK;
+        const ComPtr<IMMDevice> device = default_device(devices.Get(), hr);
+        if (!device) {
+            close_stream(); // no output device left; try again later
+            return;
         }
+        if (hook.force.exchange(false) || !client || id_of(device.Get()) != device_id) {
+            reopen();
+        }
+    }
+
+    // Drops the stream, if any, and sets one up on the default device, playing
+    // if it should be. If that doesn't work, `client` stays null and run()
+    // tries again later.
+    void reopen() {
+        close_stream();
+        HRESULT hr = S_OK;
+        const ComPtr<IMMDevice> device = default_device(devices.Get(), hr);
+        if (!device || open_stream(device.Get(), /*first=*/false)) {
+            return;
+        }
+        if (playing && start_client()) {
+            close_stream();
+        }
+    }
+
+    void close_stream() {
+        if (running) {
+            client->Stop();
+            running = false;
+        }
+        render_client.Reset();
+        client.Reset();
+        device_id.clear();
+    }
+
+    // Starts `client`. A stream lost in the meantime counts as started: the
+    // next one starts instead.
+    std::error_code start_client() {
         // Queue a buffer of silence first, so the first period doesn't start
         // with an empty buffer.
-        fill(/*silence=*/true);
+        (void)fill(/*silence=*/true);
         if (const HRESULT hr = client->Start(); FAILED(hr)) {
+            if (stream_lost(hr)) {
+                close_stream();
+                return {};
+            }
             return hr_error(hr);
         }
-        playing = true;
+        running = true;
         return {};
     }
 
+    std::error_code start_stream() {
+        const bool was_playing = playing;
+        playing = true;
+        if (!client || running) {
+            return {}; // with no stream, the next one starts playing
+        }
+        const std::error_code error = start_client();
+        if (error) {
+            playing = was_playing;
+        }
+        return error;
+    }
+
     std::error_code stop_stream() {
-        if (!playing) {
+        playing = false;
+        if (!running) {
             return {};
         }
-        playing = false;
+        running = false;
         HRESULT hr = client->Stop();
         if (SUCCEEDED(hr)) {
             // Drop what's still queued, so starting again doesn't first play
             // the old tail.
             hr = client->Reset();
         }
+        if (stream_lost(hr)) {
+            close_stream(); // stopped either way
+            return {};
+        }
         return FAILED(hr) ? hr_error(hr) : std::error_code{};
     }
 
     // Fills the part of the buffer that has been played. Runs once per period.
+    // Returns false if the stream is lost.
+    //
     // The no-allocation, no-lock, no-syscall rule covers the render callback;
     // the WASAPI calls around it are Windows' side of the cycle, like
     // PipeWire's on Linux.
-    void fill(bool silence) {
+    [[nodiscard]] bool fill(bool silence) {
         // Shared: whatever has been played since the last event. Exclusive and
         // event-driven: always the whole buffer, which is one period; WASAPI
         // keeps a second one of its own playing meanwhile.
         UINT32 frames = buffer_frames;
         if (mode == OutputMode::Shared) {
             UINT32 queued = 0;
-            if (FAILED(client->GetCurrentPadding(&queued))) {
-                return; // the device went away (see the TODO at the top)
+            if (const HRESULT hr = client->GetCurrentPadding(&queued); FAILED(hr)) {
+                return !stream_lost(hr);
             }
             frames = buffer_frames - queued;
         }
         if (frames == 0) {
-            return;
+            return true;
         }
         BYTE* data = nullptr;
-        if (FAILED(render_client->GetBuffer(frames, &data))) {
-            return;
+        if (const HRESULT hr = render_client->GetBuffer(frames, &data); FAILED(hr)) {
+            return !stream_lost(hr);
         }
         if (silence) {
-            render_client->ReleaseBuffer(frames, AUDCLNT_BUFFERFLAGS_SILENT);
-            return;
+            return !stream_lost(render_client->ReleaseBuffer(frames, AUDCLNT_BUFFERFLAGS_SILENT));
         }
         const std::size_t samples = static_cast<std::size_t>(frames) * format.channels;
         if (sample_type == SampleType::Float32) {
@@ -611,7 +844,7 @@ struct AudioSink::Impl {
             render(rendered);
             convert(rendered, sample_type, data);
         }
-        render_client->ReleaseBuffer(frames, 0);
+        return !stream_lost(render_client->ReleaseBuffer(frames, 0));
     }
 };
 
@@ -627,12 +860,14 @@ std::expected<AudioSink, std::error_code> AudioSink::open(const AudioFormat& req
     impl->mode = mode;
     impl->render = std::move(render);
 
-    for (HANDLE* event : {&impl->buffer_event, &impl->request_event, &impl->done_event}) {
+    for (HANDLE* event :
+         {&impl->buffer_event, &impl->request_event, &impl->done_event, &impl->device_event}) {
         *event = ::CreateEventW(nullptr, FALSE, FALSE, nullptr); // auto-reset
         if (*event == nullptr) {
             return last_error();
         }
     }
+    impl->hook.device_event = impl->device_event;
 
     impl->thread = ::CreateThread(nullptr, 0, &Impl::thread_main, impl.get(), 0, nullptr);
     if (impl->thread == nullptr) {
@@ -642,6 +877,11 @@ std::expected<AudioSink, std::error_code> AudioSink::open(const AudioFormat& req
     if (impl->result) {
         return std::unexpected(impl->result); // ~Impl waits for the thread to exit
     }
+
+    ::AcquireSRWLockExclusive(&g_sinks_lock);
+    g_sinks.push_back(&impl->hook);
+    ::ReleaseSRWLockExclusive(&g_sinks_lock);
+    impl->registered = true;
     return AudioSink(std::move(impl));
 }
 
@@ -657,5 +897,20 @@ std::expected<void, std::error_code> AudioSink::stop() { return impl_->ask(Impl:
 AudioFormat AudioSink::format() const noexcept { return impl_->format; }
 
 OutputMode AudioSink::mode() const noexcept { return impl_->mode; }
+
+namespace wasapi_testing {
+
+void reopen_all() noexcept {
+    ::AcquireSRWLockShared(&g_sinks_lock);
+    for (ReopenHook* sink : g_sinks) {
+        sink->force.store(true);
+        ::SetEvent(sink->device_event);
+    }
+    ::ReleaseSRWLockShared(&g_sinks_lock);
+}
+
+std::uint64_t streams_opened() noexcept { return g_streams_opened.load(); }
+
+} // namespace wasapi_testing
 
 } // namespace am::pal
