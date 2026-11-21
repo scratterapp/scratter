@@ -133,7 +133,7 @@ at once.
 - **Pipe name (settled in [#16](https://github.com/scratterapp/scratter/pull/16)).**
   One name on both platforms from `kDaemonEndpoint`, without `_v2` (the frame
   header already carries the version): Linux uses `scratterd.sock`, Windows
-  `\.\pipe\scratterd.<SID>`, so each user on the machine gets their own pipe.
+  `\\.\pipe\scratterd.<SID>`, so each user on the machine gets their own pipe.
   "Security" in `ipc_channel.hpp` has the rest.
 - **Windows sanitizer preset.** Linux has `linux-asan` and `linux-tsan`; Windows
   only has `windows-msvc-debug` and `windows-msvc-release`. Do we add a preset with
