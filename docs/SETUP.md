@@ -115,3 +115,19 @@ cmake --preset windows-msvc-debug
 cmake --build --preset windows-msvc-debug
 ctest --preset windows-msvc-debug
 ```
+
+To start it from the Start Menu like a normal app, build Release (a GUI
+program, so no console window opens with it) and install it:
+
+```powershell
+cmake --preset windows-msvc-release
+cmake --build --preset windows-msvc-release
+cmake --install build\windows-msvc-release
+```
+
+That puts `scratterd.exe` and `am-ui.exe` in `%LOCALAPPDATA%\Programs\Scratter`
+(no admin rights needed; `--prefix` puts them elsewhere) and a `Scratter`
+shortcut with the app icon in your Start Menu (`packaging/windows/`). Set
+`AM_START_MENU_DIR` to another folder for the shortcut, or to nothing for none.
+Delete the folder and the shortcut to uninstall. As on Linux, the install doesn't
+copy CEF's files yet, and the window waits until `scratterd` is running.
