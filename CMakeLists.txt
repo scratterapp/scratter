@@ -115,9 +115,12 @@ am_enable_warnings(am_client_core)
 # The app window, am-ui. Its CMakeLists.txt also fetches SDL3 and Dear ImGui.
 add_subdirectory(src/client)
 
-# `cmake --install` on Linux: the programs, the launcher entry and the icon.
+# `cmake --install`: the programs, and the launcher entry and icon on Linux or
+# the Start Menu shortcut on Windows.
 if(LINUX)
     add_subdirectory(packaging/linux)
+elseif(WIN32)
+    add_subdirectory(packaging/windows)
 endif()
 
 enable_testing()

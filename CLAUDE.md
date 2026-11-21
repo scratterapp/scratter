@@ -66,7 +66,7 @@ the daemon learns one amctl lacks (`coverage()` in `tools/amctl/amctl_args.hpp`)
 On Linux the daemon also shows up in the desktop's media widget over MPRIS, so the
 media keys and `playerctl play-pause` pause it too, and clicking the player there
 brings the window forward or starts it (#41). `cmake --install` puts in a launcher
-entry and icon (`packaging/linux/`). Built with CEF (the `linux-cef`
+entry and icon (`packaging/linux/`), or on Windows a Start Menu shortcut (`packaging/windows/`, #97). Built with CEF (the `linux-cef`
 preset, off by default because CEF only exists where someone built it),
 `scratterd --test-film` plays Google's Widevine test film through a headless
 CEF instead of the tone (`src/daemon/cef_host/`, issue #76), and `amctl load` switches

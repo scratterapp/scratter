@@ -591,7 +591,7 @@ scratter/
 │   └── audio_render.cpp               # CPU our audio code (write_planar, render) takes per second of audio
 ├── packaging/
 │   ├── linux/                         # scratter.desktop template, hicolor icons (make-icons.sh builds them from docs/assets/scratter-logo.png), `cmake --install` rules
-│   └── windows/                       # am-ui.rc (the icon in am-ui.exe), scratter.ico, and make-icon.ps1, which builds it from docs/assets/scratter-logo.png
+│   └── windows/                       # am-ui.rc (the icon in am-ui.exe), scratter.ico, make-icon.ps1 (builds it from docs/assets/scratter-logo.png), `cmake --install` rules and make-shortcut.ps1 (the Start Menu shortcut)
 ├── third_party/
 │   ├── cef/                           # Our CEF build goes here (linux64/, windows64/); ignored by git
 │   └── cef-patches/                   # Our patches to Chromium, applied before building CEF
