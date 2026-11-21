@@ -2,12 +2,12 @@
 
 For kero (`@kerelosgayed`) and any agent working on `src/pal/win32/`.
 
-robbie is merging the shared interface PRs below without waiting for a Windows
-review, so the Linux side doesn't stall. That makes this page the catch-up. Every
-interface here was written with Windows in mind, but none of it has been tried on
-Windows yet. If something doesn't fit, say so before Windows code builds on it:
-changing an interface now costs one PR, changing it later costs a rewrite on both
-sides.
+Every shared interface below now has a working Windows implementation, and the
+daemon, `amctl` and `am-ui` all run on Windows. This page records what each
+interface decided for Windows and how the Windows code answered the questions
+the interface PRs asked. If a new interface doesn't fit Windows, say so before
+Windows code builds on it: changing an interface early costs one PR, changing
+it later costs a rewrite on both sides.
 
 Read [`CLAUDE.md`](../../CLAUDE.md) first for the house rules (no exceptions, no
 RTTI, warnings are errors, no OS `#ifdef` outside `src/pal/`). The roadmap issue
@@ -44,125 +44,128 @@ in what used to be the first byte of `reserved_pad` (now a `uint8_t`). It's stil
 bytes and no other offset moved, so nothing on your side changes unless you read
 the volume.
 
-## Questions waiting on you
+## How Windows answered the interface questions
 
-From the PR bodies. Answer on the PR, even after it's merged.
+The interface PRs asked the Windows side a list of questions. The Windows code
+answers them; this is the record. Only #32's fourth question is still open.
 
-**#32 Reactor**
+**#32 Reactor** (`iocp_reactor.cpp`, #14)
 
-1. Does the IOCP half of `IoEvent` have everything `named_pipe_ipc.cpp` needs?
-2. Threadpool timers fire on a pool thread. The plan is for `iocp_reactor.cpp` to
-   post a packet to the port so the timer callback still runs on the reactor
-   thread. Does that sound right?
-3. IOCP can't un-associate a handle, so the header says to `CancelIoEx` and drain
-   before `unwatch()`. Is that what you'd do?
-4. Later (phase 4): curl needs socket readiness on Windows too. The guess is
-   `WSAEventSelect` or AFD polling inside the IOCP reactor, behind the same
-   `watch()`. No answer needed yet.
+1. Yes: `IoEvent`'s IOCP half (`overlapped`, `bytes`, `error`) is all
+   `named_pipe_ipc.cpp` needs.
+2. No threadpool timer, and no packet for it. There's only one timer, so the
+   reactor thread checks it when its wait ends and passes the deadline as the
+   wait's timeout (libuv does the same). The timer state is only touched on the
+   reactor thread, so no timer callback can arrive stale.
+3. Yes: cancel and collect the handle's I/O, then `unwatch()`. Handle keys are
+   never reused, so a completion that arrives after `unwatch()` is recognised
+   and dropped.
+4. Still open (phase 4): curl needs socket readiness on Windows, probably
+   `WSAEventSelect` or AFD polling inside the IOCP reactor behind the same
+   `watch()`. It waits until someone starts `src/net/`.
 
-**#37 IpcChannel**
+`Reactor::post()` came out of the pipe work (#12, PR #16): it queues an event
+for a handle's callback without touching the port, for operations that finish
+at once.
 
-1. Does the pending-`ReadFile` sketch above fit how you'd write the pipe?
-2. Is it OK that there's no peer-credential check (`GetNamedPipeClientProcessId`),
-   with pipe permissions doing access control instead?
+**#37 IpcChannel** (`named_pipe_ipc.cpp`, #12)
 
-**#34 ShmMapping**
+1. Yes: one overlapped `ReadFile` is always pending into a whole-frame buffer,
+   and its completion starts the next one.
+2. Yes, there's no `GetNamedPipeClientProcessId` check. The pipe is
+   `\\.\pipe\<endpoint>.<SID>`, its DACL admits only the current user, and the
+   client checks that the pipe it opened is owned by its own user before
+   talking to it (`permission_denied` otherwise).
 
-1. Anything awkward about the contract for #8?
+**#34 ShmMapping** (`win32_shm.cpp`, #8)
 
-**#38 AudioSink**
+1. Nothing awkward. The only Windows addition is `result_out_of_range` when an
+   existing region is smaller than asked for, since a region can't grow.
 
-1. Is "ask for 48 kHz, report what you got" OK, given WASAPI shared mode runs at
-   the mix format's rate unless you pass `AUTOCONVERTPCM`?
-2. HRESULTs: is `system_category` (which covers the `HRESULT_FROM_WIN32` ones)
-   enough, or do we want a small HRESULT error category later?
-3. Exclusive mode (#13): settled on #13. `open()` takes an `OutputMode`
-   (`Shared` or `Exclusive`); exclusive fails with `not_supported` or
-   `device_or_resource_busy` instead of falling back, and `mode()` says which
-   one you got.
+**#38 AudioSink** (`wasapi_sink.cpp`, #14 and #13)
+
+1. Yes. Shared mode uses `IAudioClient3` at the mix rate when the mix is
+   stereo, and reports that rate in `format()`; otherwise `AUTOCONVERTPCM` at
+   the requested 48 kHz.
+2. `system_category` is enough. An HRESULT that wraps a Win32 error becomes
+   that error, and the `AUDCLNT_E_*` ones keep their HRESULT value, which still
+   identifies them. The errors the interface names (`not_supported`,
+   `device_or_resource_busy`) are mapped explicitly.
+3. Settled on #13, as above.
 
 **#30 / #31**
 
-1. Are you OK with per-word release/acquire in the SeqLock?
-2. Are you OK with allowing CPU and compiler checks in shared code?
+1. Yes to per-word release/acquire in the SeqLock.
+2. Yes to CPU and compiler checks in shared code; `crc32c.hpp` uses `__cpuid`
+   on MSVC.
+
+**#52 CredentialVault** (`dpapi_vault.cpp`, #10)
+
+1. Yes: target `<service>/<name>`, `CRED_TYPE_GENERIC`, DPAPI blob with the
+   target name as entropy. Names can't contain `/` on Windows.
+2. A secret over about 2300 bytes doesn't fit after DPAPI's overhead, and the
+   header's `value_too_large` covers it.
+3. Replaced.
+
+**#50 Daemon skeleton**
+
+1. Yes, and every stub has since been replaced.
+2. Yes: `console_shutdown.cpp` (#22) sets a flag and calls `wake()`. CEF takes
+   the console handler over when it starts, so `ShutdownSignal::reclaim()`
+   (PR #72) takes it back.
+
+**#55 MediaControls** (`smtc_controls.cpp`, #9)
+
+1. SMTC's events reach the reactor thread without a new `Reactor` call or
+   packets inside `iocp_reactor.cpp`. The controls bring their own door: a pipe
+   whose read end the reactor watches with one `ReadFile` always pending.
+   SMTC's handlers queue the request and write one byte, and the completion
+   runs the callback on the reactor thread. It only uses `Reactor`'s public
+   calls, so the interface didn't change.
+2. `HWND_MESSAGE` doesn't work: `GetForWindow` returns `E_INVALIDARG` for it.
+   It's a hidden top-level window instead, and since a top-level window gets
+   broadcast messages, it lives on a thread of its own running a message loop.
+3. The `https://` artwork URL works as-is. Windows fetches the image itself and
+   only shows it once it loads.
 
 ## Open Windows-side decisions
 
 - **Pipe name (settled in [#16](https://github.com/scratterapp/scratter/pull/16)).**
   One name on both platforms from `kDaemonEndpoint`, without `_v2` (the frame
   header already carries the version): Linux uses `scratterd.sock`, Windows
-  `\\.\pipe\scratterd.<SID>`, so each user on the machine gets their own pipe.
+  `\.\pipe\scratterd.<SID>`, so each user on the machine gets their own pipe.
   "Security" in `ipc_channel.hpp` has the rest.
 - **Windows sanitizer preset.** Linux has `linux-asan` and `linux-tsan`; Windows
   only has `windows-msvc-debug` and `windows-msvc-release`. Do we add a preset with
   MSVC's `/fsanitize=address`, and does it run in CI? MSVC has no ThreadSanitizer,
   so the race tests only run under `linux-tsan`.
+- **clang-tidy on Windows code.** Since #93, CI runs clang-tidy on the Linux
+  build only, so nothing in `src/pal/win32/` is checked. Running it on Windows
+  would need a clang-cl build (or `compile_commands.json` from the MSVC one) in
+  the Windows CI job. Part of CLAUDE.md's open decision on how far to take
+  clang-tidy.
+- **The phase 5 startup target ([#89](https://github.com/scratterapp/scratter/issues/89)).**
+  `am-ui` takes about 210 ms from launch to first frame on Windows, against a
+  100 ms target. About 160 ms of it is the GPU driver creating the Direct3D 11
+  device, which no SDL renderer does faster. Waiting on whether the gate measures
+  first frame to daemon state (about 2 ms) instead.
 
-**#52 CredentialVault**
+## What's done, and what's next
 
-1. Does "target `<service>/<name>`, `CRED_TYPE_GENERIC`, DPAPI blob" fit how you'd
-   write #10? The header leaves the naming to each platform, so it's your call.
-2. Credential Manager caps a credential's blob at `CRED_MAX_CREDENTIAL_BLOB_SIZE`
-   (2560 bytes). A DPAPI-wrapped token should fit, but if one doesn't, say so and
-   we'll add an error for it to the header.
-3. `dpapi_vault.cpp` is now a "not supported" stub like the others. Replace the
-   whole file.
+Every Windows issue on the roadmap (#6) is closed: the IOCP reactor (#14), the
+named pipe (#12), shared memory (#8), Ctrl-C (#22), the WASAPI sink, shared (#14)
+and exclusive (#13), the vault (#10), SMTC (#9), CEF with AAC and the CEF host
+(#8), `am-ui` (#42), `launch_ui()` (PR #87) and the relaunch gate (#43, PR #88).
+The sink following the default device is #94 (PR #95).
 
-**#55 MediaControls**
+Next, roughly in order:
 
-1. SMTC raises its events on a WinRT thread, and the callback has to run on the
-   reactor thread. The only cross-thread door into the reactor is `wake()`, which
-   has a single callback, and the Ctrl-C handler (`console_shutdown.cpp`, #22)
-   already uses it. Do you want a general "run this on the reactor thread" call on
-   `Reactor`, or will you post your own completion packets inside
-   `iocp_reactor.cpp`?
-2. The spec puts SMTC on a hidden message-only window
-   (`ISystemMediaTransportControlsInterop::GetForWindow`). Does that work with
-   `HWND_MESSAGE`, and does the window need a message loop the IOCP reactor
-   doesn't run?
-3. Artwork: the header passes an `https://` URL. `RandomAccessStreamReference::CreateFromUri`
-   should take it as-is. Say so if it doesn't.
-
-Answered by #9 (`smtc_controls.cpp`):
-
-1. Neither. The controls bring their own door: a pipe whose read end the reactor
-   watches with one `ReadFile` always pending. SMTC's handlers queue the request
-   and write one byte, and the completion runs the callback on the reactor
-   thread. It only uses `Reactor`'s public calls, so the interface didn't change.
-2. No: `GetForWindow` returns `E_INVALIDARG` for an `HWND_MESSAGE` window. It's
-   a hidden top-level window instead, and since a top-level window gets
-   broadcast messages, it lives on a thread of its own running a message loop.
-3. Yes, as-is. Windows fetches the image itself and only shows it once it loads.
-
-**#50 Daemon skeleton**
-
-1. To keep the Windows build linking, #50 filled your stub files
-   (`iocp_reactor.cpp`, `named_pipe_ipc.cpp`, `win32_shm.cpp`, `wasapi_sink.cpp`,
-   `mmcss_priority.cpp`, and a new `console_shutdown.cpp`) with stubs that return
-   `errc::function_not_supported`. Replace each whole file when you implement it.
-   OK with that?
-2. Does `ShutdownSignal` fit `SetConsoleCtrlHandler` (handler on its own thread,
-   waking the reactor)?
-
-## Your issues, in order
-
-| Issue | What | Blocked by |
+| What | Where | Notes |
 | --- | --- | --- |
-| #8 | File-mapping shared memory, `win32_shm.cpp` | #6 (ShmMapping, PR #34) |
-| #14 | IOCP reactor, `iocp_reactor.cpp` | #12 (Reactor, PR #32) |
-| #22 | Ctrl-C and console close, `console_shutdown.cpp` (the daemon's first stop on Windows) | nothing |
-| #12 | Message-mode named pipe, `named_pipe_ipc.cpp` | #11 (IpcChannel, PR #37) and #14 |
-| #14 | WASAPI shared low-latency sink, `wasapi_sink.cpp` | #18 (AudioSink, PR #38) |
-| #13 | WASAPI exclusive mode | #14 |
-| #10 | DPAPI + Credential Manager vault, `dpapi_vault.cpp` | #52 (CredentialVault) |
-| #9 | SMTC media controls, `smtc_controls.cpp` | #55 (MediaControls) and #14 |
-| #8 | CEF built with AAC on Windows, `browser_files.cpp`, the CEF host on Windows | #76 (CEF host), and #14 to hear anything |
-| #42 | `am-ui` on Windows: a GUI program in Release, the app icon (`packaging/windows/`), the #37 hand test | #37 (now-playing view) |
-
-#8 and #14 can start as soon as their interface PR merges. The Linux versions are
-up as working references: POSIX shm in #35, epoll in #33, the SEQPACKET channel in
-#39 and the PipeWire sink in #42. Each issue's "done when" line names the test
-Windows has to pass, usually the same one Linux uses.
+| Settle the startup target | #89 | A decision, not code. |
+| Spectrum visualizer | #40 | Shared code, nobody on it. |
+| Socket readiness in the IOCP reactor | #32's fourth question | Groundwork for libcurl in `src/net/`, once phase 4 starts. |
+| Apple Music on Windows | #4, #3 | After robbie's MusicKit key: the player page and the login popup have to work in the Windows CEF host too. |
 
 ## How to push back
 
