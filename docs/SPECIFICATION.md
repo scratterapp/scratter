@@ -534,7 +534,8 @@ scratter/
 │   │       ├── iocp_reactor.cpp       # IOCP + PostQueuedCompletionStatus + timer in the wait timeout
 │   │       ├── named_pipe_ipc.cpp     # Overlapped message-mode Named Pipes
 │   │       ├── win32_shm.cpp          # CreateFileMappingW + MapViewOfFile
-│   │       ├── wasapi_sink.cpp        # WASAPI shared low-latency (IAudioClient3) or exclusive (#13), MMCSS "Pro Audio" thread
+│   │       ├── wasapi_sink.cpp        # WASAPI shared low-latency (IAudioClient3) or exclusive (#13), MMCSS "Pro Audio" thread, follows the default device (#94)
+│   │       ├── wasapi_sink_testing.hpp # test hook: reopen every sink's stream, as a device change would
 │   │       ├── mmcss_priority.cpp     # VirtualLock (the MMCSS call is in wasapi_sink.cpp)
 │   │       ├── dpapi_vault.cpp        # DPAPI + Credential Manager
 │   │       ├── console_shutdown.cpp   # SetConsoleCtrlHandler, onto the reactor thread through Reactor::wake()
