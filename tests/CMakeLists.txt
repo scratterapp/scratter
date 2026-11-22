@@ -37,6 +37,7 @@ set(AM_TESTS
     test_telemetry_seqlock
     test_resampler_drift
     test_audio_path
+    test_spectrum
     test_amctl_args
     test_credential_vault
     test_media_controls
