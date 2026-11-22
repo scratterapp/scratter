@@ -233,6 +233,8 @@ TEST_CASE("the daemon answers commands and publishes its state", "[daemon]") {
     REQUIRE(track_body.has_value());
     CHECK(track_body->source == TrackSource::Tone);
     CHECK(track_title(*track_body) == "440 Hz test tone");
+    CHECK(track_artist(*track_body) == kAppName);
+    CHECK(track_artwork_url(*track_body).empty());
 
     // The telemetry page exists and says the same.
     auto shm = ShmMapping::open_read_only(name + "_telemetry_v2", kTelemetryPageSize);
@@ -669,6 +671,9 @@ TEST_CASE("amctl drives the daemon", "[daemon][amctl]") {
     const std::string watched = read_file(watch_file);
     CHECK(watched.starts_with("{\"state\":\"paused\","));
     CHECK(watched.find("{\"state\":\"playing\",") != std::string::npos);
+    // And the track, with its metadata (#106).
+    CHECK(watched.find("\"title\":\"440 Hz test tone\",\"artist\":\"" + std::string(kAppName) +
+                       "\",\"album\":\"\",\"artwork_url\":\"\",") != std::string::npos);
 }
 
 TEST_CASE("amctl has a command for every request the daemon handles", "[daemon][amctl]") {
