@@ -89,30 +89,45 @@ struct Client {
         return value;
     }
 
-    // The xesam:title entry of Metadata, or "(none)".
-    [[nodiscard]] std::string title() const {
+    // One text entry of Metadata: a string (xesam:title, mpris:artUrl), or the
+    // only item of a list of strings (xesam:artist, which is a list because
+    // songs can have several). "(none)" if it isn't there.
+    [[nodiscard]] std::string metadata(std::string_view wanted) const {
         sd_bus_message* reply = nullptr;
         if (sd_bus_get_property(bus, bus_name.c_str(), kPath, kPlayer, "Metadata", nullptr, &reply,
                                 "a{sv}") < 0) {
             return "(error)";
         }
-        std::string title = "(none)";
+        std::string found = "(none)";
         sd_bus_message_enter_container(reply, 'a', "{sv}");
         while (sd_bus_message_enter_container(reply, 'e', "sv") > 0) {
             const char* key = nullptr;
             sd_bus_message_read(reply, "s", &key);
-            if (std::string_view(key) == "xesam:title") {
+            // For a variant, peek_type gives what's inside it: "s" or "as".
+            const char* inside = nullptr;
+            if (std::string_view(key) == wanted &&
+                sd_bus_message_peek_type(reply, nullptr, &inside) >= 0 && inside != nullptr) {
                 const char* value = nullptr;
-                sd_bus_message_read(reply, "v", "s", &value);
-                title = value;
+                const std::string_view type(inside);
+                const int r = type == "s"    ? sd_bus_message_read(reply, "v", "s", &value)
+                              : type == "as" ? sd_bus_message_read(reply, "v", "as", 1, &value)
+                                             : -1;
+                if (r < 0) {
+                    sd_bus_message_skip(reply, "v");
+                    found = "(unreadable)";
+                } else {
+                    found = value != nullptr ? value : "";
+                }
             } else {
                 sd_bus_message_skip(reply, "v");
             }
             sd_bus_message_exit_container(reply);
         }
         sd_bus_message_unref(reply);
-        return title;
+        return found;
     }
+
+    [[nodiscard]] std::string title() const { return metadata("xesam:title"); }
 
     sd_bus* bus = nullptr;
     std::string bus_name;
@@ -248,10 +263,10 @@ TEST_CASE("MPRIS clients see what the daemon sets", "[mpris]") {
     CHECK(can_seek == 0);
     CHECK(can_go_next == 0); // no play queue yet
 
-    h.controls->set_track({.title = "Test Track",
-                           .artist = "Test Artist",
-                           .album = "",
-                           .artwork_url = "",
+    h.controls->set_track({.title = "Tears of Steel",
+                           .artist = "Blender Foundation",
+                           .album = "Widevine test film",
+                           .artwork_url = "https://example.com/poster.png",
                            .length = 3min});
     h.controls->set_playback_state(PlaybackState::Playing);
     h.controls->set_volume(40);
@@ -259,15 +274,24 @@ TEST_CASE("MPRIS clients see what the daemon sets", "[mpris]") {
 
     std::optional<double> volume;
     std::optional<std::int64_t> position;
+    std::string artist;
+    std::string album;
+    std::string art_url;
     REQUIRE(h.run_client([&](const Client& c) {
         status = c.get_string("PlaybackStatus");
         title = c.title();
+        artist = c.metadata("xesam:artist");
+        album = c.metadata("xesam:album");
+        art_url = c.metadata("mpris:artUrl");
         volume = c.get<double>("Volume", 'd');
         position = c.get<std::int64_t>("Position", 'x');
         can_seek = c.get<int>("CanSeek", 'b');
     }));
     CHECK(status == "Playing");
-    CHECK(title == "Test Track");
+    CHECK(title == "Tears of Steel");
+    CHECK(artist == "Blender Foundation");
+    CHECK(album == "Widevine test film");
+    CHECK(art_url == "https://example.com/poster.png");
     CHECK(volume == 0.4);
     CHECK(position == 12'000'000); // microseconds
     CHECK(can_seek == 1);
