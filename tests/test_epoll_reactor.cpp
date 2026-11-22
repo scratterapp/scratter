@@ -7,13 +7,18 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <fcntl.h>
+#include <pthread.h>
 #include <unistd.h>
 
 #include <array>
+#include <atomic>
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <memory>
 #include <system_error>
+#include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -376,4 +381,105 @@ TEST_CASE("a posted event for a reused fd number is not delivered to the new wat
     REQUIRE(reactor->run_once(10ms));
     CHECK(old_calls == 0);
     CHECK(new_calls == 0);
+}
+TEST_CASE("a signal that interrupts the wait isn't an error", "[reactor][epoll]") {
+    // A handler that does nothing, so SIGUSR1 interrupts epoll_wait (EINTR)
+    // instead of ending the test. epoll_wait is never restarted after a
+    // handler, whatever SA_RESTART says.
+    struct sigaction quiet{};
+    quiet.sa_handler = [](int) {};
+    sigemptyset(&quiet.sa_mask);
+    struct sigaction old{};
+    REQUIRE(sigaction(SIGUSR1, &quiet, &old) == 0);
+
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    const pthread_t waiting = pthread_self();
+    std::atomic<bool> done{false};
+    std::thread interrupter([&] {
+        // Until the wait has started and been interrupted. The first signal
+        // can land before epoll_wait, so keep sending until run_once returns.
+        while (!done.load()) {
+            std::this_thread::sleep_for(20ms);
+            pthread_kill(waiting, SIGUSR1);
+        }
+    });
+    const auto start = std::chrono::steady_clock::now();
+    const auto result = reactor->run_once(10s);
+    done.store(true);
+    interrupter.join();
+    REQUIRE(sigaction(SIGUSR1, &old, nullptr) == 0);
+
+    CHECK(result.has_value());
+    CHECK(std::chrono::steady_clock::now() - start < 5s); // it didn't wait it out
+}
+
+TEST_CASE("a timer cancelled by an earlier callback in the same batch doesn't fire",
+          "[reactor][epoll][timer]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    Pipe pipe;
+    bool fired = false;
+    REQUIRE(reactor->watch(NativeHandle{pipe.read_fd}, Interest{.readable = true},
+                           [&](const IoEvent&) {
+                               drain(pipe.read_fd);
+                               reactor->cancel_timer();
+                           }));
+    // The pipe turns readable first, then the timer expires, so one
+    // epoll_wait reports both, the pipe first. Its callback cancels the timer,
+    // and the timer's expiry, already in the same batch, has to be ignored.
+    pipe.write_byte();
+    REQUIRE(reactor->set_timer(1ms, [&] { fired = true; }));
+    std::this_thread::sleep_for(20ms);
+    REQUIRE(reactor->run_once(0ms));
+    CHECK_FALSE(fired);
+    REQUIRE(reactor->run_once(20ms));
+    CHECK_FALSE(fired);
+}
+
+TEST_CASE("moving a reactor keeps what it watches", "[reactor][epoll]") {
+    auto first = Reactor::create();
+    REQUIRE(first);
+    auto second = Reactor::create();
+    REQUIRE(second);
+    Pipe pipe;
+    int calls = 0;
+    REQUIRE(first->watch(NativeHandle{pipe.read_fd}, Interest{.readable = true},
+                         [&](const IoEvent&) {
+                             drain(pipe.read_fd);
+                             ++calls;
+                         }));
+    *second = std::move(*first);
+    pipe.write_byte();
+    REQUIRE(second->run_once(100ms));
+    CHECK(calls == 1);
+}
+
+TEST_CASE("modify fails for an fd that isn't watched", "[reactor][epoll]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    Pipe pipe;
+    const auto modified = reactor->modify(NativeHandle{pipe.read_fd}, Interest{.writable = true});
+    REQUIRE_FALSE(modified);
+    CHECK(modified.error() == std::errc::no_such_file_or_directory);
+}
+
+TEST_CASE("modify and unwatch report an fd closed while watched", "[reactor][epoll]") {
+    // Closing a watched fd takes it out of epoll by itself, so the reactor's
+    // epoll_ctl calls for it fail. That's the caller's bug (close after
+    // unwatch), and it's reported rather than ignored.
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    Pipe pipe;
+    const int fd = pipe.read_fd;
+    REQUIRE(reactor->watch(NativeHandle{fd}, Interest{.readable = true}, [](const IoEvent&) {}));
+    pipe.close_read();
+
+    const auto modified = reactor->modify(NativeHandle{fd}, Interest{.writable = true});
+    REQUIRE_FALSE(modified);
+    CHECK(modified.error() == std::errc::bad_file_descriptor);
+
+    const auto removed = reactor->unwatch(NativeHandle{fd});
+    REQUIRE_FALSE(removed);
+    CHECK(removed.error() == std::errc::bad_file_descriptor);
 }
