@@ -135,7 +135,8 @@ class SpectrumAnalyzer {
             std::size_t last = bin_at(edges_hz_[b + 1]);
             if (first >= last) {
                 const double middle = std::sqrt(edges_hz_[b] * edges_hz_[b + 1]);
-                first = std::min(kFftSize / 2 - 1, static_cast<std::size_t>(middle / bin_hz + 0.5));
+                first = std::min(kFftSize / 2 - 1,
+                                 static_cast<std::size_t>(std::lround(middle / bin_hz)));
                 last = first + 1;
             }
             bins_[b] = {first, last};
