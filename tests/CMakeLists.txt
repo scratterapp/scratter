@@ -52,11 +52,12 @@ set(AM_TESTS
 # talks D-Bus to the MPRIS code. test_browser_files checks Linux paths and file
 # modes, test_secret_vault plays a broken keyring on a private D-Bus bus, and
 # test_signalfd_shutdown sends itself SIGINT and SIGTERM. test_posix_shm covers
-# the ways /dev/shm can refuse a mapping.
+# the ways /dev/shm can refuse a mapping, and test_launch_ui what test_daemon's
+# MPRIS Raise doesn't reach in launch_ui().
 if(LINUX)
     list(APPEND AM_TESTS test_epoll_reactor test_pipewire_sink test_unix_seqpacket_ipc
          test_mpris_controls test_browser_files test_secret_vault test_signalfd_shutdown
-         test_posix_shm)
+         test_posix_shm test_launch_ui)
 endif()
 
 # The Windows counterparts of test_epoll_reactor, test_unix_seqpacket_ipc and
