@@ -21,6 +21,7 @@
 #include "client/theme.hpp"
 #include "client/ui_state.hpp"
 #include "client/views/now_playing.hpp"
+#include "client/views/spectrum.hpp"
 #include "client/views/waiting_view.hpp"
 #include "common/app_name.hpp"
 
@@ -355,12 +356,17 @@ int main(int argc, char** argv) {
         // The clock on screen moves once a second while music plays.
         pacer.set_ticking(connected && state.playback == am::common::PlaybackState::Playing);
         // The spectrum's bars move on their own, so while they're shown the
-        // window draws about 33 frames a second (FramePacer::kSpectrumFrameMs).
+        // window draws about 33 frames a second (FramePacer::kSpectrumFrameMs),
+        // until nothing plays and they've fallen to rest. Play wakes the
+        // window with a state event, which starts it again.
         // --frames draws every frame, as fast as vsync lets it.
         if (options->frame_limit) {
             pacer.set_animating(true);
         } else {
-            pacer.set_animating(connected && now_playing.spectrum_shown(),
+            const bool bars_can_move =
+                state.playback == am::common::PlaybackState::Playing ||
+                !am::client::spectrum_at_rest(telemetry.snapshot().fft_magnitude_db);
+            pacer.set_animating(connected && now_playing.spectrum_shown() && bars_can_move,
                                 am::client::FramePacer::kSpectrumFrameMs);
         }
 

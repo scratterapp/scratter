@@ -100,3 +100,23 @@ TEST_CASE("animating with a frame interval draws no more often than that", "[fra
     CHECK_FALSE(idle.should_draw(100));
     CHECK(idle.wait_ms(100) == FramePacer::kWaitForever);
 }
+
+// Stopping draws once more, so what's on screen is where the animation ended
+// (the spectrum's bars at rest), not the frame before.
+TEST_CASE("turning animation off draws one last frame", "[frame_pacer]") {
+    FramePacer pacer;
+    pacer.on_frame_drawn(0);
+    pacer.on_frame_drawn(0); // the two frames a new window owes
+    pacer.set_animating(true, FramePacer::kSpectrumFrameMs);
+    pacer.on_frame_drawn(100);
+
+    pacer.set_animating(false);
+    CHECK(pacer.should_draw(101));
+    pacer.on_frame_drawn(101);
+    CHECK_FALSE(pacer.should_draw(200));
+    CHECK(pacer.wait_ms(200) == FramePacer::kWaitForever);
+
+    // Saying "off" again while already off owes nothing.
+    pacer.set_animating(false);
+    CHECK_FALSE(pacer.should_draw(300));
+}

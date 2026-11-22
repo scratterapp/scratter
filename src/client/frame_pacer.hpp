@@ -19,6 +19,7 @@
 // happened, which keeps the rules testable without a window
 // (tests/test_frame_pacer.cpp).
 
+#include <algorithm>
 #include <cstdint>
 
 namespace am::client {
@@ -45,7 +46,12 @@ class FramePacer {
     // On while something moves on its own, like the spectrum (#40). With a
     // frame interval, at most one frame per that many milliseconds; without
     // (0), every frame vsync allows.
+    // Turning it off draws one more frame, so the screen shows where the
+    // animation stopped.
     void set_animating(bool animating, std::uint64_t frame_interval_ms = 0) {
+        if (animating_ && !animating) {
+            frames_owed_ = std::max(frames_owed_, 1);
+        }
         animating_ = animating;
         frame_interval_ms_ = frame_interval_ms;
     }

@@ -3,8 +3,10 @@
 // The spectrum strip (issue #40): 64 bars along the bottom of the now-playing
 // view, one per band of the daemon's spectrum (scratterd works them out in
 // src/daemon/audio_engine/spectrum.hpp and publishes them in the telemetry
-// page). The view turns it on and off with its Spectrum chip; while it's on,
-// main_client.cpp draws at the screen's refresh rate so the bars move.
+// page). The view turns it on and off with its Spectrum chip. While it's on
+// and the bars can move (playing, or still falling after a pause),
+// main_client.cpp draws every 30 ms (FramePacer::kSpectrumFrameMs), as often
+// as the daemon changes them; once they're at rest it sleeps as usual.
 
 #include "common/telemetry_shm.hpp"
 
@@ -37,6 +39,30 @@ static_assert(bar_fraction(-96.0f) == 0.0f); // the page's floor: silence
 static_assert(bar_fraction(-36.0f) == 0.5f);
 static_assert(bar_fraction(kSpectrumTopDb) == 1.0f);
 static_assert(bar_fraction(0.0f) == 1.0f);
+
+// True when every bar is at the bottom of the strip: nothing left to animate
+// until something plays again.
+[[nodiscard]] constexpr bool
+spectrum_at_rest(const std::array<float, common::kFftBandCount>& bands_db) noexcept {
+    return std::ranges::all_of(bands_db, [](float db) { return bar_fraction(db) == 0.0f; });
+}
+
+static_assert([] {
+    std::array<float, common::kFftBandCount> quiet{};
+    quiet.fill(-96.0f);
+    return spectrum_at_rest(quiet);
+}());
+static_assert([] {
+    std::array<float, common::kFftBandCount> faint{}; // under the strip's bottom: still at rest
+    faint.fill(kSpectrumBottomDb - 1.0f);
+    return spectrum_at_rest(faint);
+}());
+static_assert([] {
+    std::array<float, common::kFftBandCount> one{};
+    one.fill(-96.0f);
+    one[10] = -30.0f;
+    return !spectrum_at_rest(one);
+}());
 
 // Draws the bars between `min` and `max` (screen coordinates), bottom-aligned.
 // `alpha` dims them, for a telemetry page that's gone stale.
