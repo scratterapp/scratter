@@ -58,8 +58,9 @@ class NowPlayingView {
     double asked_seek_at_ = 0.0; // ImGui::GetTime() when it was sent
     bool seek_held_ = false;     // the bar is being dragged
 
-    // The slider's own value while it's being dragged. The volume is only
-    // sent when it's let go, not on every pixel of the drag.
+    // The slider's own value while it's being dragged. Each change is sent
+    // as it happens; this keeps the slider under the mouse meanwhile, rather
+    // than following the daemon's answers a frame or two behind.
     int slider_volume_ = 0;
     bool slider_held_ = false;
 };

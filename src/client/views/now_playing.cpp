@@ -283,12 +283,14 @@ void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
         slider_volume_ = volume;
     }
     ImGui::SetNextItemWidth(em * 9.0f);
-    ImGui::SliderInt("##volume", &slider_volume_, 0, 100, "%d%%",
-                     ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
-    slider_held_ = ImGui::IsItemActive();
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
+    // Sent on every change while dragging, so the sound follows the slider.
+    // That's one small local request per whole percent at most, about 100 for
+    // a drag from end to end.
+    if (ImGui::SliderInt("##volume", &slider_volume_, 0, 100, "%d%%",
+                         ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput)) {
         ask_volume(static_cast<std::uint8_t>(slider_volume_));
     }
+    slider_held_ = ImGui::IsItemActive();
     ImGui::SetItemTooltip("Volume (Up and Down)");
     ImGui::SetCursorPosY(row_top + big * 2.0f + em * 0.6f);
 
