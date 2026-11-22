@@ -244,9 +244,11 @@ ctest --preset linux-coverage
 gcovr --root . --filter src/ --filter tools/ --gcov-exclude-directories '.*_deps.*' --print-summary --html-details build/linux-coverage/coverage.html build/linux-coverage
 ```
 
-On 2026-11-17 the tests ran 80% of the lines and 63% of the branches in the code
-the Linux build compiles. Code that only runs with CEF, or only on Windows, isn't
-in that number.
+On 2026-11-22 the tests ran 86% of the lines and 69% of the branches in the code
+the Linux build compiles, and 94% of the lines in `src/pal/linux/`. Code that
+only runs with CEF, or only on Windows, isn't in that number. The Linux numbers
+need a session bus, an unlocked keyring and a PipeWire sink: without them, the
+tests for those skip and the number drops.
 
 Windows, from a Developer PowerShell for VS 2022:
 

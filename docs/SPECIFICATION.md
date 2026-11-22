@@ -604,6 +604,7 @@ scratter/
     ├── test_spsc_concurrency.cpp      # TSan multi-threaded ring buffer stress test
     ├── test_telemetry_seqlock.cpp     # TSan one-writer, two-reader SeqLock torn-read test
     ├── test_shm_mapping.cpp           # ShmMapping create/open/move, plus the two-process SeqLock test
+    ├── test_posix_shm.cpp             # Linux-only: the ways /dev/shm refuses a mapping (name, size, another user's object)
     ├── shm_reader_child.cpp           # Second process for that test: maps the page read-only and checks reads
     ├── test_win32_shm.cpp             # Windows-only: file-mapping owner/DACL, page-rounded size, name lifetime
     ├── telemetry_stamp.hpp            # Test helper: snapshots whose fields all derive from one number
@@ -611,6 +612,7 @@ scratter/
     ├── test_epoll_reactor.cpp         # Linux-only: watching fds with the epoll reactor
     ├── test_iocp_reactor.cpp          # Windows-only: watching handles with the IOCP reactor, over overlapped pipes
     ├── test_console_shutdown.cpp      # Windows-only: Ctrl-C reaches the daemon again after another console handler (as CEF adds), via reclaim()
+    ├── test_signalfd_shutdown.cpp     # Linux-only: SIGINT/SIGTERM reach the reactor through signalfd, the mask comes back after
     ├── test_unix_seqpacket_ipc.cpp    # Linux-only: the SOCK_SEQPACKET IPC channel
     ├── test_named_pipe_ipc.cpp        # Windows-only: the named pipe IPC channel
     ├── test_crc32c.cpp                # CRC32C known-answer vectors on every code path
@@ -629,13 +631,17 @@ scratter/
     ├── test_frame_pacer.cpp           # am-ui's render loop rules: when to draw, how long to sleep
     ├── test_now_playing_text.cpp      # The now-playing view's clock, volume steps and error lines
     ├── test_credential_vault.cpp      # CredentialVault contract (skips where there's no vault or no keyring running)
+    ├── test_secret_vault.cpp          # Linux-only: the keyring vault against no bus, no keyring and a broken keyring on a private bus
     ├── test_media_controls.cpp        # MediaControls contract, daemon side (skips where there's no media control service)
     ├── test_mpris_controls.cpp        # Linux-only: plays the desktop's side of MPRIS over D-Bus (skips with no session bus)
+    ├── private_bus.hpp                # A private dbus-daemon for one test, used by test_secret_vault and test_mpris_controls
     ├── test_smtc_controls.cpp         # Windows-only: the desktop's side of SMTC through Windows' session manager (skips with no desktop session)
     ├── test_process_launch.cpp        # Windows-only: launch_ui() quoting, standard handles, missing program, no leaked handles
+    ├── test_launch_ui.cpp             # Linux-only: launch_ui() with a missing program, a folder, and reaping a closed window
     ├── launch_child.cpp               # Stand-in window for that test: reports the arguments and standard input it got
     ├── test_browser_files.cpp         # Linux-only: where the browser profile goes, and that it's private (0700)
     ├── tsan.supp                      # TSan suppressions for GLib (libsecret's D-Bus thread), used by the linux-tsan preset
+    ├── lsan.supp                      # LeakSanitizer suppressions for libsecret's own leaks on its error paths, used by linux-asan
     ├── manual/play_sine.cpp           # Not in ctest: plays 440 Hz through the sink, counts late buffers
     ├── manual/vault_demo.cpp          # Not in ctest: saves a dummy secret to look at in Seahorse, then deletes it
     └── test_resampler_drift.cpp       # Simulated +/-150 ppm skew over 60 minutes, plus resampler signal checks
