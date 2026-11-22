@@ -40,6 +40,7 @@ const common::TelemetrySnapshot& TelemetryReader::update(const DaemonState& stat
             return last_;
         }
         mapping_ = std::move(*opened);
+        open_took_ = Clock::now() - now;
         mapped_for_ = state.connection_count;
         open_failed_at_.reset();
     }

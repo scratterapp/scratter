@@ -84,6 +84,10 @@ struct DaemonState {
     // clears it), so the window can wait for real numbers instead of showing
     // "stopped, volume 0" for a frame.
     bool has_playback = false;
+    // When this connection's first PlaybackStateEvent arrived, on the
+    // connection thread's clock: the hello answered and the daemon's state in.
+    // am-ui --print-startup-time reports it (#89).
+    std::chrono::steady_clock::time_point state_arrived_at{};
     common::PlaybackState playback = common::PlaybackState::Stopped;
     std::uint8_t volume_percent = 0;
     std::uint64_t position_micros = 0; // where playback was when the event was sent
@@ -142,6 +146,12 @@ class TelemetryReader {
 
     [[nodiscard]] bool mapped() const { return mapping_.size() != 0; }
 
+    // How long the newest successful mapping of the page took, or nothing
+    // before the first. For am-ui --print-startup-time (#89).
+    [[nodiscard]] std::optional<std::chrono::steady_clock::duration> open_took() const {
+        return open_took_;
+    }
+
   private:
     using Clock = std::chrono::steady_clock;
 
@@ -150,6 +160,7 @@ class TelemetryReader {
     std::uint64_t mapped_for_ = 0; // the connection_count the mapping belongs to
     std::optional<Clock::time_point> open_failed_at_;
     std::optional<Clock::time_point> last_good_at_;
+    std::optional<Clock::duration> open_took_;
     common::TelemetrySnapshot last_{};
 };
 

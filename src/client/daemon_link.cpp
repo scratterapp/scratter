@@ -293,6 +293,9 @@ struct DaemonLink::Impl {
                 return false;
             }
             publish([&](DaemonState& s) {
+                if (!s.has_playback) {
+                    s.state_arrived_at = Clock::now(); // the first of this connection
+                }
                 s.has_playback = true;
                 s.playback = body->state;
                 s.volume_percent = body->volume_percent;

@@ -112,6 +112,26 @@ class StartupClock {
         std::fflush(stdout);
     }
 
+    // Call each frame once connected, with when the connection was started.
+    // Prints, once, how long the connect itself took: from starting it to the
+    // daemon's first state (timed on the connection thread), plus mapping the
+    // telemetry page. That's what the gate's 20 ms is for; the frames around
+    // it depend on the renderer (#89).
+    void connected(std::chrono::steady_clock::time_point link_started,
+                   const am::client::DaemonState& state,
+                   const am::client::TelemetryReader& telemetry) {
+        if (!enabled_ || connect_printed_ || !telemetry.open_took()) {
+            return;
+        }
+        using Ms = std::chrono::duration<double, std::milli>;
+        std::printf("am-ui: connected: the daemon's state %.2f ms after starting the connection, "
+                    "the telemetry page mapped in %.2f ms\n",
+                    Ms{state.state_arrived_at - link_started}.count(),
+                    Ms{*telemetry.open_took()}.count());
+        std::fflush(stdout);
+        connect_printed_ = true;
+    }
+
     // Call after each present.
     void frame_presented(bool connected) {
         if (!enabled_) {
@@ -143,6 +163,7 @@ class StartupClock {
     bool enabled_;
     bool first_printed_ = false;
     bool connected_printed_ = false;
+    bool connect_printed_ = false;
 };
 
 // "scratter" -> "Scratter", for the title bar.
@@ -306,6 +327,7 @@ int main(int argc, char** argv) {
     const Uint32 wake_event = SDL_RegisterEvents(1);
     am::client::DaemonLinkOptions link_options;
     link_options.name = options->daemon_name;
+    const auto link_started = std::chrono::steady_clock::now(); // for --print-startup-time
     auto link = am::client::DaemonLink::start(std::move(link_options), [wake_event] {
         if (wake_event != 0) {
             SDL_Event event{};
@@ -361,6 +383,9 @@ int main(int argc, char** argv) {
         const bool connected =
             state.status == am::client::LinkStatus::Connected && state.has_playback;
         telemetry.update(state);
+        if (connected) {
+            startup.connected(link_started, state, telemetry);
+        }
         // The player was clicked in the desktop's media widget (MPRIS Raise,
         // #41): come to the front. On Wayland the compositor decides, and it
         // may only flash the window in the taskbar instead; X11 and Windows
