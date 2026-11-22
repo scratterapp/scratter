@@ -503,7 +503,7 @@ scratter/
 │   │   ├── telemetry_shm.hpp          # SeqLock and TelemetrySnapshot definitions
 │   │   ├── spsc_ring_buffer.hpp       # Cache-aligned LockFreeSpscAudioBuffer<T, N>
 │   │   ├── crc32c.hpp                 # CRC32C: SSE4.2 / ARMv8 instructions, table fallback
-│   │   └── arena_allocator.hpp        # Linear slab allocator for catalog metadata
+│   │   └── arena_allocator.hpp        # Linear arena for catalog metadata: bump allocation, reset() drops a whole view (#103)
 │   ├── pal/                           # Target: am_pal (Static Library - OS Primitives)
 │   │   ├── interfaces/                # Shared contracts, reviewed by both platform owners
 │   │   │   ├── reactor.hpp            # Reactor: handle watches, wakeup, one timer
@@ -611,6 +611,7 @@ scratter/
     ├── test_unix_seqpacket_ipc.cpp    # Linux-only: the SOCK_SEQPACKET IPC channel
     ├── test_named_pipe_ipc.cpp        # Windows-only: the named pipe IPC channel
     ├── test_crc32c.cpp                # CRC32C known-answer vectors on every code path
+    ├── test_arena_allocator.cpp       # The catalog arena: alignment, filling to full, overflow, reset, strings and arrays, moves
     ├── test_ipc_framing.cpp           # FrameHeader layout, round-trip and rejection tests
     ├── test_ipc_messages.cpp          # Message bodies: round trips, wrong sizes and bad values
     ├── fuzz_ipc_framing.cpp           # libFuzzer target for the frame parser and body decoders (linux-fuzz preset)

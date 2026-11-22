@@ -31,6 +31,7 @@ include(Catch)
 set(AM_TESTS
     test_sanity
     test_crc32c
+    test_arena_allocator
     test_ipc_framing
     test_ipc_messages
     test_spsc_concurrency

@@ -77,7 +77,7 @@ and drives it, directly, through amctl and over MPRIS. `tools/relaunch/relaunch.
 phase 5 gate: it opens and closes `am-ui` 50 times while the daemon plays and fails
 if the sound skipped (#43).
 
-What's real so far: everything in `src/common/` except `arena_allocator.hpp`, every
+What's real so far: everything in `src/common/` (the arena allocator, #103, is ready but nothing uses it until the catalog parser, #105), every
 interface in `src/pal/interfaces/`, the Linux reactor, IPC
 socket, shared memory, PipeWire sink, keyring vault, MPRIS media controls and signal handling in
 `src/pal/linux/`, their Windows counterparts in `src/pal/win32/` (IOCP reactor, named
