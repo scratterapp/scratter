@@ -128,6 +128,7 @@ TEST_CASE("the window's link connects, sends commands and follows the state", "[
     Daemon daemon(name);
 
     Window window;
+    const auto started = std::chrono::steady_clock::now();
     auto link = DaemonLink::start(options_for(name), window.callback());
     REQUIRE(link.has_value());
     DaemonLink& l = **link;
@@ -135,6 +136,9 @@ TEST_CASE("the window's link connects, sends commands and follows the state", "[
     // Hello, then the daemon's current state: playing at full volume.
     REQUIRE(window.wait_for(l, connected, 10s));
     DaemonState s = l.state();
+    // When the state arrived, which am-ui --print-startup-time reports (#89).
+    CHECK(s.state_arrived_at >= started);
+    CHECK(s.state_arrived_at <= std::chrono::steady_clock::now());
     CHECK(s.connection_count == 1);
     CHECK(s.daemon_name == am::common::kDaemonName);
     CHECK(s.playback == PlaybackState::Playing);
@@ -148,8 +152,10 @@ TEST_CASE("the window's link connects, sends commands and follows the state", "[
     CHECK(s.track_title == "440 Hz test tone");
 
     TelemetryReader reader(name);
+    CHECK_FALSE(reader.open_took().has_value());
     CHECK(telemetry_shows(
         reader, l, [](const auto& t) { return t.playback_state == PlaybackState::Playing; }));
+    CHECK(reader.open_took().has_value()); // how long mapping the page took
 
     // Pause: an Ack for that request, then the new state arrives by itself.
     CHECK(outcome_of(window, l, l.pause()) == CommandOutcome::Ok);

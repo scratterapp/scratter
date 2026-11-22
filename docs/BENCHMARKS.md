@@ -177,20 +177,36 @@ the program; "after main()" leaves that out. Times are medians, with the
 slowest in brackets. "Glitches" are the daemon's late audio buffers and dropped
 frames while the windows came and went.
 
+Since #89 the script also prints how long `SDL_CreateRenderer` took, and the
+gate is two of the times, not launch to the daemon's state: **our own
+start-up** (main() to the first frame, less creating the renderer) has a
+median budget of 60 ms, and **the connect** (from starting it to the
+daemon's first state, timed on the connection thread, plus mapping the
+telemetry page) one of 20 ms. "First frame to the daemon's state" is still
+printed but isn't the connect: the two run side by side, so it's 0 when the
+renderer is slow to make and a whole frame's drawing when it's quick (about
+35 ms with the software renderer, robbie on #102). Creating the renderer is mostly the GPU driver making its device, which
+depends on the machine and isn't ours to make faster; it and launch to the
+first frame are logged here per machine instead.
+
 | Date | Change | Launch to first frame | Launch to the daemon's state | Glitches | Where |
 | --- | --- | --- | --- | --- | --- |
 | 2026-11-07 | #43: the first measurement, Release build, 50 of 50 windows | 89 ms (127) | 128 ms (178) | 0 late, 0 dropped | Cloud container: SDL's offscreen driver and software renderer, no GPU, the tone (`--tone-length 600`) on a PipeWire null sink instead of the film. About 40 ms is creating the software renderer and about 40 ms is drawing the first frame, most of it rasterizing the fonts' glyphs. Not robbie's PC: a real GPU should be quicker at the drawing but slower to create the context |
 | 2026-11-07 | #43 on robbie's PC, `linux-cef-release`, `--clear-film`, 50 of 50 windows | 94 ms (121) | 99 ms (127) | 0 late, 0 dropped | robbie's PC, Hyprland (Wayland). 90 ms of the first frame is after main(): making the window, its GPU renderer and the first frame with its fonts. The daemon's state follows about 5 ms later |
 | 2026-11-12 | #43 on Windows, `windows-msvc-release`, the tone (`--tone-length 600`) through WASAPI shared mode, 50 of 50 windows | 216 ms (253) | 218 ms (253) | 0 late, 0 dropped | kero's PC, Windows 11, Realtek speakers. 207 ms of the first frame is after main(), so it's the window, its Direct3D renderer and the first frame, not the daemon: its state follows about 2 ms later. Over the 100 ms target; not looked into yet |
+| 2026-11-22 | #89: the gate split, `windows-msvc-release`, the tone with `--no-audio`, 50 of 50 windows | 235 ms (255) | 235 ms (255) | 0 late, 0 dropped | kero's PC, Windows 11, RTX 4050 (direct3d11). After main() 224 ms, of which creating the renderer 171 ms (184): our own start-up 52.9 ms (90%: 59.6 ms, slowest 72.9) against the 60 ms budget, first frame to the daemon's state 0.0 ms (the connection is done before the first frame). The debug build (`windows-cef`) is about the same, 59 ms of our own. The renderer is the D3D11 device; on the laptop's Intel GPU it would take 45 to 85 ms, but SDL always uses adapter 0 (#89) |
 
-The target was 5 ms in the spec's first draft and is now a median under
-100 ms from launch to the daemon's state, met on robbie's PC
+The target was 5 ms in the spec's first draft, then a median under 100 ms
+from launch to the daemon's state, met on robbie's PC (about 99 ms) but not on
+kero's Windows laptop (about 218 ms), where the GPU driver alone takes about
+160 ms to make its device (#89). Since #89 the gate is our own start-up under
+60 ms and the connect under 20 ms
 ([SPECIFICATION.md](SPECIFICATION.md), Phase 5). The part the 5 ms was meant
-for, connecting to the daemon and reading its telemetry, is the roughly 5 ms
-between the first frame and the one with the daemon's state; the window, its
-GPU renderer and the fonts are the other 90 ms. That's the place to look if
-start-up ever needs to get quicker: SDL_CreateRenderer alone took about 40 ms
-in the cloud.
+for, connecting to the daemon and reading its telemetry, is the time from the
+first frame to the one with the daemon's state; the window, its GPU renderer
+and the fonts are the rest. That's the place to look if start-up ever needs to
+get quicker: SDL_CreateRenderer alone took about 40 ms in the cloud and 171 ms
+on kero's laptop. robbie's PC hasn't been measured with the split yet.
 
 ## Ideas to try next
 

@@ -13,7 +13,8 @@
 //                      of the usual one, like amctl --name.
 //   am-ui --print-startup-time
 //                      print how long the first frame took, and the first
-//                      frame showing the daemon's state (see StartupClock).
+//                      frame showing the daemon's state, and how long creating
+//                      the renderer took (see StartupClock).
 //                      tools/relaunch/relaunch.py reads it.
 
 #include "client/daemon_link.hpp"
@@ -89,6 +90,9 @@ std::optional<Options> parse_options(int argc, char** argv) {
 // For --print-startup-time: how long after main() began a frame reached the
 // screen, printed once for the first frame and once for the first one that
 // shows the daemon's state (the now-playing view instead of the waiting one).
+// Before those, how long SDL_CreateRenderer took: that's mostly the GPU
+// driver making its device (about 160 ms of a 210 ms start on kero's Windows
+// laptop, #89), so relaunch.py takes it out of "our own" start-up.
 // Each line also gives the steady clock's reading, in seconds. On Linux that's
 // CLOCK_MONOTONIC, the clock Python's time.monotonic() reads, so a script that
 // noted the time just before it started am-ui can work out the whole start-up,
@@ -97,6 +101,37 @@ class StartupClock {
   public:
     StartupClock(bool enabled, std::chrono::steady_clock::time_point start)
         : start_{start}, enabled_{enabled} {}
+
+    // Call once SDL_CreateRenderer has returned. `name` is the renderer SDL
+    // picked.
+    void renderer_created(std::chrono::steady_clock::duration took, const char* name) const {
+        if (!enabled_) {
+            return;
+        }
+        using Ms = std::chrono::duration<double, std::milli>;
+        std::printf("am-ui: renderer created in %.2f ms (%s)\n", Ms{took}.count(), name);
+        std::fflush(stdout);
+    }
+
+    // Call each frame once connected, with when the connection was started.
+    // Prints, once, how long the connect itself took: from starting it to the
+    // daemon's first state (timed on the connection thread), plus mapping the
+    // telemetry page. That's what the gate's 20 ms is for; the frames around
+    // it depend on the renderer (#89).
+    void connected(std::chrono::steady_clock::time_point link_started,
+                   const am::client::DaemonState& state,
+                   const am::client::TelemetryReader& telemetry) {
+        if (!enabled_ || connect_printed_ || !telemetry.open_took()) {
+            return;
+        }
+        using Ms = std::chrono::duration<double, std::milli>;
+        std::printf("am-ui: connected: the daemon's state %.2f ms after starting the connection, "
+                    "the telemetry page mapped in %.2f ms\n",
+                    Ms{state.state_arrived_at - link_started}.count(),
+                    Ms{*telemetry.open_took()}.count());
+        std::fflush(stdout);
+        connect_printed_ = true;
+    }
 
     // Call after each present.
     void frame_presented(bool connected) {
@@ -129,6 +164,7 @@ class StartupClock {
     bool enabled_;
     bool first_printed_ = false;
     bool connected_printed_ = false;
+    bool connect_printed_ = false;
 };
 
 // "scratter" -> "Scratter", for the title bar.
@@ -245,11 +281,19 @@ int main(int argc, char** argv) {
     }
 
     // nullptr lets SDL pick the best renderer this machine has.
+    const auto renderer_started = std::chrono::steady_clock::now();
     const RendererPtr renderer{SDL_CreateRenderer(window.get(), nullptr), &SDL_DestroyRenderer};
     if (!renderer) {
         std::fprintf(stderr, "am-ui: SDL_CreateRenderer failed: %s\n", SDL_GetError());
         return 1;
     }
+    // Which renderer SDL picked (direct3d11 on Windows, opengl or vulkan on
+    // Linux), for the start-up times and the now-playing view's Details line.
+    const char* renderer_name = SDL_GetRendererName(renderer.get());
+    if (renderer_name == nullptr) {
+        renderer_name = "";
+    }
+    startup.renderer_created(std::chrono::steady_clock::now() - renderer_started, renderer_name);
     // Present at the screen's refresh rate at most. Not every renderer can
     // (the software one in the tests can't), and that's fine.
     SDL_SetRenderVSync(renderer.get(), 1);
@@ -284,6 +328,7 @@ int main(int argc, char** argv) {
     const Uint32 wake_event = SDL_RegisterEvents(1);
     am::client::DaemonLinkOptions link_options;
     link_options.name = options->daemon_name;
+    const auto link_started = std::chrono::steady_clock::now(); // for --print-startup-time
     auto link = am::client::DaemonLink::start(std::move(link_options), [wake_event] {
         if (wake_event != 0) {
             SDL_Event event{};
@@ -297,10 +342,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     am::client::TelemetryReader telemetry{options->daemon_name};
-    // Which renderer SDL picked (direct3d11 on Windows, opengl or vulkan on
-    // Linux), for the now-playing view's Details line.
-    const char* renderer_name = SDL_GetRendererName(renderer.get());
-    am::client::NowPlayingView now_playing{renderer_name != nullptr ? renderer_name : ""};
+    am::client::NowPlayingView now_playing{renderer_name};
 
     // The daemon's raise_count when the window last came to the front.
     std::uint64_t raises_seen = 0;
@@ -341,6 +383,9 @@ int main(int argc, char** argv) {
         const bool connected =
             state.status == am::client::LinkStatus::Connected && state.has_playback;
         telemetry.update(state);
+        if (connected) {
+            startup.connected(link_started, state, telemetry);
+        }
         // The player was clicked in the desktop's media widget (MPRIS Raise,
         // #41): come to the front. On Wayland the compositor decides, and it
         // may only flash the window in the taskbar instead; X11 and Windows
