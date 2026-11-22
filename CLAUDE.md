@@ -75,7 +75,8 @@ can be seeked in from amctl, the window's position bar and MPRIS (#39); the tone
 length, except with `--tone-length`, which the tests use. `tests/test_daemon.cpp` starts the daemon
 and drives it, directly, through amctl and over MPRIS. `tools/relaunch/relaunch.py` is the
 phase 5 gate: it opens and closes `am-ui` 50 times while the daemon plays and fails
-if the sound skipped (#43).
+if the sound skipped (#43), or if the window's own start-up or its connect to the
+daemon went over budget (#89).
 
 What's real so far: everything in `src/common/` except `arena_allocator.hpp`, every
 interface in `src/pal/interfaces/`, the Linux reactor, IPC
