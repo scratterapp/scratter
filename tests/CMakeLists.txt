@@ -50,10 +50,10 @@ set(AM_TESTS
 # Platform-specific tests. test_epoll_reactor, test_pipewire_sink and
 # test_unix_seqpacket_ipc are Linux-only, and so is test_mpris_controls, which
 # talks D-Bus to the MPRIS code. test_browser_files checks Linux paths and file
-# modes.
+# modes, and test_secret_vault plays a broken keyring on a private D-Bus bus.
 if(LINUX)
     list(APPEND AM_TESTS test_epoll_reactor test_pipewire_sink test_unix_seqpacket_ipc
-         test_mpris_controls test_browser_files)
+         test_mpris_controls test_browser_files test_secret_vault)
 endif()
 
 # The Windows counterparts of test_epoll_reactor, test_unix_seqpacket_ipc and
@@ -80,6 +80,8 @@ endforeach()
 if(LINUX)
     # Plays the desktop's side of D-Bus with sd-bus directly.
     target_link_libraries(test_mpris_controls PRIVATE PkgConfig::LIBSYSTEMD)
+    # Plays a broken keyring with sd-bus, and resets libsecret between tests.
+    target_link_libraries(test_secret_vault PRIVATE PkgConfig::LIBSYSTEMD PkgConfig::LIBSECRET)
 endif()
 
 # amctl's argument parser lives with amctl, in tools/.
