@@ -21,8 +21,8 @@ std::uintptr_t address(const void* p) { return reinterpret_cast<std::uintptr_t>(
 
 // A catalog-like record: plain data only, as the arena requires.
 struct Track {
-    std::uint64_t id;
-    std::uint32_t duration_ms;
+    std::uint64_t id = 0;
+    std::uint32_t duration_ms = 0;
     std::string_view title; // points into the same arena
 };
 
