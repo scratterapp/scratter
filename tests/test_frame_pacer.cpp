@@ -6,6 +6,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdint>
+
 using am::client::FramePacer;
 
 TEST_CASE("a new window draws two frames and then sleeps until an event", "[frame_pacer]") {
@@ -71,4 +73,30 @@ TEST_CASE("an animating window draws every frame", "[frame_pacer]") {
         CHECK(pacer.wait_ms(now) == 0);
         pacer.on_frame_drawn(now);
     }
+}
+
+// The spectrum (#40) changes about 33 times a second, so drawing it at a
+// 240 Hz screen's rate would cost the CPU four frames out of five for nothing.
+TEST_CASE("animating with a frame interval draws no more often than that", "[frame_pacer]") {
+    FramePacer pacer;
+    pacer.set_animating(true, FramePacer::kSpectrumFrameMs);
+    pacer.on_frame_drawn(990); // the two frames a new window owes
+    pacer.on_frame_drawn(1'000);
+    CHECK_FALSE(pacer.should_draw(1'004)); // a 240 Hz vsync later
+    CHECK(pacer.wait_ms(1'004) == static_cast<std::int32_t>(FramePacer::kSpectrumFrameMs - 4));
+    CHECK(pacer.should_draw(1'000 + FramePacer::kSpectrumFrameMs));
+    CHECK(pacer.wait_ms(1'000 + FramePacer::kSpectrumFrameMs) == 0);
+
+    // An event still draws at once: input shouldn't wait for the next frame.
+    pacer.on_event();
+    CHECK(pacer.should_draw(1'004));
+
+    // Turned off, it sleeps until an event again.
+    FramePacer idle;
+    idle.set_animating(true, FramePacer::kSpectrumFrameMs);
+    idle.set_animating(false);
+    idle.on_frame_drawn(0);
+    idle.on_frame_drawn(0); // the two frames owed at the start
+    CHECK_FALSE(idle.should_draw(100));
+    CHECK(idle.wait_ms(100) == FramePacer::kWaitForever);
 }

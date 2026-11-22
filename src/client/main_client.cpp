@@ -305,7 +305,6 @@ int main(int argc, char** argv) {
     std::uint64_t raises_seen = 0;
 
     am::client::FramePacer pacer;
-    pacer.set_animating(options->frame_limit.has_value());
     int frames_drawn = 0;
     bool quit = false;
 
@@ -355,6 +354,15 @@ int main(int argc, char** argv) {
         }
         // The clock on screen moves once a second while music plays.
         pacer.set_ticking(connected && state.playback == am::common::PlaybackState::Playing);
+        // The spectrum's bars move on their own, so while they're shown the
+        // window draws about 33 frames a second (FramePacer::kSpectrumFrameMs).
+        // --frames draws every frame, as fast as vsync lets it.
+        if (options->frame_limit) {
+            pacer.set_animating(true);
+        } else {
+            pacer.set_animating(connected && now_playing.spectrum_shown(),
+                                am::client::FramePacer::kSpectrumFrameMs);
+        }
 
         constexpr SDL_WindowFlags kNotVisible =
             SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN | SDL_WINDOW_OCCLUDED;

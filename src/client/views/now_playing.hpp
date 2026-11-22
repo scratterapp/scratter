@@ -1,7 +1,8 @@
 #pragma once
 
 // The now-playing view (issue #37): what's playing, where playback is, and
-// play/pause, stop and volume. Everything amctl can do, with buttons.
+// play/pause, stop and volume. Everything amctl can do, with buttons. A
+// Spectrum chip turns on the bars along the bottom (#40, views/spectrum.hpp).
 //
 // It never waits on the daemon. Buttons hand a command to the DaemonLink,
 // which returns at once, and the screen follows the daemon's own state the
@@ -36,6 +37,10 @@ class NowPlayingView {
     void draw(const Fonts& fonts, const DaemonState& state, const TelemetryReader& telemetry,
               DaemonLink& link, PlayerKeys keys);
 
+    // True while the spectrum is turned on, so main_client.cpp draws every
+    // frame instead of only after events.
+    [[nodiscard]] bool spectrum_shown() const { return spectrum_shown_; }
+
   private:
     std::string renderer_;
 
@@ -63,6 +68,10 @@ class NowPlayingView {
     // than following the daemon's answers a frame or two behind.
     int slider_volume_ = 0;
     bool slider_held_ = false;
+
+    // The Spectrum chip. Off to begin with, so an idle window doesn't draw
+    // 33 frames a second until asked to.
+    bool spectrum_shown_ = false;
 };
 
 } // namespace am::client

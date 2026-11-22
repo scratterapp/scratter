@@ -2,6 +2,7 @@
 
 #include "client/now_playing_text.hpp"
 #include "client/views/drawing.hpp"
+#include "client/views/spectrum.hpp"
 #include "common/app_name.hpp"
 
 #include <algorithm>
@@ -311,6 +312,14 @@ void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
             link.load_track(source);
         }
     }
+    // The spectrum's switch, apart from the sources: it changes this window,
+    // not what plays.
+    ImGui::SameLine(0.0f, em * 2.2f);
+    ImGui::SetCursorPosY(chips_top);
+    if (chip("Spectrum", spectrum_shown_)) {
+        spectrum_shown_ = !spectrum_shown_;
+    }
+    ImGui::SetItemTooltip(spectrum_shown_ ? "Hide the spectrum" : "Show the spectrum");
 
     // The newest answer, when it's a no. A later command that works replaces
     // it, so it doesn't stay around once things are fine again.
@@ -347,6 +356,20 @@ void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
         }
     }
     ImGui::PopStyleColor();
+
+    // The spectrum along the bottom, under everything above it. It takes up
+    // to a fifth of the window, less if the window is short or Details is
+    // open, and none if there's no room left at all.
+    if (spectrum_shown_) {
+        const float bottom = size.y - em * 1.5f;
+        const float top = std::max(ImGui::GetCursorPosY() + em * 0.8f, bottom - size.y * 0.2f);
+        if (bottom - top >= em * 2.0f) {
+            const ImVec2 origin = ImGui::GetWindowPos();
+            draw_spectrum(*ImGui::GetWindowDrawList(), {origin.x + margin, origin.y + top},
+                          {origin.x + size.x - margin, origin.y + bottom},
+                          snapshot.fft_magnitude_db, telemetry.fresh() ? 1.0f : 0.35f);
+        }
+    }
 
     ImGui::End();
 }
