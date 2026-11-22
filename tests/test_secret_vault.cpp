@@ -64,7 +64,8 @@ struct ForgetSecretService {
 };
 
 // Plays a keyring on `bus` that answers every call with the D-Bus error
-// `error_name`, on its own thread.
+// `error_name`, on its own thread. With no error name, it plays one whose
+// prompt the user dismisses instead (see dismiss()).
 class BrokenKeyring {
   public:
     BrokenKeyring(const PrivateBus& bus, std::string error_name)
@@ -104,9 +105,35 @@ class BrokenKeyring {
         if (!sd_bus_message_is_method_call(m, nullptr, nullptr)) {
             return 0; // signals from the bus itself, such as NameAcquired
         }
+        if (self->error_name_.empty()) {
+            return dismiss(self->bus_, m);
+        }
         sd_bus_reply_method_errorf(m, self->error_name_.c_str(), "the test's broken keyring");
         return 1;
     }
+
+    // Plays a keyring whose "unlock" prompt the user dismisses: enough of the
+    // Secret Service API for libsecret to get to CreateItem, which answers
+    // with a prompt, and the prompt reports that it was dismissed.
+    static int dismiss(sd_bus* bus, sd_bus_message* m) {
+        const std::string_view member = sd_bus_message_get_member(m);
+        if (member == "OpenSession") {
+            // "plain": the secret travels as is, which is fine on a test bus.
+            sd_bus_reply_method_return(m, "vo", "s", "", "/org/freedesktop/secrets/session/s1");
+        } else if (member == "CreateItem") {
+            sd_bus_reply_method_return(m, "oo", "/", kPrompt);
+        } else if (member == "Prompt") {
+            sd_bus_reply_method_return(m, "");
+            sd_bus_emit_signal(bus, kPrompt, "org.freedesktop.Secret.Prompt", "Completed", "bv", 1,
+                               "o", "/");
+        } else {
+            sd_bus_reply_method_errorf(m, "org.freedesktop.DBus.Error.UnknownMethod",
+                                       "not in the test's keyring");
+        }
+        return 1;
+    }
+
+    static constexpr const char* kPrompt = "/org/freedesktop/secrets/prompt/p1";
 
     std::string error_name_;
     sd_bus* bus_ = nullptr;
@@ -220,4 +247,29 @@ TEST_CASE("a cancelled call is reported as cancelled", "[vault]") {
 
 TEST_CASE("any other keyring error is an I/O error", "[vault]") {
     check_every_call_fails_with("other", "org.example.Broken", std::errc::io_error);
+}
+
+TEST_CASE("storing past a dismissed prompt fails, or libsecret says it worked", "[vault]") {
+    // When the keyring needs the user's OK (to unlock, or to create the login
+    // keyring) and they close the prompt, libsecret either fails without an
+    // error, which the vault reports as permission_denied, or, as libsecret
+    // 0.21.4 does, reports success though nothing was saved. The daemon finds
+    // out at the next load(). Either is accepted here, since which one depends
+    // on the libsecret version.
+    if (!first_bus_test()) {
+        return;
+    }
+    const PrivateBus bus("dismissed");
+    if (!bus_or_skip(bus)) {
+        return;
+    }
+    const BrokenKeyring keyring(bus, "");
+    REQUIRE(keyring.running());
+    const ForgetSecretService forget;
+    auto vault = CredentialVault::open("am-vault-test");
+    REQUIRE(vault.has_value());
+    auto stored = vault->store(kMusicUserTokenSecret, "token");
+    if (!stored) {
+        CHECK(stored.error() == std::errc::permission_denied);
+    }
 }
