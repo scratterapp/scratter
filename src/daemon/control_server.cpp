@@ -236,6 +236,12 @@ int ControlServer::raise_windows() {
     return raised;
 }
 
+int ControlServer::window_count() const {
+    return static_cast<int>(std::ranges::count_if(clients_, [](const auto& client) {
+        return !client->closed && client->name == common::kWindowPeerName;
+    }));
+}
+
 void ControlServer::send(Client& client, std::span<const std::byte> frame) {
     if (client.closed) {
         return;

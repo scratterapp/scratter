@@ -94,6 +94,10 @@ class ControlServer {
     // instead. For MPRIS Raise, issue #41.
     int raise_windows();
 
+    // How many windows (clients whose hello said common::kWindowPeerName)
+    // are connected. main() only works out the spectrum while there's one.
+    [[nodiscard]] int window_count() const;
+
   private:
     struct Client {
         pal::IpcChannel channel;

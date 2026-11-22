@@ -64,9 +64,9 @@
 //   6. media keys, which carry on without if the desktop has none
 //   7. a timer that keeps the ring buffer topped up and publishes telemetry,
 //      every 10 ms while playing and every 250 ms while paused or stopped (a
-//      command that changes something publishes it at once), and stops the
-//      audio output once a pause has faded out, then the reactor runs until
-//      a quit signal stops it
+//      command that changes something publishes it at once), works out the
+//      spectrum while a window is connected, and stops the audio output once
+//      a pause has faded out, then the reactor runs until a quit signal stops it
 //
 // Shutdown is the same list backwards, mostly done by destructors.
 
@@ -75,6 +75,7 @@
 #include "common/telemetry_shm.hpp"
 #include "daemon/audio_engine/audio_path.hpp"
 #include "daemon/audio_engine/sine_generator.hpp"
+#include "daemon/audio_engine/spectrum.hpp"
 #include "daemon/audio_engine/tone_pacer.hpp"
 #include "daemon/cef_host/cef_host.hpp"
 #include "daemon/cef_host/test_film_page.hpp"
@@ -107,6 +108,7 @@ namespace {
 
 using namespace std::chrono_literals;
 using am::audio::AudioPath;
+using am::audio::SpectrumAnalyzer;
 using am::common::PlaybackState;
 using am::common::TelemetryPage;
 using am::common::TelemetrySnapshot;
@@ -199,10 +201,11 @@ std::uint64_t frames_in(microseconds time, std::uint32_t sample_rate) {
     return static_cast<std::uint64_t>(time.count()) * sample_rate / 1'000'000;
 }
 
-TelemetrySnapshot make_snapshot(const AudioPath& audio,
+TelemetrySnapshot make_snapshot(const AudioPath& audio, const SpectrumAnalyzer& spectrum,
                                 const std::optional<am::pal::AudioSink>& sink,
                                 microseconds length) {
     TelemetrySnapshot s{};
+    s.fft_magnitude_db = spectrum.bands();
     s.pts_micros = audio.position_micros();
     s.duration_micros = static_cast<std::uint64_t>(length.count());
     s.ring_buffer_fill_pct = audio.ring_fill();
@@ -311,6 +314,11 @@ int main(int argc, char** argv) {
         sink.emplace(std::move(*opened));
     }
     audio = std::make_unique<AudioPath>(sample_rate);
+    // The spectrum the window draws (#40), worked out by the tick (step 7)
+    // from what render() played. `played` is where the tick empties
+    // AudioPath's tap into, made once here so the tick doesn't allocate.
+    const auto spectrum = std::make_unique<SpectrumAnalyzer>(sample_rate);
+    std::vector<float> played(AudioPath::kTapFrames);
     am::audio::SineGenerator sine(sample_rate);
     TrackSource source = options->source; // what plays now; LoadTrackReq changes it
     // How long a source is. The films loop, and so does a tone with a length.
@@ -379,7 +387,7 @@ int main(int argc, char** argv) {
     }
     TelemetryPage* telemetry =
         std::construct_at(reinterpret_cast<TelemetryPage*>(shm->writable_bytes().data()));
-    telemetry->write(make_snapshot(*audio, sink, length_of(source)));
+    telemetry->write(make_snapshot(*audio, *spectrum, sink, length_of(source)));
 
     // Republish telemetry as soon as a command changes something, not just on
     // the next tick, so `amctl pause; amctl status` shows the new state. The
@@ -549,7 +557,7 @@ int main(int argc, char** argv) {
         }
         // The page first, so a client that reads it as soon as the event
         // arrives (`amctl seek` then `amctl status`) sees the new position.
-        telemetry->write(make_snapshot(*audio, sink, length_of(source)));
+        telemetry->write(make_snapshot(*audio, *spectrum, sink, length_of(source)));
         server->broadcast_state();
     };
 
@@ -658,6 +666,10 @@ int main(int argc, char** argv) {
     std::uint64_t late_reported = 0;
     std::uint64_t dropped_reported = 0;
     auto glitch_reported_at = std::chrono::steady_clock::now();
+    // When the spectrum was last worked out, and whether the tap has had
+    // anything since.
+    auto spectrum_at = std::chrono::steady_clock::time_point{};
+    bool spectrum_fresh = false;
     tick = [&] {
         if (switching) {
             if (audio->state() != PlaybackState::Stopped) {
@@ -713,10 +725,32 @@ int main(int argc, char** argv) {
         } else {
             tone_pacer.stop();
         }
-        telemetry->write(make_snapshot(*audio, sink, length_of(source)));
+        // The spectrum (#40), only while a window is connected to draw it.
+        // The tap is emptied every tick, so the history is always the newest
+        // audio. Every kUpdateMillis the bands are worked out from it, or
+        // fall away when nothing new played (paused, stopped, filling up).
+        // With no window, the bars go back to the floor and stay there.
+        const auto now = std::chrono::steady_clock::now();
+        const std::size_t taken = audio->take_played(played);
+        const bool window_open = server->window_count() > 0;
+        if (window_open) {
+            spectrum->push(std::span(played).first(taken));
+            spectrum_fresh = spectrum_fresh || taken > 0;
+            if (now - spectrum_at >= std::chrono::milliseconds{SpectrumAnalyzer::kUpdateMillis}) {
+                if (spectrum_fresh) {
+                    spectrum->analyze();
+                } else {
+                    spectrum->fall();
+                }
+                spectrum_fresh = false;
+                spectrum_at = now;
+            }
+        } else if (!spectrum->at_floor()) {
+            spectrum->reset();
+        }
+        telemetry->write(make_snapshot(*audio, *spectrum, sink, length_of(source)));
         const std::uint64_t late = audio->late_buffers();
         const std::uint64_t dropped = audio->dropped_frames();
-        const auto now = std::chrono::steady_clock::now();
         if ((late != late_reported || dropped != dropped_reported) &&
             now - glitch_reported_at >= 1s) {
             std::fprintf(stderr, "audio: %llu late audio buffers, %llu frames dropped so far\n",
@@ -730,10 +764,13 @@ int main(int argc, char** argv) {
             media->set_position(
                 std::chrono::microseconds{static_cast<std::int64_t>(audio->position_micros())});
         }
-        // A switch or seek waits for render(), so it ticks fast like playing does.
+        // A switch or seek waits for render(), so it ticks fast like playing
+        // does. So do the bars after a pause, until they've fallen all the way.
         const bool waiting = switching || seeking;
-        const auto next =
-            audio->state() == PlaybackState::Playing || waiting ? kTickInterval : kIdleTickInterval;
+        const bool bars_falling = window_open && !spectrum->at_floor();
+        const auto next = audio->state() == PlaybackState::Playing || waiting || bars_falling
+                              ? kTickInterval
+                              : kIdleTickInterval;
         (void)reactor->set_timer(next, [&tick] { tick(); });
     };
     tick();
