@@ -76,6 +76,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -92,6 +93,9 @@ class AudioPath {
     static constexpr std::size_t kTargetFrames = 4096;    // ~85 ms, the drift controller's target
     static constexpr std::size_t kPacketFrames = 512;     // what CEF delivers per packet
     static constexpr std::uint32_t kFadeMillis = 10;      // fade in on play, out on pause
+    // How quickly the gain follows a volume change: it closes about 63% of
+    // the gap in this time, whatever the size of the change.
+    static constexpr std::uint32_t kVolumeMillis = 15;
 
     using RingBuffer = common::LockFreeSpscAudioBuffer<float, kCapacityFrames, kChannels>;
 
@@ -101,7 +105,9 @@ class AudioPath {
     explicit AudioPath(std::uint32_t sample_rate_hz)
         : sample_rate_hz_(sample_rate_hz),
           fade_frames_(std::max<std::size_t>(1, sample_rate_hz * kFadeMillis / 1000)),
-          fade_step_(1.0f / static_cast<float>(fade_frames_)) {}
+          fade_step_(1.0f / static_cast<float>(fade_frames_)),
+          gain_coeff_(static_cast<float>(
+              1.0 - std::exp(-1000.0 / (static_cast<double>(kVolumeMillis) * sample_rate_hz)))) {}
 
     // --- Producer: the reactor thread (tone) --------------------------------
 
@@ -365,17 +371,32 @@ class AudioPath {
 
         // Plain linear volume. A curve that sounds more even (most players
         // use one) can come with the UI's volume slider.
-        const float gain =
+        const float target =
             static_cast<float>(volume_percent_.load(std::memory_order_relaxed)) / 100.0f;
 
         // The fade moves one step per frame: up towards 1 while playing, down
-        // towards 0 while paused or stopped. Both channels of a frame get the
-        // same step.
+        // towards 0 while paused or stopped.
+        //
+        // The gain follows the volume smoothly instead of jumping to it,
+        // which would click. Each frame it closes a fixed part of the gap
+        // (a one-pole low-pass, time constant kVolumeMillis), so a small
+        // change takes as long as a big one. A fixed-speed ramp would finish
+        // a 2% change in well under a millisecond, and the run of tiny
+        // steps from a dragged slider still sounds like crackling on a pure
+        // tone. Once the gap is too small to hear (-80 dB) the gain lands on
+        // the volume. While silent there's nothing to hear, so the gain goes
+        // straight to the volume. Both channels of a frame get the same gain.
         for (std::size_t i = 0; i + 1 < out.size(); i += kChannels) {
+            const float gap = target - gain_;
+            if (fade_ == 0.0f || std::abs(gap) < 1e-4f) {
+                gain_ = target;
+            } else {
+                gain_ += gap * gain_coeff_;
+            }
             fade_ =
                 playing ? std::min(1.0f, fade_ + fade_step_) : std::max(0.0f, fade_ - fade_step_);
-            out[i] *= gain * fade_;
-            out[i + 1] *= gain * fade_;
+            out[i] *= gain_ * fade_;
+            out[i + 1] *= gain_ * fade_;
         }
         if (filling_up_) {
             fade_ = 0.0f; // ran dry: fade in again once it's filled up
@@ -400,7 +421,8 @@ class AudioPath {
     RingBuffer ring_;
     std::uint32_t sample_rate_hz_;
     std::size_t fade_frames_;
-    float fade_step_; // 1 / fade_frames_
+    float fade_step_;  // 1 / fade_frames_
+    float gain_coeff_; // how much of the gap to the volume the gain closes per frame
 
     // Written by the reactor thread, read by the audio thread.
     std::atomic<PlaybackState> state_{PlaybackState::Playing};
@@ -417,6 +439,7 @@ class AudioPath {
     PolyphaseResampler resampler_;
     bool filling_up_ = true; // waiting for kTargetFrames before playing
     float fade_ = 0.0f;      // 0 is silent, 1 is full volume; see render()
+    float gain_ = 1.0f;      // the volume as heard, ramping towards volume_percent_
 
     // Written by the audio thread, read by the reactor thread. Also written
     // by set_position_frames(), while render() leaves it alone.
