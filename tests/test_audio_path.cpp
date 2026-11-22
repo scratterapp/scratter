@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <thread>
@@ -48,6 +49,11 @@ float biggest_jump(const std::vector<float>& samples) {
 // Buffers until a fade has finished, rounded up.
 constexpr int kFadeBuffers =
     static_cast<int>((kRate * AudioPath::kFadeMillis / 1000 + kBufferFrames - 1) / kBufferFrames);
+
+// Buffers until a volume change has settled: ten time constants, by which
+// the gap is far below what render() snaps across (-80 dB, about 9.2).
+constexpr int kVolumeBuffers = static_cast<int>(
+    (kRate * AudioPath::kVolumeMillis * 10 / 1000 + kBufferFrames - 1) / kBufferFrames);
 
 // One AudioPath with a full ring buffer, and a buffer for render() to fill.
 struct Fixture {
@@ -249,12 +255,13 @@ TEST_CASE("volume scales the output", "[audio_path]") {
     f.render(4);
     const float full = loudest(f.out);
 
+    // A change glides in (see below), so check once it has settled.
     f.audio->set_volume(50);
-    f.render(4);
+    f.render(kVolumeBuffers);
     CHECK(std::abs(loudest(f.out) - full / 2) < 0.01f * full);
 
     f.audio->set_volume(0);
-    f.render();
+    f.render(kVolumeBuffers);
     CHECK(loudest(f.out) == 0.0f);
 }
 
@@ -648,4 +655,60 @@ TEST_CASE("discard() throws away what the tone left in the ring while stopped", 
     f.audio->set_state(PlaybackState::Playing);
     f.audio->render(f.out);
     CHECK(loudest(f.out) == 0.0f);
+}
+
+TEST_CASE("a volume change glides instead of jumping", "[audio_path]") {
+    ConstantPage page;
+    page.render(kFadeBuffers + 2); // faded in, at 0.5
+
+    page.audio->set_volume(0);
+    page.render(kVolumeBuffers);
+    CHECK(page.out.back() == 0.0f); // all the way down once settled
+    page.audio->set_volume(100);
+    page.render(kVolumeBuffers);
+    CHECK(std::abs(page.out.back() - 0.5f) < 1e-4f); // and back up
+    CHECK(biggest_jump(page.heard) < 0.01f);
+}
+
+// A small change takes as long as a big one. Finishing a 4% step within a
+// millisecond, the way a fixed-speed ramp does, is what a dragged slider made
+// audible as crackling: a quick run of tiny steps.
+TEST_CASE("a small volume change glides over milliseconds too", "[audio_path]") {
+    ConstantPage page;
+    page.render(kFadeBuffers + 2); // at 0.5
+
+    page.audio->set_volume(96); // 0.5 -> 0.48
+    page.render(1);             // about 5 ms
+    CHECK(page.out.back() > 0.49f);
+    CHECK(page.out.back() < 0.5f);
+    page.render(kVolumeBuffers);
+    CHECK(std::abs(page.out.back() - 0.48f) < 1e-4f);
+}
+
+// What dragging the volume slider fast sends: a new volume every buffer or
+// so, back and forth, each one before the last was reached.
+TEST_CASE("quick volume changes back and forth don't click", "[audio_path]") {
+    ConstantPage page;
+    page.render(kFadeBuffers + 2);
+    for (const int volume : {0, 100, 20, 90, 5, 60, 100, 0, 75}) {
+        page.audio->set_volume(static_cast<std::uint8_t>(volume));
+        page.render(1);
+    }
+    CHECK(biggest_jump(page.heard) < 0.01f);
+}
+
+TEST_CASE("a volume change while paused is there at once on play", "[audio_path]") {
+    ConstantPage page;
+    page.render(kFadeBuffers + 2);
+    page.audio->set_state(PlaybackState::Paused);
+    page.render(kFadeBuffers + 2);
+
+    // Nothing to hear while paused, so no ramp after it: play fades in
+    // straight to the new volume.
+    page.audio->set_volume(50);
+    page.audio->set_state(PlaybackState::Playing);
+    page.send(AudioPath::kTargetFrames);
+    page.render(kFadeBuffers + 2);
+    CHECK(std::abs(page.out.back() - 0.25f) < 1e-4f);
+    CHECK(biggest_jump(page.heard) < 0.01f);
 }
