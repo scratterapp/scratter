@@ -83,7 +83,10 @@ void check_payload(Opcode opcode, std::span<const std::byte> payload) {
     case Opcode::TrackChangedEvent:
         check_body<TrackChangedBody>(payload);
         if (const auto body = decode_body<TrackChangedBody>(payload)) {
-            if (track_title(*body).size() > kTrackTitleBytes) {
+            if (track_title(*body).size() > kTrackTitleBytes ||
+                track_artist(*body).size() > kTrackArtistBytes ||
+                track_album(*body).size() > kTrackAlbumBytes ||
+                track_artwork_url(*body).size() > kTrackArtworkUrlBytes) {
                 std::abort();
             }
         }

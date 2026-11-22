@@ -53,7 +53,10 @@ TrackChangedBody titled(std::string_view title) {
         .duration_micros = 0,
         .source = TrackSource::Tone,
         .reserved = {},
-        .title = make_track_title(title),
+        .title = make_text_field<kTrackTitleBytes>(title),
+        .artist = {},
+        .album = {},
+        .artwork_url = {},
     };
 }
 
@@ -212,50 +215,67 @@ TEST_CASE("TrackChangedBody round-trips and lands at the spec offsets", "[ipc][m
         .duration_micros = 0x0102030405060708,
         .source = TrackSource::ClearFilm,
         .reserved = {},
-        .title = make_track_title("Sintel"),
+        .title = make_text_field<kTrackTitleBytes>("Tears of Steel"),
+        .artist = make_text_field<kTrackArtistBytes>("Blender Foundation"),
+        .album = make_text_field<kTrackAlbumBytes>("Open Movies"),
+        .artwork_url = make_url_field("https://example.com/poster.jpg"),
     };
     const auto received = round_trip(Opcode::TrackChangedEvent, sent);
     REQUIRE(received.has_value());
     CHECK(same_bytes(*received, sent));
-    CHECK(track_title(*received) == "Sintel");
+    CHECK(track_title(*received) == "Tears of Steel");
+    CHECK(track_artist(*received) == "Blender Foundation");
+    CHECK(track_album(*received) == "Open Movies");
+    CHECK(track_artwork_url(*received) == "https://example.com/poster.jpg");
 
-    const auto bytes = std::bit_cast<std::array<std::byte, 88>>(sent);
+    const auto bytes = std::bit_cast<std::array<std::byte, 1304>>(sent);
     CHECK(bytes[8] == std::byte{0x08}); // duration, little-endian
     CHECK(bytes[15] == std::byte{0x01});
     CHECK(bytes[16] == std::byte{0x01}); // ClearFilm
-    CHECK(bytes[24] == std::byte{'S'});
+    CHECK(bytes[24] == std::byte{'T'});  // title
+    CHECK(bytes[280] == std::byte{'B'}); // artist
+    CHECK(bytes[536] == std::byte{'O'}); // album
+    CHECK(bytes[792] == std::byte{'h'}); // artwork_url
 
     std::array<std::byte, sizeof(TrackChangedBody)> payload{};
     payload[16] = std::byte{3}; // one past WidevineFilm
     CHECK(decode_body<TrackChangedBody>(payload).error() == BodyError::BadValue);
 }
 
-TEST_CASE("track titles are zero-padded, and cut whole characters at 64 bytes", "[ipc][messages]") {
-    const auto short_title = make_track_title("Tone");
+TEST_CASE("track titles are zero-padded, and cut whole characters at 256 bytes",
+          "[ipc][messages]") {
+    const auto short_title = make_text_field<kTrackTitleBytes>("Tone");
     CHECK(short_title[4] == '\0');
-    CHECK(short_title[63] == '\0');
+    CHECK(short_title[kTrackTitleBytes - 1] == '\0');
 
-    // Exactly 64 bytes fits, with no terminating zero.
+    // Exactly 256 bytes fits, with no terminating zero.
     const std::string exact(kTrackTitleBytes, 'a');
     const TrackChangedBody full = titled(exact);
     CHECK(track_title(full) == exact);
 
-    // 63 ASCII bytes, then a 2-byte character: only its first byte would fit,
-    // so the cut drops the whole character.
-    const std::string split = std::string(63, 'a') + "\xC3\xA9"; // e with an acute accent
+    // 255 ASCII bytes, then a 2-byte character: only its first byte would
+    // fit, so the cut drops the whole character.
+    const std::string split = std::string(255, 'a') + "\xC3\xA9"; // e with an acute accent
     const TrackChangedBody cut = titled(split);
-    CHECK(track_title(cut) == std::string(63, 'a'));
+    CHECK(track_title(cut) == std::string(255, 'a'));
 
-    // A 4-byte character starting at byte 62: the cut backs up to byte 62.
-    const std::string note = std::string(62, 'a') + "\xF0\x9F\x8E\xB5"; // a musical note emoji
+    // A 4-byte character starting at byte 254: the cut backs up to byte 254.
+    const std::string note = std::string(254, 'a') + "\xF0\x9F\x8E\xB5"; // a musical note emoji
     const TrackChangedBody backed = titled(note);
-    CHECK(track_title(backed) == std::string(62, 'a'));
+    CHECK(track_title(backed) == std::string(254, 'a'));
 
     CHECK(track_title(titled("")).empty());
 }
 
+TEST_CASE("an artwork link that doesn't fit is left out, not cut", "[ipc][messages]") {
+    const std::string fits = "https://" + std::string(kTrackArtworkUrlBytes - 8, 'a');
+    CHECK(text_field(make_url_field(fits)) == fits);
+    CHECK(text_field(make_url_field(fits + "b")).empty());
+    CHECK(text_field(make_url_field("")).empty());
+}
+
 TEST_CASE("every body refuses a payload one byte short or long", "[ipc][messages]") {
-    const std::vector<std::byte> bytes(128); // more than the biggest body plus one
+    const std::vector<std::byte> bytes(sizeof(TrackChangedBody) + 1); // the biggest body plus one
     const auto check_sizes = [&]<WireBody Body>(Body) {
         INFO("body size " << sizeof(Body));
         CHECK(decode_body<Body>(std::span(bytes).first(sizeof(Body))).has_value());
