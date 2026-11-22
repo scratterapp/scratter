@@ -18,6 +18,7 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <utility>
 
 namespace {
 
@@ -160,4 +161,21 @@ TEST_CASE("a shared sink says so, and exclusive mode is refused", "[audio][pipew
         am::pal::OutputMode::Exclusive);
     REQUIRE_FALSE(exclusive);
     CHECK(exclusive.error() == std::errc::not_supported);
+}
+
+TEST_CASE("a sink moved over another keeps playing", "[audio][pipewire]") {
+    Counters first_counters;
+    Counters second_counters;
+    auto first = open_silent_sink(first_counters);
+    auto second = open_silent_sink(second_counters);
+    if (!first || !second) {
+        WARN("no PipeWire daemon, not testing moving a sink");
+        return;
+    }
+    // The first stream closes; the second carries on in its place.
+    *first = std::move(*second);
+    REQUIRE(first->start());
+    std::this_thread::sleep_for(200ms);
+    REQUIRE(first->stop());
+    CHECK(first_counters.calls.load() == 0);
 }
