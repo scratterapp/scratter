@@ -27,11 +27,23 @@ notes the numbers once playback has settled (the film's start can leave one
 late buffer, see docs/BENCHMARKS.md), and both must be the same after the 50
 windows. It also checks that the play position kept moving with the clock.
 
-Start-up time: am-ui prints when its first frame reached the screen, and when
-the first frame showing the daemon's state did. The script noted the time just
-before it started am-ui, so it can give the whole time from launch, including
-loading the program before main() runs. summary.txt lists the median, 90th
-percentile and slowest of each; launches.csv has every launch.
+Start-up time: am-ui prints how long creating its renderer took, when its
+first frame reached the screen, and when the first frame showing the daemon's
+state did. The script noted the time just before it started am-ui, so it can
+give the whole time from launch, including loading the program before main()
+runs. summary.txt lists the median, 90th percentile and slowest of each;
+launches.csv has every launch.
+
+Two of those times are part of the gate (#89), on their medians:
+  - first frame to the daemon's state, under 20 ms: connecting, the hello and
+    reading the telemetry page.
+  - our own start-up, under 60 ms: main() to the first frame, less the time
+    SDL_CreateRenderer took. Creating the renderer is mostly the GPU driver
+    making its device (about 160 ms of 210 on kero's Windows laptop), which we
+    can't make faster, so it's printed but not held to a budget. So is the
+    time from launch to the first frame.
+--no-time-limits reports them without failing on them; the ctest smoke run
+uses it, because sanitizer and debug builds are slower on purpose.
 
 Everything lands in relaunch-results/<date-time>/: summary.txt, launches.csv,
 daemon.log and ui.log (what the windows printed besides the timings).
@@ -87,6 +99,11 @@ CONNECTED_FRAME = re.compile(
     r"am-ui: first frame with the daemon's state ([\d.]+) ms after main\(\) "
     r"\(steady clock ([\d.]+) s\)"
 )
+RENDERER_CREATED = re.compile(r"am-ui: renderer created in ([\d.]+) ms \((.*)\)")
+
+# The gate's budgets, on the medians (#89).
+STATE_BUDGET_MS = 20.0  # first frame to the daemon's state
+OWN_BUDGET_MS = 60.0  # main() to the first frame, less creating the renderer
 
 # The daemon prints "so far" lines at most once a second, so this long without
 # a new one means nothing is still waiting to be printed.
@@ -125,6 +142,11 @@ def parse_arguments():
         type=float,
         default=15.0,
         help="seconds to wait for each window to show the daemon's state (default 15)",
+    )
+    parser.add_argument(
+        "--no-time-limits",
+        action="store_true",
+        help="report the start-up times without failing on them (for debug and sanitizer builds)",
     )
     parser.add_argument(
         "--out",
@@ -280,12 +302,21 @@ def run_window(am_ui: Path, args, clean: bool, ui_log) -> dict:
         if line is None:
             row["problem"] = f"am-ui quit by itself (exit code {ui.wait()}); see ui.log"
             break
-        if match := FIRST_FRAME.search(line):
+        if match := RENDERER_CREATED.search(line):
+            row["renderer_ms"] = float(match[1])
+            row["renderer"] = match[2]
+        elif match := FIRST_FRAME.search(line):
             row["main_to_frame_ms"] = float(match[1])
             row["launch_to_frame_ms"] = round((float(match[2]) - launched) * 1000, 2)
+            if "renderer_ms" in row:
+                row["own_ms"] = round(row["main_to_frame_ms"] - row["renderer_ms"], 2)
         elif match := CONNECTED_FRAME.search(line):
             row["main_to_connected_ms"] = float(match[1])
             row["launch_to_connected_ms"] = round((float(match[2]) - launched) * 1000, 2)
+            if "main_to_frame_ms" in row:
+                row["frame_to_state_ms"] = round(
+                    row["main_to_connected_ms"] - row["main_to_frame_ms"], 2
+                )
             connected = True
         else:
             ui_log.write(line)
@@ -341,14 +372,36 @@ def summarize(rows, args, before, after, played, shutdown) -> tuple[str, bool]:
         if r["problem"]:
             fail(f"window {i} ({r['how']}): {r['problem']}")
 
-    lines.append("start-up, over the windows that showed the daemon:")
+    renderers = sorted({r["renderer"] for r in rows if r.get("renderer")})
+    lines.append(
+        "start-up, over the windows that showed the daemon"
+        + (f" (drawn with {', '.join(renderers)}):" if renderers else ":")
+    )
     for column, label in [
         ("launch_to_frame_ms", "launch to first frame"),
         ("main_to_frame_ms", "  of that, after main()"),
+        ("renderer_ms", "  of that, the renderer"),
         ("launch_to_connected_ms", "launch to daemon's state"),
     ]:
         values = [r[column] for r in rows if column in r]
         lines.append(f"  {label:<26} {spread(values)}")
+
+    # The gate's two times (#89), on their medians.
+    lines.append("the gate's start-up times:")
+    for column, label, budget in [
+        ("own_ms", "our own start-up", OWN_BUDGET_MS),
+        ("frame_to_state_ms", "first frame to state", STATE_BUDGET_MS),
+    ]:
+        values = [r[column] for r in rows if column in r]
+        lines.append(f"  {label:<26} {spread(values)} (budget: median under {budget:.0f} ms)")
+        if args.no_time_limits:
+            continue
+        if not values:
+            fail(f"{label}: no times to check")
+        elif statistics.median(values) >= budget:
+            fail(f"{label}: median {statistics.median(values):.1f} ms, over {budget:.0f} ms")
+    if args.no_time_limits:
+        lines.append("  (--no-time-limits: reported, not checked)")
 
     late = after[0] - before[0]
     dropped = after[1] - before[1]
@@ -474,6 +527,10 @@ def main() -> int:
         "main_to_frame_ms",
         "launch_to_connected_ms",
         "main_to_connected_ms",
+        "renderer",
+        "renderer_ms",
+        "own_ms",
+        "frame_to_state_ms",
         "exit_code",
         "problem",
     ]
