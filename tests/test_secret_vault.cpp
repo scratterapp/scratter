@@ -18,6 +18,7 @@
 // same way.
 
 #include "credential_vault.hpp"
+#include "private_bus.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -25,79 +26,19 @@
 #include <systemd/sd-bus.h>
 
 #include <atomic>
-#include <chrono>
-#include <csignal>
-#include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <thread>
 #include <utility>
 
-#include <spawn.h>
-#include <sys/wait.h>
-#include <unistd.h>
-
-extern char** environ;
-
 using am::pal::CredentialVault;
 using am::pal::kMusicUserTokenSecret;
-using namespace std::chrono_literals;
+using am::test::PrivateBus;
+using am::test::ScopedEnv;
+using am::test::TempDir;
 
 namespace {
-
-namespace fs = std::filesystem;
-
-// Sets an environment variable for as long as it lives, then puts the old
-// value back.
-class ScopedEnv {
-  public:
-    ScopedEnv(const char* name, const std::string& value) : name_(name) {
-        if (const char* old = std::getenv(name)) {
-            old_ = old;
-        }
-        setenv(name, value.c_str(), 1);
-    }
-    ~ScopedEnv() {
-        if (old_) {
-            setenv(name_, old_->c_str(), 1);
-        } else {
-            unsetenv(name_);
-        }
-    }
-    ScopedEnv(const ScopedEnv&) = delete;
-    ScopedEnv& operator=(const ScopedEnv&) = delete;
-
-  private:
-    const char* name_;
-    std::optional<std::string> old_;
-};
-
-// A folder of its own under the system temp folder, deleted at the end.
-class TempDir {
-  public:
-    explicit TempDir(std::string_view test)
-        : path_(fs::temp_directory_path() /
-                ("am_vault." + std::string(test) + "." + std::to_string(getpid()))) {
-        std::error_code error;
-        fs::remove_all(path_, error);
-        fs::create_directories(path_, error);
-    }
-    ~TempDir() {
-        std::error_code error;
-        fs::remove_all(path_, error);
-    }
-    TempDir(const TempDir&) = delete;
-    TempDir& operator=(const TempDir&) = delete;
-
-    [[nodiscard]] const fs::path& path() const { return path_; }
-
-  private:
-    fs::path path_;
-};
 
 // False, after saying so, if an earlier test in this process already picked
 // the session bus (see the top of the file).
@@ -112,79 +53,14 @@ bool first_bus_test() {
     return true;
 }
 
-// A private session bus with nothing on it, which this process uses as its
-// session bus while the object lives. It has no service files, so nothing
-// starts when a client asks for org.freedesktop.secrets.
-class PrivateBus {
-  public:
-    explicit PrivateBus(std::string_view test) : dir_(test) {
-        const fs::path socket = dir_.path() / "bus";
-        address_ = "unix:path=" + socket.string();
-        const fs::path config = dir_.path() / "bus.conf";
-        {
-            std::ofstream out(config);
-            out << "<!DOCTYPE busconfig PUBLIC \"-//freedesktop//DTD D-Bus Bus Configuration "
-                   "1.0//EN\" \"http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd\">\n"
-                   "<busconfig>\n"
-                   "  <type>session</type>\n"
-                   "  <listen>"
-                << address_
-                << "</listen>\n"
-                   "  <auth>EXTERNAL</auth>\n"
-                   "  <policy context=\"default\">\n"
-                   "    <allow send_destination=\"*\" eavesdrop=\"true\"/>\n"
-                   "    <allow eavesdrop=\"true\"/>\n"
-                   "    <allow own=\"*\"/>\n"
-                   "  </policy>\n"
-                   "</busconfig>\n";
-        }
-
-        const std::string config_arg = "--config-file=" + config.string();
-        char program[] = "dbus-daemon";
-        char nofork[] = "--nofork";
-        char* argv[] = {program, const_cast<char*>(config_arg.c_str()), nofork, nullptr};
-        if (posix_spawnp(&pid_, program, nullptr, nullptr, argv, environ) != 0) {
-            pid_ = -1;
-            return;
-        }
-        // It's ready once its socket shows up.
-        for (int i = 0; i < 500 && !fs::exists(socket); ++i) {
-            std::this_thread::sleep_for(10ms);
-        }
-        if (!fs::exists(socket)) {
-            stop_daemon();
-            return;
-        }
-        env_.emplace("DBUS_SESSION_BUS_ADDRESS", address_);
-    }
-
-    ~PrivateBus() {
-        // Let go of the bus before it goes away. GLib ends the process when
-        // the session bus closes a connection it still uses.
-        secret_service_disconnect();
-        env_.reset();
-        stop_daemon();
-    }
-    PrivateBus(const PrivateBus&) = delete;
-    PrivateBus& operator=(const PrivateBus&) = delete;
-
-    [[nodiscard]] bool running() const { return pid_ > 0; }
-    [[nodiscard]] const std::string& address() const { return address_; }
-
-  private:
-    void stop_daemon() {
-        if (pid_ > 0) {
-            kill(pid_, SIGTERM);
-            int status = 0;
-            waitpid(pid_, &status, 0);
-            pid_ = -1;
-        }
-    }
-
-    TempDir dir_;
-    std::string address_;
-    pid_t pid_ = -1;
-    std::optional<ScopedEnv> env_;
+// Drops libsecret's hold on the bus at the end of a test, before the bus goes
+// away: GLib ends the process when the session bus closes a connection it
+// still uses. Declare it after the PrivateBus, so it runs first.
+struct ForgetSecretService {
+    ForgetSecretService() = default;
+    ~ForgetSecretService() { secret_service_disconnect(); }
+    ForgetSecretService(const ForgetSecretService&) = delete;
+    ForgetSecretService& operator=(const ForgetSecretService&) = delete;
 };
 
 // Plays a keyring on `bus` that answers every call with the D-Bus error
@@ -260,6 +136,7 @@ void check_every_call_fails_with(std::string_view test, const char* error_name,
     }
     const BrokenKeyring keyring(bus, error_name);
     REQUIRE(keyring.running());
+    const ForgetSecretService forget;
 
     auto vault = CredentialVault::open("am-vault-test");
     REQUIRE(vault.has_value()); // something owns the name, so open() is happy
@@ -310,6 +187,7 @@ TEST_CASE("there's no vault when nothing on the bus keeps secrets", "[vault]") {
     if (!bus_or_skip(bus)) {
         return;
     }
+    const ForgetSecretService forget;
     auto vault = CredentialVault::open("am-vault-test");
     REQUIRE_FALSE(vault.has_value());
     CHECK(vault.error() == std::errc::function_not_supported);

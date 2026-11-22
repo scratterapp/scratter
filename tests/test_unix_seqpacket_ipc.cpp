@@ -404,7 +404,7 @@ TEST_CASE("the socket file is private and removed by the listener", "[ipc]") {
         auto listener = IpcListener::listen(*reactor, kEndpoint);
         REQUIRE(listener.has_value());
 
-        struct stat info {};
+        struct stat info{};
         REQUIRE(::stat(dir.socket_file().c_str(), &info) == 0);
         CHECK(S_ISSOCK(info.st_mode));
         CHECK((info.st_mode & 0777) == 0600);
@@ -579,7 +579,9 @@ TEST_CASE("the other end closing gives PeerClosed", "[ipc]") {
     bool readable = false;
     c.server.set_readable_callback([&] { readable = true; });
 
-    { [[maybe_unused]] IpcChannel gone = std::move(c.client); }
+    {
+        [[maybe_unused]] IpcChannel gone = std::move(c.client);
+    }
 
     CHECK(run_until(c.reactor, [&] { return readable; }));
     const auto received = c.server.receive(buffer);
@@ -604,7 +606,9 @@ TEST_CASE("the other end closing gives PeerClosed", "[ipc]") {
 
 TEST_CASE("a hang-up with no readable callback doesn't spin the reactor", "[ipc]") {
     Connection c;
-    { [[maybe_unused]] IpcChannel gone = std::move(c.client); }
+    {
+        [[maybe_unused]] IpcChannel gone = std::move(c.client);
+    }
 
     // The first loop sees the hang-up and the channel stops watching; after
     // that, run_once() has nothing to report and waits out its timeout.
@@ -626,7 +630,9 @@ TEST_CASE("a hang-up with no readable callback doesn't spin the reactor", "[ipc]
 TEST_CASE("messages sent just before a hang-up are still received", "[ipc]") {
     Connection c;
     REQUIRE(c.client.send(message_of(32, 7)).value() == IoStatus::Done);
-    { [[maybe_unused]] IpcChannel gone = std::move(c.client); }
+    {
+        [[maybe_unused]] IpcChannel gone = std::move(c.client);
+    }
 
     // No readable callback, like amctl: the loop sees the hang-up first.
     REQUIRE(c.reactor.run_once(20ms).has_value());

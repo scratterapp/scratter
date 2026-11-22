@@ -420,11 +420,11 @@ TEST_CASE("a timer cancelled by an earlier callback in the same batch doesn't fi
     REQUIRE(reactor);
     Pipe pipe;
     bool fired = false;
-    REQUIRE(reactor->watch(NativeHandle{pipe.read_fd}, Interest{.readable = true},
-                           [&](const IoEvent&) {
-                               drain(pipe.read_fd);
-                               reactor->cancel_timer();
-                           }));
+    REQUIRE(
+        reactor->watch(NativeHandle{pipe.read_fd}, Interest{.readable = true}, [&](const IoEvent&) {
+            drain(pipe.read_fd);
+            reactor->cancel_timer();
+        }));
     // The pipe turns readable first, then the timer expires, so one
     // epoll_wait reports both, the pipe first. Its callback cancels the timer,
     // and the timer's expiry, already in the same batch, has to be ignored.
@@ -444,11 +444,11 @@ TEST_CASE("moving a reactor keeps what it watches", "[reactor][epoll]") {
     REQUIRE(second);
     Pipe pipe;
     int calls = 0;
-    REQUIRE(first->watch(NativeHandle{pipe.read_fd}, Interest{.readable = true},
-                         [&](const IoEvent&) {
-                             drain(pipe.read_fd);
-                             ++calls;
-                         }));
+    REQUIRE(
+        first->watch(NativeHandle{pipe.read_fd}, Interest{.readable = true}, [&](const IoEvent&) {
+            drain(pipe.read_fd);
+            ++calls;
+        }));
     *second = std::move(*first);
     pipe.write_byte();
     REQUIRE(second->run_once(100ms));
