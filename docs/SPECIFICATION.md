@@ -448,7 +448,7 @@ Because `am-ui` can be closed at any time, OS media integration resides inside `
         
     - **Active Window (No Spectrum):** Renders on user input events (two frames per event, so ImGui can settle hover and layout) or 1 Hz progress bar ticks while playing. With nothing playing it sleeps until the next event. `src/client/frame_pacer.hpp` holds these rules.
         
-    - **Active Window (Spectrum/Lyrics Enabled):** Locks to display VSync (60/120/144 Hz), reading the `SeqLock` shared memory telemetry page in less than 50 nanoseconds per frame.
+    - **Active Window (Spectrum/Lyrics Enabled):** Draws every 30 ms, about 33 frames a second, which is as often as the daemon updates the bands (`FramePacer::kSpectrumFrameMs`); VSync caps it on a slower screen. Following a 240 Hz screen's VSync cost about 26% of a core on Windows for frames that showed nothing new. Each frame reads the `SeqLock` shared memory telemetry page in less than 50 nanoseconds.
         
 
 ## 4. Cross-Platform OS Abstraction Layer (PAL)
@@ -556,7 +556,8 @@ scratter/
 │   │   │   ├── cef_helper_main.cpp    # <daemon>-cef-helper: CEF's subprocesses (NO_STACK_PROTECTOR main)
 │   │   │   └── test_film_page.hpp     # Built-in page at https://player.invalid/: Widevine test film
 │   │   └── audio_engine/              # PI clock-drift controller, SIMD resampler, FFT tap
-│   │       ├── audio_path.hpp         # Ring buffer (tone or CEF writes it) -> drift -> resampler -> volume; the sink's render callback
+│   │       ├── audio_path.hpp         # Ring buffer (tone or CEF writes it) -> drift -> resampler -> volume; the sink's render callback, and the spectrum's tap
+│   │       ├── spectrum.hpp           # Radix-2 FFT and the 64 log-spaced bands for the telemetry page (#40)
 │   │       ├── sine_generator.hpp     # 440 Hz test tone, the producer until CEF arrives
 │   │       ├── tone_pacer.hpp         # How much tone is due by the clock, so it feeds the ring like a real source
 │   │       ├── drift_controller.hpp   # EMA + PI controller: ring buffer fill -> playback ratio
@@ -573,6 +574,7 @@ scratter/
 │       └── views/                     # ImGui views (Library, Search, Queue, Spectrum)
 │           ├── waiting_view.cpp       # Shown while the daemon isn't connected, with how to start it
 │           ├── now_playing.cpp        # What's playing, position, play/pause, stop, volume (#37)
+│           ├── spectrum.cpp           # The 64 spectrum bars along the bottom of the now-playing view (#40)
 │           └── drawing.cpp            # The background record and app label both views share
 ├── tools/                             # Small helper programs (the C++ ones link am_common + am_pal only)
 │   ├── amctl/                         # Command-line remote for the daemon, like mpc for mpd
@@ -588,7 +590,8 @@ scratter/
 │       └── serve.py                   # Serves the daemon's built-in test film page on localhost, to run it in a browser
 ├── bench/                             # Hand-run benchmarks, not in ctest
 │   ├── ipc_ping_pong.cpp              # IPC round-trip latency (target: median under 25 µs)
-│   └── audio_render.cpp               # CPU our audio code (write_planar, render) takes per second of audio
+│   ├── audio_render.cpp               # CPU our audio code (write_planar, render) takes per second of audio
+│   └── spectrum_fft.cpp               # CPU one spectrum update (push, Hann window, FFT, bands) takes
 ├── packaging/
 │   ├── linux/                         # scratter.desktop template, hicolor icons (make-icons.sh builds them from docs/assets/scratter-logo.png), `cmake --install` rules
 │   └── windows/                       # am-ui.rc (the icon in am-ui.exe), scratter.ico, make-icon.ps1 (builds it from docs/assets/scratter-logo.png), `cmake --install` rules and make-shortcut.ps1 (the Start Menu shortcut)
@@ -617,7 +620,8 @@ scratter/
     ├── test_realtime.cpp              # lock_memory / unlock_memory
     ├── test_pipewire_sink.cpp         # Linux-only: PipeWire sink (passes with a warning if no daemon)
     ├── test_wasapi_sink.cpp           # Windows-only: WASAPI sink (passes with a warning if no output device)
-    ├── test_audio_path.cpp            # The daemon's render callback: play, pause, stop, fades, volume, underruns, CEF's planar input
+    ├── test_audio_path.cpp            # The daemon's render callback: play, pause, stop, fades, volume, underruns, CEF's planar input, the spectrum's tap
+    ├── test_spectrum.cpp              # The FFT, and the spectrum's bands: a sine peaks in its band, silence is the floor, bars fall slowly
     ├── test_daemon.cpp                # Linux-only: starts the daemon binary, drives it directly and with amctl
     ├── test_daemon_link.cpp           # Linux-only: am-ui's DaemonLink against the real daemon (kill, restart) and a broken one
     ├── daemon_process.hpp             # Starting a daemon child with a private $XDG_RUNTIME_DIR, for both daemon tests

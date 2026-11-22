@@ -88,7 +88,7 @@ Still stubs: Apple Music itself (#4), `src/net/`, the ALSA sink and most of `am-
 `SDL_Renderer`, so no platform code; issue #35), and its connection to the daemon is
 real: `am_client_core` (`src/client/daemon_link.hpp`, `ui_state.hpp`) connects on its own
 thread, sends commands, follows the state, reconnects, and reads the telemetry page. The
-window shows it: a now-playing view with play/pause, stop and volume (#37). It configures,
+window shows it: a now-playing view with play/pause, stop and volume (#37), and a spectrum strip the daemon fills from what it plays (#40). It configures,
 builds and passes its tests on Linux and Windows. Catch2, SDL3 and Dear ImGui (via `FetchContent`, pinned by commit) and,
 on Linux, PipeWire, libsecret and libsystemd's sd-bus (system packages via `pkg-config`) are the only
 third-party dependencies wired into CMake so far. SDL3 needs the X11 and Wayland
