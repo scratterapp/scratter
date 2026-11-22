@@ -1,0 +1,9 @@
+# LeakSanitizer suppressions, used by the linux-asan test preset.
+#
+# libsecret 0.21.4 (Ubuntu 24.04) leaks a few 8-byte blocks of its own when
+# secret_password_clear_sync() gets an error back from the keyring, or when
+# secret_password_store_sync() finishes after a dismissed prompt.
+# test_secret_vault.cpp makes both happen on purpose. These lines match leaks
+# allocated inside those two calls only; leaks in our code are still reported.
+leak:secret_password_clearv_sync
+leak:secret_password_storev_sync

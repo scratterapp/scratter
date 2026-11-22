@@ -437,7 +437,7 @@ TEST_CASE("Quit, OpenUri and the fixed properties answer the way MPRIS says", "[
     REQUIRE(h.run_client([&](const Client& c) {
         const char* bus = c.bus_name.c_str();
         quit = sd_bus_call_method(c.bus, bus, kPath, kRoot, "Quit", nullptr, nullptr, "") >= 0;
-        sd_bus_error error = SD_BUS_ERROR_NULL;
+        sd_bus_error error{}; // SD_BUS_ERROR_NULL, without the C99 compound literal
         open_uri_refused = sd_bus_call_method(c.bus, bus, kPath, kPlayer, "OpenUri", &error,
                                               nullptr, "s", "file:///song.m4a") < 0 &&
                            sd_bus_error_has_name(&error, SD_BUS_ERROR_NOT_SUPPORTED);
