@@ -50,10 +50,11 @@ set(AM_TESTS
 # Platform-specific tests. test_epoll_reactor, test_pipewire_sink and
 # test_unix_seqpacket_ipc are Linux-only, and so is test_mpris_controls, which
 # talks D-Bus to the MPRIS code. test_browser_files checks Linux paths and file
-# modes, and test_secret_vault plays a broken keyring on a private D-Bus bus.
+# modes, test_secret_vault plays a broken keyring on a private D-Bus bus, and
+# test_signalfd_shutdown sends itself SIGINT and SIGTERM.
 if(LINUX)
     list(APPEND AM_TESTS test_epoll_reactor test_pipewire_sink test_unix_seqpacket_ipc
-         test_mpris_controls test_browser_files test_secret_vault)
+         test_mpris_controls test_browser_files test_secret_vault test_signalfd_shutdown)
 endif()
 
 # The Windows counterparts of test_epoll_reactor, test_unix_seqpacket_ipc and
