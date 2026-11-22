@@ -66,6 +66,12 @@
 // A source with a length (set_length_frames()) loops, like the test films
 // do, so the position counts from 0 again each time round.
 //
+// render() also copies what it plays, mixed to mono, into a second small
+// ring, the tap, for the spectrum (spectrum.hpp, #40). The reactor thread
+// empties it with take_played(). The copy comes after the fade and before
+// the volume, so the bars fall away on pause but don't shrink when the
+// volume goes down. If nobody empties it, it fills up and render() skips it.
+//
 // Construct it on the heap (std::make_unique): the ring buffer alone is 128 KiB.
 
 #include "common/spsc_ring_buffer.hpp"
@@ -93,11 +99,13 @@ class AudioPath {
     static constexpr std::size_t kTargetFrames = 4096;    // ~85 ms, the drift controller's target
     static constexpr std::size_t kPacketFrames = 512;     // what CEF delivers per packet
     static constexpr std::uint32_t kFadeMillis = 10;      // fade in on play, out on pause
+    static constexpr std::size_t kTapFrames = 4096;       // ~85 ms of mono for the spectrum
     // How quickly the gain follows a volume change: it closes about 63% of
     // the gap in this time, whatever the size of the change.
     static constexpr std::uint32_t kVolumeMillis = 15;
 
     using RingBuffer = common::LockFreeSpscAudioBuffer<float, kCapacityFrames, kChannels>;
+    using TapBuffer = common::LockFreeSpscAudioBuffer<float, kTapFrames, 1>;
 
     static_assert(kChannels == PolyphaseResampler::kChannels);
 
@@ -270,6 +278,18 @@ class AudioPath {
                state_changes_.load(std::memory_order_relaxed);
     }
 
+    // Copies what render() has played since the last call (mono, faded,
+    // before the volume; see the top) into `out`, oldest first, and returns
+    // how many samples. At most out.size(), and at most kTapFrames: the tap
+    // keeps no more than that while nobody empties it.
+    std::size_t take_played(std::span<float> out) noexcept {
+        const auto in = tap_.reserve_read(out.size());
+        std::ranges::copy(in.first, out.begin());
+        std::ranges::copy(in.second, out.begin() + static_cast<std::ptrdiff_t>(in.first.size()));
+        tap_.commit_read(in.frames_reserved);
+        return in.frames_reserved;
+    }
+
     // --- Any thread ------------------------------------------------------
 
     [[nodiscard]] PlaybackState state() const noexcept {
@@ -386,6 +406,10 @@ class AudioPath {
         // tone. Once the gap is too small to hear (-80 dB) the gain lands on
         // the volume. While silent there's nothing to hear, so the gain goes
         // straight to the volume. Both channels of a frame get the same gain.
+        //
+        // The tap gets each frame after the fade and before the gain, in mono.
+        auto tap = tap_.reserve_write(out.size() / kChannels); // none if it's full
+        std::size_t frame = 0;
         for (std::size_t i = 0; i + 1 < out.size(); i += kChannels) {
             const float gap = target - gain_;
             if (fade_ == 0.0f || std::abs(gap) < 1e-4f) {
@@ -395,9 +419,21 @@ class AudioPath {
             }
             fade_ =
                 playing ? std::min(1.0f, fade_ + fade_step_) : std::max(0.0f, fade_ - fade_step_);
-            out[i] *= gain_ * fade_;
-            out[i + 1] *= gain_ * fade_;
+            const float left = out[i] * fade_;
+            const float right = out[i + 1] * fade_;
+            if (frame < tap.frames_reserved) {
+                const float mono = (left + right) * 0.5f;
+                if (frame < tap.first.size()) {
+                    tap.first[frame] = mono;
+                } else {
+                    tap.second[frame - tap.first.size()] = mono;
+                }
+            }
+            ++frame;
+            out[i] = left * gain_;
+            out[i + 1] = right * gain_;
         }
+        tap_.commit_write(tap.frames_reserved);
         if (filling_up_) {
             fade_ = 0.0f; // ran dry: fade in again once it's filled up
         }
@@ -450,6 +486,9 @@ class AudioPath {
 
     // Written by the producer, read by the reactor thread.
     std::atomic<std::uint64_t> dropped_frames_{0};
+
+    // render() writes it, take_played() on the reactor thread reads it.
+    TapBuffer tap_;
 
     // The handover between producers; see let_page_write().
     std::atomic<bool> page_may_write_{true};     // written by the reactor thread

@@ -712,3 +712,69 @@ TEST_CASE("a volume change while paused is there at once on play", "[audio_path]
     CHECK(std::abs(page.out.back() - 0.25f) < 1e-4f);
     CHECK(biggest_jump(page.heard) < 0.01f);
 }
+
+// The spectrum's tap (#40): render() copies what it plays into a second,
+// small ring for the reactor thread to analyze.
+
+TEST_CASE("the tap gets what's played, in mono, faded but before the volume",
+          "[audio_path][spectrum]") {
+    ConstantPage page; // 0.5 on both channels
+    std::vector<float> taken(AudioPath::kTapFrames);
+    page.render(kFadeBuffers + 2);
+    const std::size_t first = page.audio->take_played(taken);
+    CHECK(first == static_cast<std::size_t>(kFadeBuffers + 2) * kBufferFrames);
+    CHECK(taken[0] < 0.01f);                          // the fade-in is in it
+    CHECK(std::abs(taken[first - 1] - 0.5f) < 1e-4f); // then the page as it is
+
+    // The volume glides, so wait until it's there, emptying the tap after
+    // each buffer the way the daemon's tick does.
+    page.audio->set_volume(25);
+    std::size_t later = 0;
+    for (int i = 0; i < kVolumeBuffers; ++i) {
+        page.render(1);
+        later = page.audio->take_played(taken);
+    }
+    CHECK(later == kBufferFrames);
+    CHECK(std::abs(page.out.back() - 0.125f) < 1e-3f); // the volume is heard...
+    CHECK(std::abs(taken[later - 1] - 0.5f) < 1e-4f);  // ...but not in the tap
+}
+
+TEST_CASE("the tap mixes left and right", "[audio_path][spectrum]") {
+    auto audio = std::make_unique<AudioPath>(kRate);
+    const std::vector<float> left(AudioPath::kTargetFrames, 0.8f);
+    const std::vector<float> right(AudioPath::kTargetFrames, 0.2f);
+    const float* channels[] = {left.data(), right.data()};
+    audio->write_planar(channels, AudioPath::kTargetFrames);
+    std::vector<float> out(kBufferFrames * AudioPath::kChannels);
+    for (int i = 0; i < kFadeBuffers + 2; ++i) {
+        audio->render(out);
+    }
+    std::vector<float> taken(AudioPath::kTapFrames);
+    const std::size_t n = audio->take_played(taken);
+    REQUIRE(n > 0);
+    CHECK(std::abs(taken[n - 1] - 0.5f) < 1e-4f);
+}
+
+TEST_CASE("the tap gets nothing once paused and faded out", "[audio_path][spectrum]") {
+    ConstantPage page;
+    std::vector<float> taken(AudioPath::kTapFrames);
+    page.render(kFadeBuffers + 2);
+    page.audio->set_state(PlaybackState::Paused);
+    page.render(kFadeBuffers + 2);
+    (void)page.audio->take_played(taken); // the fade-out, which is still heard
+
+    page.render(3);
+    CHECK(page.audio->take_played(taken) == 0);
+}
+
+TEST_CASE("a tap nobody reads fills up, and the sound plays on", "[audio_path][spectrum]") {
+    ConstantPage page;
+    page.render(kFadeBuffers + 2);
+    constexpr int kMore = static_cast<int>(2 * AudioPath::kTapFrames / kBufferFrames);
+    page.render(kMore);
+    CHECK(std::abs(page.out.back() - 0.5f) < 1e-4f);
+    CHECK(page.audio->late_buffers() == 0);
+
+    std::vector<float> taken(AudioPath::kTapFrames * 2);
+    CHECK(page.audio->take_played(taken) == AudioPath::kTapFrames);
+}
