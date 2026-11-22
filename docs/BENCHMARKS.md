@@ -173,8 +173,12 @@ frames while the windows came and went.
 Since #89 the script also prints how long `SDL_CreateRenderer` took, and the
 gate is two of the times, not launch to the daemon's state: **our own
 start-up** (main() to the first frame, less creating the renderer) has a
-median budget of 60 ms, and **first frame to the daemon's state** one of
-20 ms. Creating the renderer is mostly the GPU driver making its device, which
+median budget of 60 ms, and **the connect** (from starting it to the
+daemon's first state, timed on the connection thread, plus mapping the
+telemetry page) one of 20 ms. "First frame to the daemon's state" is still
+printed but isn't the connect: the two run side by side, so it's 0 when the
+renderer is slow to make and a whole frame's drawing when it's quick (about
+35 ms with the software renderer, robbie on #102). Creating the renderer is mostly the GPU driver making its device, which
 depends on the machine and isn't ours to make faster; it and launch to the
 first frame are logged here per machine instead.
 
@@ -189,7 +193,7 @@ The target was 5 ms in the spec's first draft, then a median under 100 ms
 from launch to the daemon's state, met on robbie's PC (about 99 ms) but not on
 kero's Windows laptop (about 218 ms), where the GPU driver alone takes about
 160 ms to make its device (#89). Since #89 the gate is our own start-up under
-60 ms and first frame to the daemon's state under 20 ms
+60 ms and the connect under 20 ms
 ([SPECIFICATION.md](SPECIFICATION.md), Phase 5). The part the 5 ms was meant
 for, connecting to the daemon and reading its telemetry, is the time from the
 first frame to the one with the daemon's state; the window, its GPU renderer
