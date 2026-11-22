@@ -20,9 +20,7 @@
 
 #include <spawn.h>
 #include <sys/wait.h>
-#include <unistd.h>
-
-extern char** environ;
+#include <unistd.h> // environ
 
 namespace am::test {
 
