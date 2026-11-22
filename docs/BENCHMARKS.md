@@ -27,6 +27,12 @@ Always the same way, so the numbers compare:
   gave a median of 9.7 to 13.4 µs. Windows doesn't have a baseline of its own
   yet.
 - **Our audio code alone:** `./build/linux-release/bench/audio_render`.
+- **The spectrum (#40):** `./build/linux-release/bench/spectrum_fft` times one
+  update (push 30 ms of audio, Hann window, 2048-point FFT, 64 bands). On
+  kero's PC (2026-11-21): 33 µs in `windows-msvc-release`, 0.11% of a core at
+  33 updates a second, and 316 µs in the debug build. The daemon only does it
+  while a window is connected: `scratterd` (Release, the tone through WASAPI)
+  used 0.26% of a core over 30 s with no window and 0.36% with one.
 
 What the memory columns mean. Every CEF process maps the same `libcef.so`, and
 the parts of it in use sit in RAM once, shared by all of them, so Linux's counts
@@ -133,6 +139,7 @@ and from `Get-Process am-ui` (`TotalProcessorTime`, `WorkingSet64`,
 | --- | --- | --- | --- | --- |
 | 2026-10-27 | #35: the first window, redrawn only after an event (debug build) | 0.0% (no frames drawn) | 102 MB | Cloud container: Xvfb and Mesa's software renderer, no GPU. Most of the memory is Mesa's LLVM; expect less with a real GPU driver |
 | 2026-11-04 | #42: the same window on Windows, Release build, drawn with direct3d11, connected to `scratterd --clear-film` | 0.16% playing (one redraw a second), 0.10% paused | 63 MB working set, 72 MB private | kero's Windows 11 machine, 150% display scale. CPU from the process's processor time over 30 s. The debug build uses 1.7% playing |
+| 2026-11-21 | #40: the spectrum, Release build, the tone, window maximized (2560×1600, 240 Hz screen) | 0.26% with the spectrum off, 4.95% with it on (33 frames a second). Following the screen's vsync instead took 26.5% at 240 frames, and a 60-frame cap 9.3%: about 1.5 ms of CPU per frame, the same as the once-a-second redraw | | kero's Windows 11 machine, RTX 4050. Measured while the window was being tried out, so the mouse was sometimes over it; expect the "on" number to vary by a point or two |
 
 While writing #35, a version that also redrew once a second used 4.8% idle on
 that software renderer. The clock tick now only runs while something plays

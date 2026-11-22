@@ -61,6 +61,7 @@ add_executable(am-ui
     theme.cpp
     views/drawing.cpp
     views/now_playing.cpp
+    views/spectrum.cpp
     views/waiting_view.cpp
 )
 target_link_libraries(am-ui PRIVATE am_client_core am_imgui am_net am_pal am_common)

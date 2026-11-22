@@ -12,3 +12,8 @@ am_enable_warnings(ipc_ping_pong)
 add_executable(audio_render audio_render.cpp)
 target_link_libraries(audio_render PRIVATE am_common)
 am_enable_warnings(audio_render)
+
+# What one update of the window's spectrum costs the daemon; no platform code.
+add_executable(spectrum_fft spectrum_fft.cpp)
+target_link_libraries(spectrum_fft PRIVATE am_common)
+am_enable_warnings(spectrum_fft)
