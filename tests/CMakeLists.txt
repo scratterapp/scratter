@@ -45,6 +45,7 @@ set(AM_TESTS
     test_realtime
     test_frame_pacer
     test_now_playing_text
+    test_http_client
 )
 
 # Platform-specific tests. test_epoll_reactor, test_pipewire_sink and
@@ -80,6 +81,13 @@ endforeach()
 if(LINUX)
     # Plays the desktop's side of D-Bus with sd-bus directly.
     target_link_libraries(test_mpris_controls PRIVATE PkgConfig::LIBSYSTEMD)
+endif()
+
+# The HTTP client, against a server the test starts on 127.0.0.1 with plain
+# sockets (Winsock on Windows).
+target_link_libraries(test_http_client PRIVATE am_net)
+if(WIN32)
+    target_link_libraries(test_http_client PRIVATE ws2_32)
 endif()
 
 # amctl's argument parser lives with amctl, in tools/.

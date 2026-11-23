@@ -85,12 +85,15 @@ socket, shared memory, PipeWire sink, keyring vault, MPRIS media controls and si
 pipe, file mapping, WASAPI sink (shared, and exclusive with `scratterd --exclusive`), DPAPI vault, SMTC media controls, console Ctrl-C) plus the Windows CEF host
 (a CEF built with `third_party/cef-patches/widevine-cdm-dir.patch`, issue #8), and the
 drift controller and resampler in `src/daemon/audio_engine/`.
-Still stubs: Apple Music itself (#4), `src/net/`, the ALSA sink and most of `am-ui`. It opens its window (SDL3 + Dear ImGui, drawn through
+Still stubs: Apple Music itself (#4), the catalog parser in `src/net/` (#105), the ALSA sink and most of `am-ui`. It opens its window (SDL3 + Dear ImGui, drawn through
 `SDL_Renderer`, so no platform code; issue #35), and its connection to the daemon is
 real: `am_client_core` (`src/client/daemon_link.hpp`, `ui_state.hpp`) connects on its own
 thread, sends commands, follows the state, reconnects, and reads the telemetry page. The
 window shows it: a now-playing view with play/pause, stop and volume (#37), and a spectrum strip the daemon fills from what it plays (#40). It configures,
-builds and passes its tests on Linux and Windows. Catch2, SDL3 and Dear ImGui (via `FetchContent`, pinned by commit) and,
+builds and passes its tests on Linux and Windows. `src/net/http_client.hpp` is the HTTP
+client for the Apple Music API (#104): libcurl on a thread of its own, tested against a
+local server. Catch2, SDL3 and Dear ImGui (via `FetchContent`, pinned by commit), libcurl
+(`pkg-config` on Linux, `FetchContent` pinned to a release with Schannel on Windows) and,
 on Linux, PipeWire, libsecret and libsystemd's sd-bus (system packages via `pkg-config`) are the only
 third-party dependencies wired into CMake so far. SDL3 needs the X11 and Wayland
 development files to build its Linux video drivers (`docs/SETUP.md`).
@@ -325,7 +328,7 @@ order and where each step stands:
 4. Headless CEF and `CefAudioHandler` in `src/daemon/cef_host/`. *(shared, plays
    Google's test films; Apple Music through MusicKit JS is #4)*
 5. `src/net/` (libcurl + simdjson) and the ImGui client in `src/client/`. *(shared;
-   the window and its daemon link are in, `src/net/` hasn't started)*
+   the window, its daemon link and the HTTP client are in; the catalog parser is #105)*
 
 Shared memory, the credential vault and media controls are done on both platforms.
 
@@ -339,11 +342,11 @@ same PR. If the two ever disagree, follow the repo.
 
 These aren't settled. Raise them with robbie and kero rather than picking one silently.
 
-- How third-party dependencies are pulled in (system packages on Arch, vcpkg on
-  Windows, CMake `FetchContent`, or a mix). Catch2 uses `FetchContent` so it builds
-  with the project's sanitizer and no-exceptions flags, and SDL3 and ImGui use it
-  because Ubuntu doesn't package SDL3 and Windows has no system copy; that doesn't
-  decide it for the other libraries.
+- How later third-party dependencies are pulled in. Settled so far (roadmap, #6):
+  system libraries through `pkg-config`, small source libraries through
+  `FetchContent` pinned by commit (Catch2, SDL3, ImGui, and simdjson for #105),
+  and libcurl from `pkg-config` on Linux and `FetchContent` with Schannel on
+  Windows. Anything new still gets agreed first.
 - How we build and ship our own CEF. The prebuilt downloads can't decode AAC, so we
   build CEF with AAC turned on (spec 3.1.1). Still open: where the build runs for
   releases (it takes hours, and it needs redoing for CEF security updates) and how

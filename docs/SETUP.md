@@ -6,15 +6,15 @@ window. The first configure downloads Catch2 (the test framework), SDL3 and Dear
 ImGui, so it needs internet, and building SDL3 adds about two minutes to the first
 build. The libraries listed under
 "Later" aren't wired into CMake yet; they're what the spec calls for, so install them
-when you start on the matching module. How third-party dependencies get pulled in
-(system packages, vcpkg, `FetchContent`) is still an open decision.
+when you start on the matching module. System libraries come through `pkg-config`
+and small source libraries through `FetchContent` (decided on the roadmap, #6).
 
 ## Arch Linux
 
 Needed now:
 
 ```sh
-sudo pacman -S --needed base-devel git cmake ninja clang pipewire libsecret systemd-libs
+sudo pacman -S --needed base-devel git cmake ninja clang pipewire libsecret systemd-libs curl
 sudo pacman -S --needed libx11 libxext libxrandr libxcursor libxi libxss libxtst libxkbcommon wayland wayland-protocols mesa libdecor
 ```
 
@@ -30,8 +30,9 @@ libgl-dev libdecor-0-dev`.
 `pipewire` ships the headers and the `libpipewire-0.3` pkg-config file the audio sink
 builds against, `libsecret` does the same for the login-keyring vault, and
 `systemd-libs` (already installed on any systemd Arch) for sd-bus, which the
-media keys use (`pkgconf` comes with `base-devel`). On Ubuntu, which CI uses, the
-equivalent is `pkg-config libpipewire-0.3-dev libsecret-1-dev libsystemd-dev`. The
+media keys use (`pkgconf` comes with `base-devel`). `curl` brings libcurl for the
+HTTP client in `src/net/`. On Ubuntu, which CI uses, the equivalent is
+`pkg-config libpipewire-0.3-dev libsecret-1-dev libsystemd-dev libcurl4-openssl-dev`. The
 vault tests also need a keyring daemon running (GNOME Keyring or KWallet, which
 your desktop normally starts); without one they skip. The media keys tests need a
 D-Bus session bus, which every desktop login has; without one they skip.
@@ -42,7 +43,6 @@ Later, by module:
 | --- | --- |
 | ALSA fallback sink | `alsa-lib` |
 | Real-time thread priority | `rtkit` |
-| Network and catalog (`src/net/`) | `curl simdjson` |
 | Tooling | `lldb` (debugger), `playerctl` (testing MPRIS) |
 
 SDL3, Dear ImGui and CEF aren't installed from pacman: CMake fetches SDL3 and
@@ -104,8 +104,9 @@ The "Desktop development with C++" workload brings MSVC and a Windows 10/11 SDK
 (`Microsoft.VisualStudio.2022.BuildTools`, workload `Microsoft.VisualStudio.Workload.VCTools`).
 
 WASAPI, DPAPI, Named Pipes, IOCP, DirectX 11 and C++/WinRT (SMTC) all ship with the
-Windows SDK. CMake fetches SDL3 and ImGui itself, as on Linux. libcurl and simdjson will come
-from vcpkg or `FetchContent` once that's decided. CEF needs its own Windows build with AAC turned on, unpacked into
+Windows SDK. CMake fetches SDL3 and ImGui itself, as on Linux, and libcurl too
+(`src/net/CMakeLists.txt`): Windows has no system copy, so it's built with Schannel,
+Windows' own TLS, and uses the Windows certificate store. CEF needs its own Windows build with AAC turned on, unpacked into
 `third_party/cef/` (spec section 3.1.1).
 
 Build, from **Developer PowerShell for VS 2022** (so `cl.exe` is on the path):
