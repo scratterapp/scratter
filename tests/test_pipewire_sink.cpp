@@ -12,9 +12,13 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdlib>
+#include <optional>
 #include <span>
+#include <string>
 #include <system_error>
 #include <thread>
+#include <utility>
 
 namespace {
 
@@ -92,6 +96,55 @@ TEST_CASE("bad formats are rejected before touching PipeWire", "[audio][pipewire
         AudioSink::open({.sample_rate_hz = 0, .channels = 2}, [](std::span<float>) noexcept {});
     REQUIRE_FALSE(zero_rate);
     CHECK(zero_rate.error() == std::errc::invalid_argument);
+
+    // More than PipeWire's SPA_AUDIO_MAX_CHANNELS (64).
+    auto too_many = AudioSink::open({.sample_rate_hz = 48000, .channels = 65},
+                                    [](std::span<float>) noexcept {});
+    REQUIRE_FALSE(too_many);
+    CHECK(too_many.error() == std::errc::invalid_argument);
+}
+
+TEST_CASE("a mono sink gets whole mono frames", "[audio][pipewire]") {
+    std::atomic<int> calls{0};
+    auto sink = AudioSink::open({.sample_rate_hz = 48000, .channels = 1},
+                                [&calls](std::span<float> out) noexcept {
+                                    for (float& sample : out) {
+                                        sample = 0.0f;
+                                    }
+                                    calls.fetch_add(1, std::memory_order_relaxed);
+                                });
+    if (!sink) {
+        WARN("no PipeWire daemon to connect to, not testing mono: " << sink.error().message());
+        return;
+    }
+    CHECK(sink->format().channels == 1);
+    REQUIRE(sink->start());
+    std::this_thread::sleep_for(200ms);
+    REQUIRE(sink->stop());
+    if (calls.load() == 0) {
+        WARN("PipeWire never scheduled the stream (no output linked?), not checking further");
+    }
+}
+
+TEST_CASE("with no PipeWire daemon to connect to, open fails", "[audio][pipewire]") {
+    // PIPEWIRE_REMOTE names the daemon's socket in $XDG_RUNTIME_DIR. Nothing
+    // listens on this one.
+    std::optional<std::string> old;
+    if (const char* remote = std::getenv("PIPEWIRE_REMOTE")) {
+        old = remote;
+    }
+    setenv("PIPEWIRE_REMOTE", "am-test-no-such-pipewire", 1);
+    auto sink =
+        AudioSink::open({.sample_rate_hz = 48000, .channels = 2}, [](std::span<float>) noexcept {});
+    if (old) {
+        setenv("PIPEWIRE_REMOTE", old->c_str(), 1);
+    } else {
+        unsetenv("PIPEWIRE_REMOTE");
+    }
+    // pw_stream_connect() finds no socket and says EHOSTDOWN, which has no
+    // std::errc name, so only check that it failed and said why.
+    REQUIRE_FALSE(sink);
+    CHECK(sink.error());
 }
 
 TEST_CASE("a shared sink says so, and exclusive mode is refused", "[audio][pipewire]") {
@@ -108,4 +161,21 @@ TEST_CASE("a shared sink says so, and exclusive mode is refused", "[audio][pipew
         am::pal::OutputMode::Exclusive);
     REQUIRE_FALSE(exclusive);
     CHECK(exclusive.error() == std::errc::not_supported);
+}
+
+TEST_CASE("a sink moved over another keeps playing", "[audio][pipewire]") {
+    Counters first_counters;
+    Counters second_counters;
+    auto first = open_silent_sink(first_counters);
+    auto second = open_silent_sink(second_counters);
+    if (!first || !second) {
+        WARN("no PipeWire daemon, not testing moving a sink");
+        return;
+    }
+    // The first stream closes; the second carries on in its place.
+    *first = std::move(*second);
+    REQUIRE(first->start());
+    std::this_thread::sleep_for(200ms);
+    REQUIRE(first->stop());
+    CHECK(first_counters.calls.load() == 0);
 }

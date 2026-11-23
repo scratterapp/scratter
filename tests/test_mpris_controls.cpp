@@ -15,6 +15,7 @@
 // which starts a private one; with no bus, they skip.
 
 #include "media_controls.hpp"
+#include "private_bus.hpp"
 #include "reactor.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -23,6 +24,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
@@ -417,4 +419,154 @@ TEST_CASE("a name that's already taken is refused", "[mpris]") {
     auto second = MediaControls::open(*h.reactor, [](const MediaRequest&) {}, h.name);
     REQUIRE_FALSE(second.has_value());
     CHECK(second.error() == std::errc::address_in_use);
+}
+
+TEST_CASE("Quit, OpenUri and the fixed properties answer the way MPRIS says", "[mpris]") {
+    Harness h("fixed");
+    if (!h.controls) {
+        return;
+    }
+    constexpr const char* kRoot = "org.mpris.MediaPlayer2";
+    constexpr const char* kProperties = "org.freedesktop.DBus.Properties";
+    bool quit = false;
+    bool open_uri_refused = false;
+    std::string identity = "(error)";
+    std::optional<double> rate;
+    bool got_all_root = false;
+    bool got_all_player = false;
+    REQUIRE(h.run_client([&](const Client& c) {
+        const char* bus = c.bus_name.c_str();
+        quit = sd_bus_call_method(c.bus, bus, kPath, kRoot, "Quit", nullptr, nullptr, "") >= 0;
+        sd_bus_error error{}; // SD_BUS_ERROR_NULL, without the C99 compound literal
+        open_uri_refused = sd_bus_call_method(c.bus, bus, kPath, kPlayer, "OpenUri", &error,
+                                              nullptr, "s", "file:///song.m4a") < 0 &&
+                           sd_bus_error_has_name(&error, SD_BUS_ERROR_NOT_SUPPORTED);
+        sd_bus_error_free(&error);
+        char* text = nullptr;
+        if (sd_bus_get_property_string(c.bus, bus, kPath, kRoot, "Identity", nullptr, &text) >= 0) {
+            identity = text;
+            free(text); // NOLINT: sd-bus hands back malloc'd memory
+        }
+        rate = c.get<double>("Rate", 'd');
+        // GetAll reads every property of an interface, so every getter runs.
+        got_all_root = sd_bus_call_method(c.bus, bus, kPath, kProperties, "GetAll", nullptr,
+                                          nullptr, "s", kRoot) >= 0;
+        got_all_player = sd_bus_call_method(c.bus, bus, kPath, kProperties, "GetAll", nullptr,
+                                            nullptr, "s", kPlayer) >= 0;
+    }));
+    CHECK(quit); // answers, and does nothing: CanQuit is false
+    CHECK(open_uri_refused);
+    CHECK(identity == h.name);
+    CHECK(rate == 1.0);
+    CHECK(got_all_root);
+    CHECK(got_all_player);
+    CHECK(h.requests.empty());
+}
+
+TEST_CASE("a volume of zero, below zero or not a number is silence", "[mpris]") {
+    Harness h("silent");
+    if (!h.controls) {
+        return;
+    }
+    std::vector<bool> answered;
+    REQUIRE(h.run_client([&](const Client& c) {
+        for (const double volume : {0.0, -0.5, std::nan("")}) {
+            answered.push_back(sd_bus_set_property(c.bus, c.bus_name.c_str(), kPath, kPlayer,
+                                                   "Volume", nullptr, "d", volume) >= 0);
+        }
+    }));
+    CHECK(answered == std::vector<bool>(3, true));
+    REQUIRE(h.requests.size() == 3);
+    for (const MediaRequest& request : h.requests) {
+        CHECK(request.kind == Kind::SetVolume);
+        CHECK(request.volume_percent == 0);
+    }
+}
+
+TEST_CASE("an empty name, or one D-Bus doesn't allow, is refused", "[mpris]") {
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    auto empty = MediaControls::open(*reactor, [](const MediaRequest&) {}, "");
+    REQUIRE_FALSE(empty);
+    CHECK(empty.error() == std::errc::invalid_argument);
+
+    auto bad = MediaControls::open(*reactor, [](const MediaRequest&) {}, "not a name!");
+    REQUIRE_FALSE(bad);
+    // invalid_argument from D-Bus, or not supported with no session bus here.
+    CHECK((bad.error() == std::errc::invalid_argument ||
+           bad.error() == std::errc::function_not_supported));
+}
+
+TEST_CASE("with no session bus there are no media controls", "[mpris]") {
+    const am::test::TempDir dir("mpris-no-bus");
+    const am::test::ScopedEnv env("DBUS_SESSION_BUS_ADDRESS",
+                                  "unix:path=" + (dir.path() / "none").string());
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    auto controls = MediaControls::open(*reactor, [](const MediaRequest&) {}, test_name("no-bus"));
+    REQUIRE_FALSE(controls);
+    CHECK(controls.error() == std::errc::function_not_supported);
+}
+
+TEST_CASE("moved media controls keep answering under their own name", "[mpris]") {
+    Harness h("moved-into");
+    if (!h.controls) {
+        return;
+    }
+    // A second player, moved over the first: the first one's name goes away
+    // and the second keeps its own.
+    const std::string other = test_name("moved-from");
+    std::vector<Kind> seen;
+    auto second = MediaControls::open(
+        *h.reactor, [&](const MediaRequest& r) { seen.push_back(r.kind); }, other);
+    REQUIRE(second);
+    *h.controls = std::move(*second);
+
+    bool answered = false;
+    std::string old_status;
+    std::atomic<bool> done{false};
+    std::thread client([&] {
+        const Client c(other);
+        answered = c.call("Play");
+        const Client gone(h.name);
+        old_status = gone.get_string("PlaybackStatus");
+        done.store(true);
+        h.reactor->wake();
+    });
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    while (!done.load() && std::chrono::steady_clock::now() < deadline) {
+        REQUIRE(h.reactor->run_once(100ms));
+    }
+    client.join();
+    CHECK(answered);
+    CHECK(seen == std::vector<Kind>{Kind::Play});
+    CHECK(old_status == "(error)"); // nobody has that name any more
+}
+
+TEST_CASE("losing the session bus turns the media controls off, quietly", "[mpris]") {
+    am::test::PrivateBus bus("mpris-lost");
+    if (!bus.running()) {
+        WARN("AM_TEST_SKIPPED: couldn't start dbus-daemon for a private bus");
+        return;
+    }
+    auto reactor = Reactor::create();
+    REQUIRE(reactor);
+    auto controls = MediaControls::open(*reactor, [](const MediaRequest&) {}, test_name("lost"));
+    REQUIRE(controls);
+
+    // The bus goes away, as when the desktop session ends under the daemon.
+    // The reactor sees the connection close, and the controls stop using it.
+    bus.stop();
+    for (int i = 0; i < 10; ++i) {
+        REQUIRE(reactor->run_once(20ms));
+    }
+
+    // Nothing to send to any more, so these do nothing, and nothing crashes.
+    controls->set_track(
+        {.title = "t", .artist = "", .album = "", .artwork_url = "", .length = 3min});
+    controls->set_playback_state(PlaybackState::Playing);
+    controls->set_volume(10);
+    controls->seeked(1s);
+    controls->clear_track();
+    REQUIRE(reactor->run_once(10ms));
 }

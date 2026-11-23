@@ -70,8 +70,9 @@ if(LINUX)
     target_link_libraries(am_pal PRIVATE PkgConfig::PIPEWIRE)
 
     # libsecret talks to the desktop keyring for the credential vault
-    # (Arch: libsecret, Ubuntu: libsecret-1-dev).
-    pkg_check_modules(LIBSECRET REQUIRED IMPORTED_TARGET libsecret-1)
+    # (Arch: libsecret, Ubuntu: libsecret-1-dev). GLOBAL so the vault's
+    # failure tests can link it too.
+    pkg_check_modules(LIBSECRET REQUIRED IMPORTED_TARGET GLOBAL libsecret-1)
     target_link_libraries(am_pal PRIVATE PkgConfig::LIBSECRET)
 
     # sd-bus, part of libsystemd, publishes the MPRIS media controls on D-Bus

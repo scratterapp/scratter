@@ -19,6 +19,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <fcntl.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -36,6 +37,7 @@
 #include <span>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -402,7 +404,7 @@ TEST_CASE("the socket file is private and removed by the listener", "[ipc]") {
         auto listener = IpcListener::listen(*reactor, kEndpoint);
         REQUIRE(listener.has_value());
 
-        struct stat info {};
+        struct stat info{};
         REQUIRE(::stat(dir.socket_file().c_str(), &info) == 0);
         CHECK(S_ISSOCK(info.st_mode));
         CHECK((info.st_mode & 0777) == 0600);
@@ -577,7 +579,9 @@ TEST_CASE("the other end closing gives PeerClosed", "[ipc]") {
     bool readable = false;
     c.server.set_readable_callback([&] { readable = true; });
 
-    { [[maybe_unused]] IpcChannel gone = std::move(c.client); }
+    {
+        [[maybe_unused]] IpcChannel gone = std::move(c.client);
+    }
 
     CHECK(run_until(c.reactor, [&] { return readable; }));
     const auto received = c.server.receive(buffer);
@@ -593,11 +597,18 @@ TEST_CASE("the other end closing gives PeerClosed", "[ipc]") {
     readable = false;
     REQUIRE(c.reactor.run_once(20ms).has_value());
     CHECK_FALSE(readable);
+
+    // And it keeps saying PeerClosed without asking the socket again.
+    const auto again = c.server.receive(buffer);
+    REQUIRE(again.has_value());
+    CHECK(again->status == IoStatus::PeerClosed);
 }
 
 TEST_CASE("a hang-up with no readable callback doesn't spin the reactor", "[ipc]") {
     Connection c;
-    { [[maybe_unused]] IpcChannel gone = std::move(c.client); }
+    {
+        [[maybe_unused]] IpcChannel gone = std::move(c.client);
+    }
 
     // The first loop sees the hang-up and the channel stops watching; after
     // that, run_once() has nothing to report and waits out its timeout.
@@ -619,7 +630,9 @@ TEST_CASE("a hang-up with no readable callback doesn't spin the reactor", "[ipc]
 TEST_CASE("messages sent just before a hang-up are still received", "[ipc]") {
     Connection c;
     REQUIRE(c.client.send(message_of(32, 7)).value() == IoStatus::Done);
-    { [[maybe_unused]] IpcChannel gone = std::move(c.client); }
+    {
+        [[maybe_unused]] IpcChannel gone = std::move(c.client);
+    }
 
     // No readable callback, like amctl: the loop sees the hang-up first.
     REQUIRE(c.reactor.run_once(20ms).has_value());
@@ -651,4 +664,75 @@ TEST_CASE("a channel can be destroyed from inside its own callback", "[ipc]") {
 
     // The reactor must keep working with the channel gone.
     REQUIRE(c.reactor.run_once(10ms).has_value());
+}
+
+TEST_CASE("moving channels and listeners keeps them working", "[ipc]") {
+    Connection c;
+    auto other_dir_listener = IpcListener::listen(c.reactor, "am-test-2");
+    REQUIRE(other_dir_listener);
+    // Assigning over a live listener closes it (and removes its socket file)
+    // and takes the other one's place.
+    c.listener = std::move(*other_dir_listener);
+    CHECK(::access(c.dir.socket_file().c_str(), F_OK) != 0);
+    auto second_client = IpcChannel::connect(c.reactor, "am-test-2");
+    REQUIRE(second_client);
+
+    // Same for a channel: the old client goes, the new one talks.
+    c.client = std::move(*second_client);
+    auto accepted = c.listener.accept();
+    REQUIRE(accepted);
+    REQUIRE(accepted->has_value());
+    const auto sent = c.client.send(message_of(8, 7));
+    REQUIRE(sent.has_value());
+    CHECK(*sent == IoStatus::Done);
+    std::array<std::byte, 64> buffer{};
+    const auto received = (*accepted)->receive(buffer);
+    REQUIRE(received.has_value());
+    CHECK(received->status == IoStatus::Done);
+    CHECK(received->bytes == 8);
+}
+
+namespace {
+
+// Lowers this process's file descriptor limit to the lowest free number, so the
+// next socket(), accept4() or open() fails with EMFILE, and puts it back after.
+class NoFreeFds {
+  public:
+    NoFreeFds() {
+        REQUIRE(::getrlimit(RLIMIT_NOFILE, &old_) == 0);
+        const int lowest_free = ::dup(0);
+        REQUIRE(lowest_free >= 0);
+        ::close(lowest_free);
+        rlimit tight = old_;
+        tight.rlim_cur = static_cast<rlim_t>(lowest_free);
+        REQUIRE(::setrlimit(RLIMIT_NOFILE, &tight) == 0);
+    }
+    ~NoFreeFds() { ::setrlimit(RLIMIT_NOFILE, &old_); }
+    NoFreeFds(const NoFreeFds&) = delete;
+    NoFreeFds& operator=(const NoFreeFds&) = delete;
+
+  private:
+    rlimit old_{};
+};
+
+} // namespace
+
+TEST_CASE("running out of file descriptors is reported", "[ipc]") {
+    Connection c;
+    // A second client waits in the listener's queue.
+    auto waiting = IpcChannel::connect(c.reactor, kEndpoint);
+    REQUIRE(waiting);
+
+    const NoFreeFds no_fds;
+    auto listener = IpcListener::listen(c.reactor, "am-test-2");
+    REQUIRE_FALSE(listener);
+    CHECK(listener.error() == std::errc::too_many_files_open);
+
+    auto client = IpcChannel::connect(c.reactor, kEndpoint);
+    REQUIRE_FALSE(client);
+    CHECK(client.error() == std::errc::too_many_files_open);
+
+    auto accepted = c.listener.accept();
+    REQUIRE_FALSE(accepted);
+    CHECK(accepted.error() == std::errc::too_many_files_open);
 }
