@@ -151,19 +151,34 @@ struct LoadTrackBody {
     std::array<std::uint8_t, 7> reserved; // sent as zero; makes the size 16 with no padding
 };
 
-inline constexpr std::size_t kTrackTitleBytes = 64;
+// Room for what the desktop and the window show about a track. Apple Music
+// titles run long (a classical track can name the work, the movement and the
+// performers), so 256 bytes each; artwork links are around 150 bytes today.
+inline constexpr std::size_t kTrackTitleBytes = 256;
+inline constexpr std::size_t kTrackArtistBytes = 256;
+inline constexpr std::size_t kTrackAlbumBytes = 256;
+inline constexpr std::size_t kTrackArtworkUrlBytes = 512;
 
 // TrackChangedEvent. What plays now: sent after each LoadTrackReq that worked,
-// and right after HelloAck, so a client that just connected knows too.
+// and right after HelloAck, so a client that just connected knows too. The
+// same things the daemon hands the desktop's media controls (TrackInfo in
+// src/pal/interfaces/media_controls.hpp).
+//
+// The four text fields are UTF-8, padded with zero bytes. Like HelloBody::name
+// they may be completely full with no terminating zero, so read them with
+// track_title() and the others below, never as C strings. Fill them with
+// make_text_field() (cut at a character boundary) and make_url_field() (a link
+// that doesn't fit is left out, since a cut one points at nothing). Any of
+// them can be empty: the receiver leaves that line blank.
 struct TrackChangedBody {
     std::uint64_t catalog_id;      // as in LoadTrackBody
     std::uint64_t duration_micros; // 0 when it has no end (the tone) or isn't known yet
     TrackSource source;
-    std::array<std::uint8_t, 7> reserved; // sent as zero; keeps the title 8-byte aligned
-    // UTF-8, padded with zero bytes, cut at a character boundary. Like
-    // HelloBody::name it may fill all 64 bytes with no terminating zero, so
-    // read it with track_title().
+    std::array<std::uint8_t, 7> reserved; // sent as zero; keeps the text 8-byte aligned
     std::array<char, kTrackTitleBytes> title;
+    std::array<char, kTrackArtistBytes> artist;
+    std::array<char, kTrackAlbumBytes> album;
+    std::array<char, kTrackArtworkUrlBytes> artwork_url; // https:// link to the cover art
 };
 
 // What every body has to be for raw-byte sending to be safe: copyable as
@@ -184,10 +199,13 @@ static_assert(offsetof(PlaybackStateBody, state) == 8);
 static_assert(offsetof(PlaybackStateBody, volume_percent) == 9);
 static_assert(WireBody<LoadTrackBody> && sizeof(LoadTrackBody) == 16);
 static_assert(offsetof(LoadTrackBody, source) == 8);
-static_assert(WireBody<TrackChangedBody> && sizeof(TrackChangedBody) == 88);
+static_assert(WireBody<TrackChangedBody> && sizeof(TrackChangedBody) == 1304);
 static_assert(offsetof(TrackChangedBody, duration_micros) == 8);
 static_assert(offsetof(TrackChangedBody, source) == 16);
 static_assert(offsetof(TrackChangedBody, title) == 24);
+static_assert(offsetof(TrackChangedBody, artist) == 280);
+static_assert(offsetof(TrackChangedBody, album) == 536);
+static_assert(offsetof(TrackChangedBody, artwork_url) == 792);
 
 // ---- Field checks ------------------------------------------------------------
 //
@@ -313,31 +331,65 @@ make_peer_name(std::string_view name) noexcept {
     return all.substr(0, all.find('\0'));
 }
 
-// Packs `title` into TrackChangedBody's fixed field, padded with zero bytes.
-// Unlike a peer name the title is shown in the window, so a long one is cut
+// ---- Track text --------------------------------------------------------------
+
+// Packs `text` into one of TrackChangedBody's N-byte text fields, padded with
+// zero bytes. Unlike a peer name it's shown to the user, so a long one is cut
 // before the character that doesn't fit whole, never in the middle of it.
-[[nodiscard]] constexpr std::array<char, kTrackTitleBytes>
-make_track_title(std::string_view title) noexcept {
-    std::size_t length = title.size();
-    if (length > kTrackTitleBytes) {
-        length = kTrackTitleBytes;
+//
+//   .title = make_text_field<kTrackTitleBytes>(title),
+template <std::size_t N>
+[[nodiscard]] constexpr std::array<char, N> make_text_field(std::string_view text) noexcept {
+    std::size_t length = text.size();
+    if (length > N) {
+        length = N;
         // UTF-8 continuation bytes look like 10xxxxxx. Back up while the
         // first byte that doesn't fit is one, so the cut lands on the start
         // of a character.
-        while (length > 0 && (static_cast<unsigned char>(title[length]) & 0xC0U) == 0x80U) {
+        while (length > 0 && (static_cast<unsigned char>(text[length]) & 0xC0U) == 0x80U) {
             --length;
         }
     }
-    std::array<char, kTrackTitleBytes> field{};
-    std::ranges::copy(title.substr(0, length), field.begin());
+    std::array<char, N> field{};
+    std::ranges::copy(text.substr(0, length), field.begin());
     return field;
 }
 
-// The title in a received TrackChangedBody: everything up to the first zero
-// byte, or all 64 bytes if there isn't one.
-[[nodiscard]] constexpr std::string_view track_title(const TrackChangedBody& body) noexcept {
-    const std::string_view all(body.title.data(), body.title.size());
+// Packs a link into the artwork field. One that doesn't fit is left out
+// (an empty field) rather than cut, because a cut link points at nothing.
+[[nodiscard]] constexpr std::array<char, kTrackArtworkUrlBytes>
+make_url_field(std::string_view url) noexcept {
+    if (url.size() > kTrackArtworkUrlBytes) {
+        return {};
+    }
+    return make_text_field<kTrackArtworkUrlBytes>(url);
+}
+
+// The text in a received field: everything up to the first zero byte, or the
+// whole field if there isn't one.
+template <std::size_t N>
+[[nodiscard]] constexpr std::string_view text_field(const std::array<char, N>& field) noexcept {
+    const std::string_view all(field.data(), field.size());
     return all.substr(0, all.find('\0'));
 }
+
+[[nodiscard]] constexpr std::string_view track_title(const TrackChangedBody& body) noexcept {
+    return text_field(body.title);
+}
+[[nodiscard]] constexpr std::string_view track_artist(const TrackChangedBody& body) noexcept {
+    return text_field(body.artist);
+}
+[[nodiscard]] constexpr std::string_view track_album(const TrackChangedBody& body) noexcept {
+    return text_field(body.album);
+}
+[[nodiscard]] constexpr std::string_view track_artwork_url(const TrackChangedBody& body) noexcept {
+    return text_field(body.artwork_url);
+}
+
+static_assert(text_field(make_text_field<4>("abc")) == "abc");
+static_assert(text_field(make_text_field<4>("abcdef")) == "abcd");
+static_assert(text_field(make_text_field<4>("abc\xC3\xA9")) == "abc"); // 'é' doesn't fit whole
+static_assert(text_field(make_url_field("https://example.com/a.jpg")) ==
+              "https://example.com/a.jpg");
 
 } // namespace am::common

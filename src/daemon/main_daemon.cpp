@@ -459,7 +459,10 @@ int main(int argc, char** argv) {
             .duration_micros = static_cast<std::uint64_t>(length_of(source).count()),
             .source = source,
             .reserved = {},
-            .title = am::common::make_track_title(title_of(source)),
+            .title = am::common::make_text_field<am::common::kTrackTitleBytes>(title_of(source)),
+            .artist = {},
+            .album = {},
+            .artwork_url = {},
         };
     };
 
