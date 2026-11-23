@@ -186,7 +186,17 @@ void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
     ImGui::SetCursorPosX(margin);
     ImGui::PushFont(fonts.display_italic, kBodySize * 1.4f);
     ImGui::PushStyleColor(ImGuiCol_Text, kTextDim);
-    const std::string from = "a test source, from " + daemon;
+    // Who it's by, and from what album, when the daemon says. The test films
+    // name which of the two films it is in the album line.
+    std::string from;
+    if (state.has_track && !state.track_artist.empty()) {
+        from = state.track_artist;
+        if (!state.track_album.empty()) {
+            from += " - " + state.track_album;
+        }
+    } else {
+        from = "a test source, from " + daemon;
+    }
     ImGui::TextUnformatted(from.c_str());
     ImGui::PopStyleColor();
     ImGui::PopFont();

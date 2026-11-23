@@ -79,6 +79,7 @@
 #include "daemon/cef_host/cef_host.hpp"
 #include "daemon/cef_host/test_film_page.hpp"
 #include "daemon/control_server.hpp"
+#include "daemon/test_sources.hpp"
 #include "ipc_channel.hpp"
 #include "browser_files.hpp"
 #include "media_controls.hpp"
@@ -182,7 +183,8 @@ std::optional<Options> parse_arguments(std::span<char*> args) {
 
 bool is_film(TrackSource source) { return source != TrackSource::Tone; }
 
-// What the media widget, amctl watch and the window show.
+// For log lines. What the media widget, amctl and the window show is in
+// test_sources.hpp.
 const char* title_of(TrackSource source) {
     switch (source) {
     case TrackSource::Tone:
@@ -445,18 +447,7 @@ int main(int argc, char** argv) {
         (void)reactor->set_timer(std::chrono::milliseconds::zero(), [&tick] { tick(); });
         return am::common::CommandStatus::Ok;
     };
-    auto current_track = [&] {
-        return am::common::TrackChangedBody{
-            .catalog_id = 0,
-            .duration_micros = static_cast<std::uint64_t>(length_of(source).count()),
-            .source = source,
-            .reserved = {},
-            .title = am::common::make_text_field<am::common::kTrackTitleBytes>(title_of(source)),
-            .artist = {},
-            .album = {},
-            .artwork_url = {},
-        };
-    };
+    auto current_track = [&] { return am::daemon::track_changed(source, length_of(source)); };
 
     // Seeking (SeekReq, the media widget, the window's bar). Like a switch
     // without the change of source: pause, wait for the audio path to fade
@@ -501,11 +492,7 @@ int main(int argc, char** argv) {
 
     auto show_track = [&] {
         if (media) {
-            media->set_track({.title = title_of(source),
-                              .artist = std::string(am::common::kAppName),
-                              .album = {},
-                              .artwork_url = {},
-                              .length = length_of(source)});
+            media->set_track(am::daemon::track_info(source, length_of(source)));
         }
     };
 

@@ -44,6 +44,7 @@ set(AM_TESTS
     test_realtime
     test_frame_pacer
     test_now_playing_text
+    test_track_metadata
 )
 
 # Platform-specific tests. test_epoll_reactor, test_pipewire_sink and
