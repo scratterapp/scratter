@@ -47,7 +47,6 @@ namespace {
 using namespace std::chrono_literals;
 using am::net::HttpClient;
 using am::net::HttpError;
-using am::net::HttpRequest;
 using am::net::HttpResponse;
 using am::net::kBodyPadding;
 using am::net::RequestId;
@@ -119,9 +118,9 @@ bool send_all(Socket s, std::string_view data) {
 
 struct Answer {
     int status = 200;
-    std::string body;
+    std::string body{};
     std::chrono::milliseconds delay{0}; // before answering
-    std::vector<std::pair<std::string, std::string>> headers;
+    std::vector<std::pair<std::string, std::string>> headers{};
     bool send_length = true; // false: no Content-Length, the end of the body is the hang-up
 };
 
@@ -257,7 +256,7 @@ class TestServer {
             head += "Content-Length: " + std::to_string(how.body.size()) + "\r\n";
         }
         for (const auto& [name, value] : how.headers) {
-            head += name + ": " + value + "\r\n";
+            head.append(name).append(": ").append(value).append("\r\n");
         }
         head += "Connection: close\r\n\r\n";
         if (send_all(connection, head)) {
@@ -514,8 +513,10 @@ TEST_CASE("requests from many threads at once", "[http]") {
     auto http = HttpClient::create(seen.callback());
     REQUIRE(http.has_value());
 
+    constexpr int kAskers = 4;
     std::vector<std::thread> askers;
-    for (int t = 0; t < 4; ++t) {
+    askers.reserve(kAskers);
+    for (int t = 0; t < kAskers; ++t) {
         askers.emplace_back([&] {
             for (int i = 0; i < 5; ++i) {
                 (void)(*http)->get({.url = server.url("/ok")});

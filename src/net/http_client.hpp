@@ -68,11 +68,11 @@ struct HttpHeader {
 };
 
 struct HttpRequest {
-    std::string url;
-    std::vector<HttpHeader> headers;
+    std::string url{};
+    std::vector<HttpHeader> headers{};
     // Response headers to hand back, by name, case ignored (HTTP/2 sends them
     // in lower case). Empty for none.
-    std::vector<std::string> want_headers;
+    std::vector<std::string> want_headers{};
     std::chrono::milliseconds timeout{std::chrono::seconds{15}};
 };
 
