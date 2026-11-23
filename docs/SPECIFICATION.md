@@ -56,7 +56,7 @@ Plaintext
 |                                                                                                   |
 |  +----------------------------------------+          +-----------------------------------------+  |
 |  | Dear ImGui Presentation Engine         |          | Asynchronous Metadata Engine            |  |
-|  | - SDL3 + SDL_Renderer:                 |          | - libcurl multi_socket API              |  |
+|  | - SDL3 + SDL_Renderer:                 |          | - libcurl multi API on its own thread   |  |
 |  |   OpenGL/Vulkan, Direct3D (Windows)    |          | - simdjson On-Demand (AVX2 / NEON)      |  |
 |  | - Event-driven frame throttling        |          | - Arena-allocated catalog models        |  |
 |  +-------------------+--------------------+          +--------------------+--------------------+  |
@@ -392,18 +392,19 @@ class alignas(64) TelemetryPage {                  // 384 bytes, fits in the 409
 
 ### 3.3 Asynchronous Metadata & Session Engine
 
-#### 3.3.1 Reactor-Driven HTTP/2 Pipeline (`curl_multi_socket_action`)
+#### 3.3.1 HTTP/2 Pipeline (`libcurl` multi handle on its own thread)
 
-Catalog searches, album views, and playlist fetches execute inside `am-ui` (and token refresh/playback reporting inside `scratterd`) without blocking threads:
+Catalog searches, album views, and playlist fetches execute inside `am-ui` (and token refresh/playback reporting inside `scratterd`) without blocking the window's thread. `src/net/http_client.hpp` (issue #104):
 
-1. A persistent `CURLM*` handle is initialized with HTTP/2 multiplexing (`CURLPIPE_MULTIPLEX`) and TLS session caching to `amp-api.music.apple.com`.
-    
-2. `CURLMOPT_SOCKETFUNCTION` registers socket file descriptors directly with the platform reactor (`epoll_ctl` on Linux; `CreateIoCompletionPort` / `WSAEventSelect` on Windows).
-    
-3. `CURLMOPT_TIMERFUNCTION` updates the reactor's single timer (`timerfd_settime` on Linux; on Windows `set_timer()`, whose deadline becomes the `GetQueuedCompletionStatusEx` wait timeout).
-    
-4. When the reactor wakes on network readiness, it invokes `curl_multi_socket_action()`, streaming response chunks into a pre-allocated, reusable slab buffer with `SIMDJSON_PADDING` (64 bytes) appended at the tail.
-    
+1. One `HttpClient` owns a persistent `CURLM*` handle and runs it on a thread of its own with `curl_multi_poll()`. Any thread calls `get()`, which queues the request and wakes the thread with `curl_multi_wakeup()`; `cancel()` works the same way. Each request's answer comes back through one callback on the HTTP thread, which parses it there (or copies it) and wakes the window the way `DaemonLink` does.
+
+2. HTTP/2 multiplexing (`CURLPIPE_MULTIPLEX`, `CURLOPT_PIPEWAIT`) where libcurl has it: the Linux system libcurl does. The Windows build (`FetchContent`, Schannel) has no nghttp2 yet, so it speaks HTTP/1.1 with keep-alive. Connections, DNS answers and TLS sessions (a `CURLSH*` share) are reused between requests.
+
+3. TLS verification of the certificate and host name is always on, with no option to turn it off. Only `https://` is allowed, except plain `http://` to this machine for the tests; no redirects; a total and a connect timeout per request; a maximum body size. Request headers carry the developer and user tokens, so nothing logs them.
+
+4. Response bodies stream into reusable buffers with 64 zero bytes (`SIMDJSON_PADDING`) after the end, so the parser (3.3.2) reads them in place.
+
+Why a thread rather than the reactor: the first plan registered curl's sockets with `pal::Reactor` (`CURLMOPT_SOCKETFUNCTION`, `curl_multi_socket_action()`). The Windows reactor is IOCP, which reports finished operations, not readiness, and the window thread has no reactor, so that needs a new readiness API in `src/pal/` first. A thread costs one thread and no platform code. Callers only see `get()`, `cancel()` and the callback, so it can move onto a reactor later without them changing. (Decided on the roadmap, #6, 2026-11-22.)
 
 #### 3.3.2 Zero-Allocation JSON Deserialization (`simdjson` On-Demand)
 
@@ -544,7 +545,7 @@ scratter/
 │   │       ├── process_launch.cpp     # CreateProcessW of am-ui, passing only its standard handles
 │   │       └── cef_main_args.cpp      # CefMainArgs from GetModuleHandleW(nullptr)
 │   ├── net/                           # Target: am_net (Static Library - Async HTTP & JSON)
-│   │   ├── curl_reactor_bridge.cpp    # Binds curl_multi_socket_action to pal::Reactor
+│   │   ├── http_client.hpp/.cpp       # HttpClient: libcurl multi handle on its own thread (3.3.1)
 │   │   └── catalog_parser.cpp         # simdjson On-Demand Apple Music API parsers
 │   ├── daemon/                        # Target: scratterd (Executable - Links am_common, am_pal, CEF)
 │   │   ├── main_daemon.cpp            # Daemon entry point: startup order, tick timer, reactor loop, shutdown
@@ -619,6 +620,7 @@ scratter/
     ├── test_arena_allocator.cpp       # The catalog arena: alignment, filling to full, overflow, reset, strings and arrays, moves
     ├── test_ipc_framing.cpp           # FrameHeader layout, round-trip and rejection tests
     ├── test_ipc_messages.cpp          # Message bodies: round trips, wrong sizes and bad values
+    ├── test_http_client.cpp           # HttpClient against a local test server; [network] checks real certificates by hand
     ├── fuzz_ipc_framing.cpp           # libFuzzer target for the frame parser and body decoders (linux-fuzz preset)
     ├── test_realtime.cpp              # lock_memory / unlock_memory
     ├── test_pipewire_sink.cpp         # Linux-only: PipeWire sink (passes with a warning if no daemon)
@@ -722,7 +724,7 @@ These are out of scope on purpose, to keep the project a player. Don't add them,
 
 ### Phase 4: Reactor Metadata Engine & OS Media Bridges
 
-- **Deliverables:** `curl_multi_socket_action` integrated into `epoll`/`IOCP`, `simdjson` On-Demand catalog parsers with linear arena allocation, plus `MPRIS v2` (`sd-bus`) and `SMTC` (`WinRT`) controllers inside `scratterd`.
+- **Deliverables:** a `libcurl` multi handle on its own thread (3.3.1), `simdjson` On-Demand catalog parsers with linear arena allocation, plus `MPRIS v2` (`sd-bus`) and `SMTC` (`WinRT`) controllers inside `scratterd`.
     
 - **Verification Gate:**
     
