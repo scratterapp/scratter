@@ -97,6 +97,9 @@ struct DaemonState {
     bool has_track = false;
     common::TrackSource track_source = common::TrackSource::Tone;
     std::string track_title;
+    std::string track_artist; // any of these three can be empty
+    std::string track_album;
+    std::string track_artwork_url;           // https:// link to the cover art
     std::uint64_t track_duration_micros = 0; // 0 when it has no end or isn't known
 
     // The newest answer to a command, for "couldn't pause: ..." under the

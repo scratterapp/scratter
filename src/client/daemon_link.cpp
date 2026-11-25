@@ -312,6 +312,9 @@ struct DaemonLink::Impl {
                 s.has_track = true;
                 s.track_source = body->source;
                 s.track_title = std::string(track_title(*body));
+                s.track_artist = std::string(track_artist(*body));
+                s.track_album = std::string(track_album(*body));
+                s.track_artwork_url = std::string(track_artwork_url(*body));
                 s.track_duration_micros = body->duration_micros;
             });
             return true;

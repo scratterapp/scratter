@@ -550,6 +550,7 @@ scratter/
 │   ├── daemon/                        # Target: scratterd (Executable - Links am_common, am_pal, CEF)
 │   │   ├── main_daemon.cpp            # Daemon entry point: startup order, tick timer, reactor loop, shutdown
 │   │   ├── control_server.hpp/.cpp    # IPC clients: Hello, Play/Pause/Stop, SetVolume, state broadcasts
+│   │   ├── test_sources.hpp           # Title, artist, album and artwork of the tone and films, until the page sends them (#4)
 │   │   ├── cef_host/                  # Headless CEF (built only with AM_WITH_CEF; VMP check still to come)
 │   │   │   ├── cef_host.hpp           # CefHost: start CEF, play/pause/stop the page; no CEF types
 │   │   │   ├── cef_host.cpp           # CefApp, CefClient, CefAudioHandler -> AudioPath::write_planar
@@ -638,6 +639,7 @@ scratter/
     ├── test_amctl_args.cpp            # amctl's argument parsing
     ├── test_frame_pacer.cpp           # am-ui's render loop rules: when to draw, how long to sleep
     ├── test_now_playing_text.cpp      # The now-playing view's clock, volume steps and error lines
+    ├── test_track_metadata.cpp        # The test sources' metadata, the same for the media widget and TrackChangedEvent
     ├── test_credential_vault.cpp      # CredentialVault contract (skips where there's no vault or no keyring running)
     ├── test_secret_vault.cpp          # Linux-only: the keyring vault against no bus, no keyring and a broken keyring on a private bus
     ├── test_media_controls.cpp        # MediaControls contract, daemon side (skips where there's no media control service)

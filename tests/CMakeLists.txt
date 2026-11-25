@@ -47,6 +47,7 @@ set(AM_TESTS
     test_frame_pacer
     test_now_playing_text
     test_http_client
+    test_track_metadata
     test_catalog_parser
 )
 
