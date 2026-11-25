@@ -571,12 +571,16 @@ scratter/
 │       ├── daemon_link.hpp/.cpp       # Connection thread: hello, commands, state events, reconnects (library am_client_core)
 │       ├── ui_state.hpp/.cpp          # DaemonState, plus the once-per-frame SeqLock telemetry reader (am_client_core)
 │       ├── now_playing_text.hpp       # The now-playing view's words and numbers (clock, volume steps, errors)
+│       ├── library.hpp                # Song and Playlist as the library view draws them (catalog #105 field names), its words, "…" for long names
+│       ├── sample_library.hpp         # Made-up playlists the library view shows until the MusicKit key exists
 │       ├── fonts/                     # Atkinson Hyperlegible + Instrument Serif, Noto behind them (all OFL), compiled into am-ui
 │       └── views/                     # ImGui views (Library, Search, Queue, Spectrum)
 │           ├── waiting_view.cpp       # Shown while the daemon isn't connected, with how to start it
 │           ├── now_playing.cpp        # What's playing, position, play/pause, stop, volume (#37)
 │           ├── spectrum.cpp           # The 64 spectrum bars along the bottom of the now-playing view (#40)
-│           └── drawing.cpp            # The background record and app label both views share
+│           ├── library_view.cpp       # Playlists down the side, the open one's songs, a player bar (sample data for now)
+│           ├── screen.hpp             # Which view fills the window: now playing or the library
+│           └── drawing.cpp            # What the views share: the record, the app label, round buttons, chips
 ├── tools/                             # Small helper programs (the C++ ones link am_common + am_pal only)
 │   ├── amctl/                         # Command-line remote for the daemon, like mpc for mpd
 │   │   ├── main_amctl.cpp             # Every request the daemon handles, over IPC; status from telemetry
@@ -633,6 +637,8 @@ scratter/
     ├── test_amctl_args.cpp            # amctl's argument parsing
     ├── test_frame_pacer.cpp           # am-ui's render loop rules: when to draw, how long to sleep
     ├── test_now_playing_text.cpp      # The now-playing view's clock, volume steps and error lines
+    ├── test_library.cpp               # The library view's playlist summary, "…" cuts and sample playlists
+    ├── test_library_view.cpp          # The library view drawn by ImGui with no window, clicked by hand
     ├── test_credential_vault.cpp      # CredentialVault contract (skips where there's no vault or no keyring running)
     ├── test_secret_vault.cpp          # Linux-only: the keyring vault against no bus, no keyring and a broken keyring on a private bus
     ├── test_media_controls.cpp        # MediaControls contract, daemon side (skips where there's no media control service)
