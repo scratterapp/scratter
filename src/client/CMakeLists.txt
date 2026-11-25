@@ -62,10 +62,14 @@ endif()
 # FreeType's light hinting lines each letter up with the pixel rows and keeps
 # its shape across. It comes from the system through pkg-config (freetype2 on
 # Arch, libfreetype-dev on Ubuntu, and nearly every Linux desktop has it).
-# Without it, as on Windows for now, ImGui falls back to stb_truetype.
-find_package(PkgConfig QUIET)
-if(PKG_CONFIG_FOUND)
-    pkg_check_modules(FREETYPE QUIET IMPORTED_TARGET freetype2)
+# Without it ImGui falls back to stb_truetype. Windows doesn't look at all for
+# now: a pkg-config there (Strawberry Perl and MSYS2 both bring one) can find a
+# FreeType built with MinGW, which an MSVC build can't link.
+if(NOT WIN32)
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(FREETYPE QUIET IMPORTED_TARGET freetype2)
+    endif()
 endif()
 # The header is only declarations, so theme.cpp can name the hinting flag
 # whichever rasterizer is built in.
