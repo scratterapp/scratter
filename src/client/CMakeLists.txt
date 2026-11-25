@@ -56,6 +56,33 @@ else()
     target_compile_options(am_imgui PRIVATE -fno-exceptions -fno-rtti)
 endif()
 
+# FreeType draws the letters when it's there. ImGui's own rasterizer
+# (stb_truetype) doesn't hint, so the edges of small letters fall between
+# pixel rows and body text looks soft, grey text on the side bar most of all.
+# FreeType's light hinting lines each letter up with the pixel rows and keeps
+# its shape across. It comes from the system through pkg-config (freetype2 on
+# Arch, libfreetype-dev on Ubuntu, and nearly every Linux desktop has it).
+# Without it ImGui falls back to stb_truetype. Windows doesn't look at all for
+# now: a pkg-config there (Strawberry Perl and MSYS2 both bring one) can find a
+# FreeType built with MinGW, which an MSVC build can't link.
+if(NOT WIN32)
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(FREETYPE QUIET IMPORTED_TARGET freetype2)
+    endif()
+endif()
+# The header is only declarations, so theme.cpp can name the hinting flag
+# whichever rasterizer is built in.
+target_include_directories(am_imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR}/misc/freetype)
+if(FREETYPE_FOUND)
+    target_sources(am_imgui PRIVATE ${imgui_SOURCE_DIR}/misc/freetype/imgui_freetype.cpp)
+    target_compile_definitions(am_imgui PUBLIC IMGUI_ENABLE_FREETYPE)
+    target_link_libraries(am_imgui PUBLIC PkgConfig::FREETYPE)
+    message(STATUS "am-ui draws text with FreeType")
+else()
+    message(STATUS "am-ui draws text with stb_truetype (FreeType not found)")
+endif()
+
 add_executable(am-ui
     main_client.cpp
     theme.cpp

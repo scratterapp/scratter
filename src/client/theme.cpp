@@ -2,6 +2,8 @@
 
 #include "client/fonts/embedded_fonts.hpp"
 
+#include <imgui_freetype.h>
+
 #include <span>
 
 namespace am::client {
@@ -45,6 +47,10 @@ ImFont* add_font_with_fallback(std::span<const unsigned char> bytes,
 } // namespace
 
 Fonts load_fonts() {
+    // With FreeType (see src/client/CMakeLists.txt), hint lightly: line the
+    // letters up with pixel rows only, so small text is sharp and keeps the
+    // font's own shapes and spacing. stb_truetype ignores the flag.
+    ImGui::GetIO().Fonts->FontLoaderFlags = ImGuiFreeTypeLoaderFlags_LightHinting;
     Fonts fonts;
     // The first font added is ImGui's default, so body text comes first.
     // A bold or italic letter that falls through to Noto comes out upright
