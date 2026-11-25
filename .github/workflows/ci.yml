@@ -98,12 +98,20 @@ jobs:
       - name: Configure
         run: cmake --preset linux-fuzz -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_C_COMPILER=clang-20
       - name: Build
-        run: cmake --build --preset linux-fuzz --target fuzz_ipc_framing
+        run: cmake --build --preset linux-fuzz --target fuzz_ipc_framing fuzz_catalog_parser
       - name: Fuzz
         # On a crash libFuzzer writes the input that caused it to crash-<hash>
         # in the working directory; the next step uploads it.
         working-directory: build/linux-fuzz
         run: ./tests/fuzz_ipc_framing -runs=10000000 -print_final_stats=1
+      - name: Fuzz the catalog parser
+        # Not part of the phase 1 gate, but the parser reads what comes from
+        # the internet (#105). A million inputs takes about two minutes,
+        # starting from the saved responses.
+        working-directory: build/linux-fuzz
+        run: |
+          mkdir -p catalog-corpus
+          ./tests/fuzz_catalog_parser -runs=1000000 -print_final_stats=1 catalog-corpus ../../tests/data/catalog
       - name: Upload crashing input
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

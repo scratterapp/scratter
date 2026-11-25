@@ -27,6 +27,10 @@ Always the same way, so the numbers compare:
   gave a median of 9.7 to 13.4 µs. Windows doesn't have a baseline of its own
   yet.
 - **Our audio code alone:** `./build/linux-release/bench/audio_render`.
+- **The catalog parser (#105):** `./build/linux-release/bench/catalog_parse`
+  parses a 500-track playlist (about 470 KB of JSON) 2000 times and prints
+  the median, and how many heap allocations happened outside the arena (the
+  gate wants 0). See [the catalog parser](#the-catalog-parser) below.
 - **The spectrum (#40):** `./build/linux-release/bench/spectrum_fft` times one
   update (push 30 ms of audio, Hann window, 2048-point FFT, 64 bands). On
   kero's PC (2026-11-21): 33 µs in `windows-msvc-release`, 0.11% of a core at
@@ -207,6 +211,19 @@ first frame to the one with the daemon's state; the window, its GPU renderer
 and the fonts are the rest. That's the place to look if start-up ever needs to
 get quicker: SDL_CreateRenderer alone took about 40 ms in the cloud and 171 ms
 on kero's laptop. robbie's PC hasn't been measured with the split yet.
+
+## The catalog parser
+
+The phase 4 gate ([SPECIFICATION.md](SPECIFICATION.md), section 6): a
+500-track playlist parses in under 1.5 ms with no heap allocation outside the
+arena. `bench/catalog_parse` makes the playlist in code
+(`tests/catalog_samples.hpp`: every track has the attributes a real catalog
+response has, most of which the parser skips) and replaces the global
+`operator new` to count allocations while it parses.
+
+| Date | Change | Median parse | Slowest | Allocations | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 2026-11-25 | #105: the first parser, `linux-release` with Clang 20 | 0.33 ms (1.47 GB/s) | 0.81 ms | 0 | Cloud container, 4 cores of a 2.3 GHz Xeon. 111 KB in the arena for the 500 tracks. The debug build takes about 11 ms |
 
 ## Ideas to try next
 

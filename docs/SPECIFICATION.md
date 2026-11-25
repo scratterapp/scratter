@@ -546,7 +546,7 @@ scratter/
 │   │       └── cef_main_args.cpp      # CefMainArgs from GetModuleHandleW(nullptr)
 │   ├── net/                           # Target: am_net (Static Library - Async HTTP & JSON)
 │   │   ├── http_client.hpp/.cpp       # HttpClient: libcurl multi handle on its own thread (3.3.1)
-│   │   └── catalog_parser.cpp         # simdjson On-Demand Apple Music API parsers
+│   │   └── catalog_parser.hpp/.cpp    # CatalogParser: songs, albums, playlists, search into the arena (simdjson On-Demand, 3.3.2)
 │   ├── daemon/                        # Target: scratterd (Executable - Links am_common, am_pal, CEF)
 │   │   ├── main_daemon.cpp            # Daemon entry point: startup order, tick timer, reactor loop, shutdown
 │   │   ├── control_server.hpp/.cpp    # IPC clients: Hello, Play/Pause/Stop, SetVolume, state broadcasts
@@ -592,7 +592,8 @@ scratter/
 ├── bench/                             # Hand-run benchmarks, not in ctest
 │   ├── ipc_ping_pong.cpp              # IPC round-trip latency (target: median under 25 µs)
 │   ├── audio_render.cpp               # CPU our audio code (write_planar, render) takes per second of audio
-│   └── spectrum_fft.cpp               # CPU one spectrum update (push, Hann window, FFT, bands) takes
+│   ├── spectrum_fft.cpp               # CPU one spectrum update (push, Hann window, FFT, bands) takes
+│   └── catalog_parse.cpp              # Phase 4 gate: a 500-track playlist under 1.5 ms, no allocation outside the arena
 ├── packaging/
 │   ├── linux/                         # scratter.desktop template, hicolor icons (make-icons.sh builds them from docs/assets/scratter-logo.png), `cmake --install` rules
 │   └── windows/                       # am-ui.rc (the icon in am-ui.exe), scratter.ico, make-icon.ps1 (builds it from docs/assets/scratter-logo.png), `cmake --install` rules and make-shortcut.ps1 (the Start Menu shortcut)
@@ -622,6 +623,10 @@ scratter/
     ├── test_ipc_messages.cpp          # Message bodies: round trips, wrong sizes and bad values
     ├── test_http_client.cpp           # HttpClient against a local test server; [network] checks real certificates by hand
     ├── fuzz_ipc_framing.cpp           # libFuzzer target for the frame parser and body decoders (linux-fuzz preset)
+    ├── test_catalog_parser.cpp        # The catalog parser: every sample, missing fields, wrong types, cut short, not UTF-8, a full arena, 500 tracks
+    ├── fuzz_catalog_parser.cpp        # libFuzzer target for the catalog parser, seeded from data/catalog/ (linux-fuzz preset)
+    ├── catalog_samples.hpp            # Reads data/catalog/, pads a body the way HttpResponse does, makes an n-track playlist
+    ├── data/catalog/                  # Hand-written Apple Music API responses (album, playlist, songs, search, 404); see its README
     ├── test_realtime.cpp              # lock_memory / unlock_memory
     ├── test_pipewire_sink.cpp         # Linux-only: PipeWire sink (passes with a warning if no daemon)
     ├── test_wasapi_sink.cpp           # Windows-only: WASAPI sink (passes with a warning if no output device)
@@ -728,7 +733,7 @@ These are out of scope on purpose, to keep the project a player. Don't add them,
     
 - **Verification Gate:**
     
-    - Parse a 500-track Apple Music playlist JSON payload in less than 1.5 ms with zero individual heap allocations outside the linear arena.
+    - Parse a 500-track Apple Music playlist JSON payload in less than 1.5 ms with zero individual heap allocations outside the linear arena (`bench/catalog_parse`, #105; results in `docs/BENCHMARKS.md`).
         
     - Confirm `playerctl play-pause`, `playerctl next`, and KDE/GNOME/Windows 11 media applets accurately reflect track metadata and control playback when no UI client is running.
         
