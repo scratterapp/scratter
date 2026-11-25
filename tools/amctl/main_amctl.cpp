@@ -405,13 +405,24 @@ std::string json_string(std::string_view text) {
 
 void print_track(const TrackChangedBody& track, bool json) {
     if (json) {
-        std::printf("{\"track\":{\"source\":\"%s\",\"title\":%s,\"duration_micros\":%llu}}\n",
-                    am::amctl::source_name(track.source).data(),
-                    json_string(track_title(track)).c_str(),
-                    static_cast<unsigned long long>(track.duration_micros));
+        std::printf(
+            "{\"track\":{\"source\":\"%s\",\"title\":%s,\"artist\":%s,\"album\":%s,"
+            "\"artwork_url\":%s,\"duration_micros\":%llu}}\n",
+            am::amctl::source_name(track.source).data(), json_string(track_title(track)).c_str(),
+            json_string(track_artist(track)).c_str(), json_string(track_album(track)).c_str(),
+            json_string(track_artwork_url(track)).c_str(),
+            static_cast<unsigned long long>(track.duration_micros));
     } else {
         const std::string title(track_title(track));
+        const std::string artist(track_artist(track));
+        const std::string album(track_album(track));
         std::printf("track     %s\n", title.c_str());
+        if (!artist.empty()) {
+            std::printf("artist    %s\n", artist.c_str());
+        }
+        if (!album.empty()) {
+            std::printf("album     %s\n", album.c_str());
+        }
     }
     std::fflush(stdout);
 }

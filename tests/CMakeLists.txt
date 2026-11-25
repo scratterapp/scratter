@@ -48,6 +48,7 @@ set(AM_TESTS
     test_now_playing_text
     test_library
     test_http_client
+    test_track_metadata
 )
 
 # Platform-specific tests. test_epoll_reactor, test_pipewire_sink and
