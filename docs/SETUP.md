@@ -15,17 +15,19 @@ Needed now:
 
 ```sh
 sudo pacman -S --needed base-devel git cmake ninja clang pipewire libsecret systemd-libs curl
-sudo pacman -S --needed libx11 libxext libxrandr libxcursor libxi libxss libxtst libxkbcommon wayland wayland-protocols mesa libdecor
+sudo pacman -S --needed libx11 libxext libxrandr libxcursor libxi libxss libxtst libxkbcommon wayland wayland-protocols mesa libdecor freetype2
 ```
 
 The second line is for the app window (`am-ui`): SDL3 is built from source with
 the rest of the project and looks for these to build its X11 and Wayland drivers.
 Arch packages include their headers, so there are no separate `-dev` packages.
 `libdecor` draws the title bar on Wayland desktops that leave that to the app
-(GNOME); without it the window has no title bar there. On Ubuntu the equivalent
+(GNOME); without it the window has no title bar there. `freetype2` draws the
+window's text with hinting, so small letters stay sharp; without it am-ui still
+builds and falls back to ImGui's own, softer rasterizer. On Ubuntu the equivalent
 is `libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev
 libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl-dev
-libgl-dev libdecor-0-dev`.
+libgl-dev libdecor-0-dev libfreetype-dev`.
 
 `pipewire` ships the headers and the `libpipewire-0.3` pkg-config file the audio sink
 builds against, `libsecret` does the same for the login-keyring vault, and

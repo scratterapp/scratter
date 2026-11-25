@@ -98,7 +98,8 @@ responses (songs, albums, playlists, search) into plain structs in the arena
 hand-written samples in `tests/data/catalog/`, since there's no Apple key yet, and
 nothing calls it until the library views. Catch2, SDL3, Dear ImGui and simdjson (via `FetchContent`, pinned by commit), libcurl
 (`pkg-config` on Linux, `FetchContent` pinned to a release with Schannel on Windows) and,
-on Linux, PipeWire, libsecret and libsystemd's sd-bus (system packages via `pkg-config`) are the only
+on Linux, PipeWire, libsecret and libsystemd's sd-bus (system packages via `pkg-config`), plus FreeType
+for am-ui's text when `pkg-config` finds it, are the only
 third-party dependencies wired into CMake so far. SDL3 needs the X11 and Wayland
 development files to build its Linux video drivers (`docs/SETUP.md`).
 
