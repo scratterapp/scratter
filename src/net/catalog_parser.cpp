@@ -260,6 +260,12 @@ Status read_array(od::value value, LinearArena& arena, std::span<const T>& out,
         if (const auto error = std::move(result).get(element)) {
             return fail(error);
         }
+        // count_elements() and this loop see the same array, so this can't
+        // happen; but a write past the end would land in the arena's own
+        // block, where ASan can't see it, so check anyway.
+        if (kept == items->size()) {
+            return std::unexpected(ParseError::NotJson);
+        }
         T& item = (*items)[kept];
         const auto keep = read_one(element, item);
         if (!keep) {
@@ -615,6 +621,11 @@ CatalogParser::parse_search(std::span<const std::byte> body, LinearArena& arena)
         }
         found = true;
         return for_each_field(field, [&](std::string_view kind, od::value group) -> Status {
+            // Only the three kinds we read; anything else Apple adds there is
+            // skipped, whatever its type.
+            if (kind != "songs" && kind != "albums" && kind != "playlists") {
+                return {};
+            }
             return for_each_field(group, [&](std::string_view group_key, od::value v) -> Status {
                 if (group_key != "data") {
                     return {};

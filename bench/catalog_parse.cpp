@@ -8,8 +8,8 @@
 // with the attributes a real response has), then parses it again and again
 // into one arena, resetting it between parses the way a view does. It prints
 // the median and the slowest parse, and how many times anything called
-// operator new or malloc during the parses: this file replaces the global
-// operator new to count, and simdjson and the arena go through it.
+// operator new during the parses: this file replaces the global operator new
+// to count, and simdjson and the arena both allocate through it.
 //
 // The gate is for an optimized build (linux-release): a debug build is
 // several times slower and prints a FAIL that means nothing. It exits with 1

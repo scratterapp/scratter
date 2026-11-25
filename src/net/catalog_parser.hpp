@@ -26,8 +26,8 @@
 // them (tests/catalog_samples.hpp shows how).
 //
 // What counts as an error:
-//   - Anything that isn't one whole, valid JSON document in UTF-8, including
-//     a body cut short and trailing bytes after it.
+//   - Anything that isn't one whole JSON document in UTF-8: a body cut short,
+//     trailing bytes after it, or a part we read that isn't valid JSON.
 //   - A field we read that has the wrong type (a name that's a number, a
 //     duration that's negative or a string) or a number that doesn't fit.
 //   - A response with no resource in it (`data` missing or empty), or a
@@ -35,7 +35,10 @@
 //   - A full arena. What was copied in before then stays in it, so reset()
 //     the arena and try a bigger one.
 // A missing optional field is not an error: it's left empty or 0. Fields we
-// don't read are skipped without looking at them.
+// don't read are skipped without looking inside them: they're only checked
+// for UTF-8 and for where they end, so `"genreNames":["a",]` or `"x":tru` in
+// one of them doesn't stop the parse. Checking them too would take a second
+// pass over the body and most of the speed.
 //
 // The parser makes all of its own memory in create() and nothing after: a
 // parse allocates only in the arena (bench/catalog_parse.cpp checks it). One
@@ -103,7 +106,8 @@ struct SearchResults {
 };
 
 enum class ParseError : std::uint8_t {
-    NotJson,     // not one whole JSON document: malformed, cut short, or more after it
+    NotJson,     // not one whole JSON document: cut short, more after it, or a part we read is
+                 // malformed
     NotUtf8,     // a byte sequence that isn't UTF-8
     WrongType,   // a field we read has another type, or a number that doesn't fit
     NoResource,  // no `data` (or `results`), an empty one, or a resource without an id

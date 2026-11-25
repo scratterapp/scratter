@@ -403,3 +403,29 @@ TEST_CASE("a parser can be moved", "[catalog]") {
     const PaddedBody body(read_sample("songs.json"));
     CHECK(second->parse_songs(body.span(), *arena).has_value());
 }
+
+TEST_CASE("broken JSON in a field we skip doesn't stop the parse", "[catalog]") {
+    // On-Demand doesn't look inside the fields it skips; see the header.
+    for (const std::string_view json : {
+             R"({"data":[{"id":"1"}],"x":tru})",
+             R"({"data":[{"id":"1"}],"x":[1,2}})",
+             R"({"data":[{"id":"1"}],"x":01})",
+             R"({"data":[{"id":"1","attributes":{"genreNames":["a",]}}]})",
+         }) {
+        INFO(json);
+        Fixture f;
+        const auto list = songs(f, json);
+        REQUIRE(list.has_value());
+        CHECK((*list)[0].id == "1");
+    }
+}
+
+TEST_CASE("a search skips other kinds under results, whatever their type", "[catalog]") {
+    Fixture f;
+    const PaddedBody body(R"({"results":{"top":"x","activities":[1,2],
+        "songs":{"data":[{"id":"1","attributes":{"name":"Only"}}]}}})");
+    const auto results = f.parser.parse_search(body.span(), f.arena);
+    REQUIRE(results.has_value());
+    REQUIRE(results->songs.size() == 1);
+    CHECK(results->songs[0].title == "Only");
+}
