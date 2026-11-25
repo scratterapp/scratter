@@ -17,3 +17,12 @@ am_enable_warnings(audio_render)
 add_executable(spectrum_fft spectrum_fft.cpp)
 target_link_libraries(spectrum_fft PRIVATE am_common)
 am_enable_warnings(spectrum_fft)
+
+# The catalog parser on a 500-track playlist (spec section 6, phase 4 gate):
+# how long one parse takes, and that it allocates nothing outside the arena.
+add_executable(catalog_parse catalog_parse.cpp)
+target_link_libraries(catalog_parse PRIVATE am_net)
+target_include_directories(catalog_parse PRIVATE "${PROJECT_SOURCE_DIR}/tests")
+target_compile_definitions(catalog_parse PRIVATE
+    AM_CATALOG_SAMPLES="${PROJECT_SOURCE_DIR}/tests/data/catalog")
+am_enable_warnings(catalog_parse)
