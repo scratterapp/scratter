@@ -1,0 +1,61 @@
+{
+  "results": {
+    "albums": {
+      "href": "/v1/catalog/us/search?limit=2&term=sample&types=albums",
+      "next": "/v1/catalog/us/search?offset=2&term=sample&types=albums",
+      "data": [
+        {
+          "id": "1440857781",
+          "type": "albums",
+          "attributes": {
+            "artistName": "The Sample Quartet",
+            "artwork": { "height": 3000, "url": "https://example.invalid/a/{w}x{h}bb.jpg", "width": 3000 },
+            "name": "Rooms Without Doors",
+            "releaseDate": "2019-05-24",
+            "trackCount": 3
+          }
+        },
+        {
+          "id": "1600000001",
+          "type": "albums",
+          "attributes": {
+            "artistName": "Old Band",
+            "name": "Sampler",
+            "releaseDate": "1968"
+          }
+        }
+      ]
+    },
+    "playlists": {
+      "href": "/v1/catalog/us/search?limit=1&term=sample&types=playlists",
+      "data": [
+        {
+          "id": "pl.5ee8333dbe944d9f9151e97d81d8f6d2",
+          "type": "playlists",
+          "attributes": {
+            "curatorName": "Apple Music",
+            "description": { "short": "Quiet songs for late nights." },
+            "name": "Late Night Sample"
+          }
+        }
+      ]
+    },
+    "songs": {
+      "href": "/v1/catalog/us/search?limit=1&term=sample&types=songs",
+      "data": [
+        {
+          "id": "1440857786",
+          "type": "songs",
+          "attributes": {
+            "albumName": "Rooms Without Doors",
+            "artistName": "The Sample Quartet",
+            "durationInMillis": 215347,
+            "name": "Hallway Light",
+            "trackNumber": 1
+          }
+        }
+      ]
+    }
+  },
+  "meta": { "results": { "order": ["songs", "albums", "playlists"], "rawOrder": ["songs", "albums", "playlists"] } }
+}

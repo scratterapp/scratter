@@ -47,6 +47,7 @@ set(AM_TESTS
     test_frame_pacer
     test_now_playing_text
     test_http_client
+    test_catalog_parser
 )
 
 # Platform-specific tests. test_epoll_reactor, test_pipewire_sink and
@@ -96,6 +97,11 @@ target_link_libraries(test_http_client PRIVATE am_net)
 if(WIN32)
     target_link_libraries(test_http_client PRIVATE ws2_32)
 endif()
+
+# The catalog parser, over the saved responses in tests/data/catalog/.
+target_link_libraries(test_catalog_parser PRIVATE am_net)
+target_compile_definitions(test_catalog_parser PRIVATE
+    AM_CATALOG_SAMPLES="${CMAKE_CURRENT_SOURCE_DIR}/data/catalog")
 
 # amctl's argument parser lives with amctl, in tools/.
 target_include_directories(test_amctl_args PRIVATE "${PROJECT_SOURCE_DIR}/tools")
@@ -239,14 +245,29 @@ if(AM_BUILD_FUZZERS)
         message(FATAL_ERROR "AM_BUILD_FUZZERS needs Clang (libFuzzer is part of it)")
     endif()
 
-    foreach(fuzzer fuzz_ipc_framing)
+    foreach(fuzzer fuzz_ipc_framing fuzz_catalog_parser)
         add_executable(${fuzzer} ${fuzzer}.cpp)
         target_link_libraries(${fuzzer} PRIVATE am_common)
         target_compile_options(${fuzzer} PRIVATE -fsanitize=fuzzer)
         target_link_options(${fuzzer} PRIVATE -fsanitize=fuzzer)
         am_enable_warnings(${fuzzer})
-        add_test(NAME ${fuzzer} COMMAND ${fuzzer} -runs=100000)
     endforeach()
+    add_test(NAME fuzz_ipc_framing COMMAND fuzz_ipc_framing -runs=100000)
+
+    # Starts from the saved responses (libFuzzer reads every file in the
+    # folder), so it mutates real-looking JSON instead of finding braces by
+    # chance. It writes what it finds new into a corpus folder of its own in
+    # the build, never into the samples.
+    # The parser lives in am_net and simdjson, not in the fuzzer's own file, so
+    # they need libFuzzer's coverage counters too, or it mutates blind.
+    target_link_libraries(fuzz_catalog_parser PRIVATE am_net)
+    target_compile_options(am_net PRIVATE -fsanitize=fuzzer-no-link)
+    target_compile_options(simdjson PRIVATE -fsanitize=fuzzer-no-link)
+    set(catalog_corpus "${CMAKE_CURRENT_BINARY_DIR}/fuzz_catalog_corpus")
+    file(MAKE_DIRECTORY "${catalog_corpus}")
+    add_test(NAME fuzz_catalog_parser
+             COMMAND fuzz_catalog_parser -runs=100000 "${catalog_corpus}"
+                     "${CMAKE_CURRENT_SOURCE_DIR}/data/catalog")
 endif()
 
 # Opens the app window with SDL's offscreen video driver and software renderer

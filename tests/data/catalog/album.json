@@ -1,0 +1,109 @@
+{
+  "data": [
+    {
+      "id": "1440857781",
+      "type": "albums",
+      "href": "/v1/catalog/us/albums/1440857781",
+      "attributes": {
+        "artistName": "The Sample Quartet",
+        "artwork": {
+          "bgColor": "1d1f21",
+          "height": 3000,
+          "textColor1": "f2f2f2",
+          "textColor2": "d9d9d9",
+          "textColor3": "c7c8c8",
+          "textColor4": "b2b3b3",
+          "url": "https://is1-ssl.mzstatic.com/image/thumb/Music/v4/00/00/00/sample/source/{w}x{h}bb.jpg",
+          "width": 3000
+        },
+        "copyright": "℗ 2019 Example Records",
+        "genreNames": ["Alternative", "Music"],
+        "isCompilation": false,
+        "isComplete": true,
+        "isMasteredForItunes": true,
+        "isSingle": false,
+        "name": "Rooms Without Doors",
+        "playParams": { "id": "1440857781", "kind": "album" },
+        "recordLabel": "Example Records",
+        "releaseDate": "2019-05-24",
+        "trackCount": 3,
+        "upc": "000000000001",
+        "url": "https://music.apple.com/us/album/rooms-without-doors/1440857781"
+      },
+      "relationships": {
+        "artists": {
+          "href": "/v1/catalog/us/albums/1440857781/artists",
+          "data": [
+            { "id": "1000000001", "type": "artists", "href": "/v1/catalog/us/artists/1000000001" }
+          ]
+        },
+        "tracks": {
+          "href": "/v1/catalog/us/albums/1440857781/tracks",
+          "data": [
+            {
+              "id": "1440857786",
+              "type": "songs",
+              "href": "/v1/catalog/us/songs/1440857786",
+              "attributes": {
+                "albumName": "Rooms Without Doors",
+                "artistName": "The Sample Quartet",
+                "artwork": {
+                  "bgColor": "1d1f21",
+                  "height": 3000,
+                  "url": "https://is1-ssl.mzstatic.com/image/thumb/Music/v4/00/00/00/sample/source/{w}x{h}bb.jpg",
+                  "width": 3000
+                },
+                "composerName": "A. Writer",
+                "discNumber": 1,
+                "durationInMillis": 215347,
+                "genreNames": ["Alternative", "Music"],
+                "hasLyrics": true,
+                "isrc": "USXXX1900001",
+                "name": "Hallway Light",
+                "playParams": { "id": "1440857786", "kind": "song" },
+                "previews": [{ "url": "https://audio-ssl.itunes.apple.com/sample/preview-1.m4a" }],
+                "releaseDate": "2019-05-24",
+                "trackNumber": 1,
+                "url": "https://music.apple.com/us/album/hallway-light/1440857781?i=1440857786"
+              }
+            },
+            {
+              "id": "1440857787",
+              "type": "songs",
+              "href": "/v1/catalog/us/songs/1440857787",
+              "attributes": {
+                "albumName": "Rooms Without Doors",
+                "artistName": "The Sample Quartet feat. José Niño",
+                "artwork": {
+                  "height": 3000,
+                  "url": "https://is1-ssl.mzstatic.com/image/thumb/Music/v4/00/00/00/sample/source/{w}x{h}bb.jpg",
+                  "width": 3000
+                },
+                "contentRating": "explicit",
+                "discNumber": 1,
+                "durationInMillis": 187000,
+                "genreNames": ["Alternative", "Music"],
+                "name": "\"Quoted\" Stairs",
+                "playParams": { "id": "1440857787", "kind": "song" },
+                "trackNumber": 2
+              }
+            },
+            {
+              "id": "1440857788",
+              "type": "songs",
+              "href": "/v1/catalog/us/songs/1440857788",
+              "attributes": {
+                "albumName": "Rooms Without Doors",
+                "artistName": "The Sample Quartet",
+                "discNumber": 2,
+                "durationInMillis": 402913,
+                "name": "階段 (Stairs)",
+                "trackNumber": 1
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

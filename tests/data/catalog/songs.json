@@ -1,0 +1,37 @@
+{
+  "data": [
+    {
+      "id": "1440857786",
+      "type": "songs",
+      "href": "/v1/catalog/us/songs/1440857786",
+      "attributes": {
+        "albumName": "Rooms Without Doors",
+        "artistName": "The Sample Quartet",
+        "artwork": {
+          "height": 3000,
+          "url": "https://is1-ssl.mzstatic.com/image/thumb/Music/v4/00/00/00/sample/source/{w}x{h}bb.jpg",
+          "width": 3000
+        },
+        "discNumber": 1,
+        "durationInMillis": 215347,
+        "name": "Hallway Light",
+        "trackNumber": 1
+      },
+      "relationships": {
+        "albums": { "href": "/v1/catalog/us/songs/1440857786/albums", "data": [{ "id": "1440857781", "type": "albums" }] }
+      }
+    },
+    {
+      "id": "1500000003",
+      "type": "songs",
+      "href": "/v1/catalog/us/songs/1500000003",
+      "attributes": {
+        "albumName": "Third Album",
+        "artistName": "Artist Three",
+        "durationInMillis": 199500,
+        "name": "Song Three",
+        "trackNumber": 11
+      }
+    }
+  ]
+}
