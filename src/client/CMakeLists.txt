@@ -83,6 +83,7 @@ add_executable(am-ui
     main_client.cpp
     theme.cpp
     views/drawing.cpp
+    views/library_view.cpp
     views/now_playing.cpp
     views/spectrum.cpp
     views/waiting_view.cpp

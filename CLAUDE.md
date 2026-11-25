@@ -89,7 +89,7 @@ Still stubs: Apple Music itself (#4), the ALSA sink and most of `am-ui`. It open
 `SDL_Renderer`, so no platform code; issue #35), and its connection to the daemon is
 real: `am_client_core` (`src/client/daemon_link.hpp`, `ui_state.hpp`) connects on its own
 thread, sends commands, follows the state, reconnects, and reads the telemetry page. The
-window shows it: a now-playing view with play/pause, stop and volume (#37), and a spectrum strip the daemon fills from what it plays (#40). It configures,
+window shows it: a now-playing view with play/pause, stop and volume (#37), a spectrum strip the daemon fills from what it plays (#40), and a library view of playlists that shows made-up sample data until the MusicKit key exists (`src/client/sample_library.hpp`). It configures,
 builds and passes its tests on Linux and Windows. `src/net/http_client.hpp` is the HTTP
 client for the Apple Music API (#104): libcurl on a thread of its own, tested against a
 local server. `src/net/catalog_parser.hpp` (#105) turns Apple Music catalog

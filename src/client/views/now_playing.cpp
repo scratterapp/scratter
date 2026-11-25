@@ -14,82 +14,11 @@ namespace {
 
 using common::PlaybackState;
 
-enum class Icon : std::uint8_t { Play, Pause, Stop };
-
-// A round button with an icon drawn on it. ImGui's own buttons are text in a
-// box; a player wants big round ones. It's an InvisibleButton underneath, so
-// clicks, keyboard focus (Tab) and the tooltip all work like any other item.
-bool round_button(const char* id, const char* tooltip, Icon icon, float radius, bool primary,
-                  bool enabled) {
-    using namespace palette;
-    ImGui::BeginDisabled(!enabled);
-    const ImVec2 corner = ImGui::GetCursorScreenPos();
-    const bool pressed =
-        ImGui::InvisibleButton(id, {radius * 2.0f, radius * 2.0f}, ImGuiButtonFlags_EnableNav);
-    const bool hovered = ImGui::IsItemHovered();
-    ImGui::SetItemTooltip("%s", tooltip);
-    ImGui::EndDisabled();
-
-    const float alpha = enabled ? 1.0f : 0.35f;
-    ImVec4 fill = primary ? kAccent : kRaised;
-    if (hovered && enabled) {
-        fill = primary ? kAccentHover : kSurface;
-    }
-    const ImU32 ink = to_u32(primary ? kBackground : kText, alpha);
-    const ImVec2 c{corner.x + radius, corner.y + radius};
-    const float r = radius;
-    ImDrawList& draw = *ImGui::GetWindowDrawList();
-    draw.AddCircleFilled(c, r, to_u32(fill, alpha), 48);
-    switch (icon) {
-    case Icon::Play:
-        // Nudged right of center: a triangle's weight sits toward its flat side.
-        draw.AddTriangleFilled({c.x - r * 0.26f, c.y - r * 0.38f},
-                               {c.x - r * 0.26f, c.y + r * 0.38f}, {c.x + r * 0.40f, c.y}, ink);
-        break;
-    case Icon::Pause:
-        draw.AddRectFilled({c.x - r * 0.32f, c.y - r * 0.38f}, {c.x - r * 0.10f, c.y + r * 0.38f},
-                           ink, r * 0.04f);
-        draw.AddRectFilled({c.x + r * 0.10f, c.y - r * 0.38f}, {c.x + r * 0.32f, c.y + r * 0.38f},
-                           ink, r * 0.04f);
-        break;
-    case Icon::Stop:
-        draw.AddRectFilled({c.x - r * 0.30f, c.y - r * 0.30f}, {c.x + r * 0.30f, c.y + r * 0.30f},
-                           ink, r * 0.06f);
-        break;
-    }
-    return pressed && enabled;
-}
-
-// A pill-shaped button for the source picker, filled with the accent color
-// when `lit`. Clicking the lit one again starts that source over.
-bool chip(const char* label, bool lit) {
-    using namespace palette;
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFrameHeight() * 0.5f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
-                        {ImGui::GetFontSize() * 0.9f, ImGui::GetStyle().FramePadding.y});
-    ImGui::PushStyleColor(ImGuiCol_Button, lit ? kAccent : kRaised);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, lit ? kAccentHover : kSurface);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, lit ? kAccentHover : kSurface);
-    ImGui::PushStyleColor(ImGuiCol_Text, lit ? kBackground : kText);
-    const bool pressed = ImGui::Button(label);
-    ImGui::PopStyleColor(4);
-    ImGui::PopStyleVar(2);
-    return pressed;
-}
-
-// A word in small spaced capitals, like the "VOL" label in the mockup.
-void small_caps(const Fonts& fonts, const char* text, ImVec4 color) {
-    ImGui::PushFont(fonts.body_bold, kBodySize * 0.72f);
-    ImGui::PushStyleColor(ImGuiCol_Text, color);
-    ImGui::TextUnformatted(text);
-    ImGui::PopStyleColor();
-    ImGui::PopFont();
-}
-
 } // namespace
 
 void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
-                          const TelemetryReader& telemetry, DaemonLink& link, PlayerKeys keys) {
+                          const TelemetryReader& telemetry, DaemonLink& link, PlayerKeys keys,
+                          Screen& screen) {
     using namespace palette;
     const std::string daemon =
         state.daemon_name.empty() ? std::string{am::common::kDaemonName} : state.daemon_name;
@@ -165,6 +94,17 @@ void NowPlayingView::draw(const Fonts& fonts, const DaemonState& state,
 
     const float em = ImGui::GetFontSize();
     const float margin = em * 3.0f;
+
+    // The way to the playlists (views/library_view.cpp), in the top corner
+    // where it stays in view however small the window gets.
+    const float library_width =
+        ImGui::CalcTextSize("Library").x + em * 1.8f; // chip()'s padding on both sides
+    ImGui::SetCursorPos({size.x - em * 1.5f - library_width, em * 1.2f});
+    if (chip("Library", false)) {
+        screen = Screen::Library;
+    }
+    ImGui::SetItemTooltip("Browse the playlists");
+
     ImGui::SetCursorPos({margin, size.y * 0.16f});
     draw_app_label(fonts);
 

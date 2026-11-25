@@ -1,11 +1,13 @@
 #pragma once
 
-// Drawing shared by the waiting and now-playing views: the record in the
-// background and the small app name over the title.
+// Drawing the views share: the record in the background, the small app name
+// over the title, and the round buttons, chips and small capitals.
 
 #include "client/theme.hpp"
 
 #include <imgui.h>
+
+#include <cstdint>
 
 namespace am::client {
 
@@ -20,5 +22,20 @@ void draw_record(ImDrawList& draw, ImVec2 window_pos, ImVec2 window_size,
 
 // "SCRATTER" in small bold capitals and the accent color, at the cursor.
 void draw_app_label(const Fonts& fonts);
+
+enum class Icon : std::uint8_t { Play, Pause, Stop };
+
+// A round button with an icon drawn on it. ImGui's own buttons are text in a
+// box; a player wants big round ones. It's an InvisibleButton underneath, so
+// clicks, keyboard focus (Tab) and the tooltip all work like any other item.
+// `primary` fills it with the accent color. Returns true when clicked.
+bool round_button(const char* id, const char* tooltip, Icon icon, float radius, bool primary,
+                  bool enabled);
+
+// A pill-shaped button, filled with the accent color when `lit`.
+bool chip(const char* label, bool lit);
+
+// A word in small bold capitals, like the "VOL" label beside the volume.
+void small_caps(const Fonts& fonts, const char* text, ImVec4 color);
 
 } // namespace am::client

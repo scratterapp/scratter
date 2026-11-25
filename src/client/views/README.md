@@ -6,7 +6,12 @@ section 3.4.2.
 - `waiting_view.cpp`: what the window shows while the daemon isn't connected.
 - `now_playing.cpp`: what's playing, the position, play/pause, stop and volume.
 - `spectrum.cpp`: the spectrum's 64 bars along the bottom of the now-playing view.
-- `drawing.cpp`: the background record and the app label, shared by both.
+- `library_view.cpp`: the playlists down the side, the open one's songs, and a
+  player bar along the bottom. It shows `../sample_library.hpp` until the
+  MusicKit key exists, with Play and Shuffle greyed out.
+- `screen.hpp`: which of the two fills the window; each view can switch to the other.
+- `drawing.cpp`: what they share: the background record, the app label, round
+  buttons, chips and small capitals.
 
 Each view draws with the colors and fonts in `../theme.hpp` instead of its own.
 Owners: @cocoa55 @kerelosgayed
