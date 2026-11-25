@@ -78,21 +78,25 @@ phase 5 gate: it opens and closes `am-ui` 50 times while the daemon plays and fa
 if the sound skipped (#43), or if the window's own start-up or its connect to the
 daemon went over budget (#89).
 
-What's real so far: everything in `src/common/` (the arena allocator, #103, is ready but nothing uses it until the catalog parser, #105), every
+What's real so far: everything in `src/common/`, every
 interface in `src/pal/interfaces/`, the Linux reactor, IPC
 socket, shared memory, PipeWire sink, keyring vault, MPRIS media controls and signal handling in
 `src/pal/linux/`, their Windows counterparts in `src/pal/win32/` (IOCP reactor, named
 pipe, file mapping, WASAPI sink (shared, and exclusive with `scratterd --exclusive`), DPAPI vault, SMTC media controls, console Ctrl-C) plus the Windows CEF host
 (a CEF built with `third_party/cef-patches/widevine-cdm-dir.patch`, issue #8), and the
 drift controller and resampler in `src/daemon/audio_engine/`.
-Still stubs: Apple Music itself (#4), the catalog parser in `src/net/` (#105), the ALSA sink and most of `am-ui`. It opens its window (SDL3 + Dear ImGui, drawn through
+Still stubs: Apple Music itself (#4), the ALSA sink and most of `am-ui`. It opens its window (SDL3 + Dear ImGui, drawn through
 `SDL_Renderer`, so no platform code; issue #35), and its connection to the daemon is
 real: `am_client_core` (`src/client/daemon_link.hpp`, `ui_state.hpp`) connects on its own
 thread, sends commands, follows the state, reconnects, and reads the telemetry page. The
 window shows it: a now-playing view with play/pause, stop and volume (#37), and a spectrum strip the daemon fills from what it plays (#40). It configures,
 builds and passes its tests on Linux and Windows. `src/net/http_client.hpp` is the HTTP
 client for the Apple Music API (#104): libcurl on a thread of its own, tested against a
-local server. Catch2, SDL3 and Dear ImGui (via `FetchContent`, pinned by commit), libcurl
+local server. `src/net/catalog_parser.hpp` (#105) turns Apple Music catalog
+responses (songs, albums, playlists, search) into plain structs in the arena
+(`src/common/arena_allocator.hpp`) with simdjson; it's tested and fuzzed against
+hand-written samples in `tests/data/catalog/`, since there's no Apple key yet, and
+nothing calls it until the library views. Catch2, SDL3, Dear ImGui and simdjson (via `FetchContent`, pinned by commit), libcurl
 (`pkg-config` on Linux, `FetchContent` pinned to a release with Schannel on Windows) and,
 on Linux, PipeWire, libsecret and libsystemd's sd-bus (system packages via `pkg-config`) are the only
 third-party dependencies wired into CMake so far. SDL3 needs the X11 and Wayland
@@ -330,7 +334,7 @@ order and where each step stands:
 4. Headless CEF and `CefAudioHandler` in `src/daemon/cef_host/`. *(shared, plays
    Google's test films; Apple Music through MusicKit JS is #4)*
 5. `src/net/` (libcurl + simdjson) and the ImGui client in `src/client/`. *(shared;
-   the window, its daemon link and the HTTP client are in; the catalog parser is #105)*
+   the window, its daemon link, the HTTP client and the catalog parser are in)*
 
 Shared memory, the credential vault and media controls are done on both platforms.
 
@@ -346,7 +350,7 @@ These aren't settled. Raise them with robbie and kero rather than picking one si
 
 - How later third-party dependencies are pulled in. Settled so far (roadmap, #6):
   system libraries through `pkg-config`, small source libraries through
-  `FetchContent` pinned by commit (Catch2, SDL3, ImGui, and simdjson for #105),
+  `FetchContent` pinned by commit (Catch2, SDL3, ImGui, simdjson),
   and libcurl from `pkg-config` on Linux and `FetchContent` with Schannel on
   Windows. Anything new still gets agreed first.
 - How we build and ship our own CEF. The prebuilt downloads can't decode AAC, so we

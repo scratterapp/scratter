@@ -1,4 +1,4 @@
-# src/net: HTTP for the Apple Music API (libcurl, #104), and later the catalog
+# src/net: HTTP for the Apple Music API (libcurl, #104), and the catalog
 # parser (simdjson, #105).
 #
 # Where libcurl comes from (decided on the roadmap, #6, 2026-11-22):
@@ -56,9 +56,25 @@ else()
     set(AM_CURL_TARGET PkgConfig::CURL)
 endif()
 
+# simdjson, the same on both platforms: FetchContent pinned by commit, built
+# without exceptions (decided on the roadmap, #6, 2026-11-22). It's one .cpp
+# and one header; SYSTEM keeps our warnings out of its header.
+include(FetchContent)
+set(SIMDJSON_EXCEPTIONS OFF CACHE BOOL "" FORCE)
+set(SIMDJSON_ENABLE_THREADS OFF CACHE BOOL "" FORCE) # only parse_many() uses a thread
+FetchContent_Declare(
+    simdjson
+    GIT_REPOSITORY https://github.com/simdjson/simdjson.git
+    # v4.6.11, by commit.
+    GIT_TAG f5de14f09256982933af2849beb43778bd421ca7
+    SYSTEM
+    EXCLUDE_FROM_ALL
+)
+FetchContent_MakeAvailable(simdjson)
+
 add_library(am_net STATIC
     catalog_parser.cpp
     http_client.cpp
 )
-target_link_libraries(am_net PUBLIC am_pal am_common PRIVATE ${AM_CURL_TARGET})
+target_link_libraries(am_net PUBLIC am_pal am_common PRIVATE ${AM_CURL_TARGET} simdjson::simdjson)
 am_enable_warnings(am_net)

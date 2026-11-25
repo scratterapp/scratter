@@ -225,7 +225,7 @@ Each phase ends in a test gate:
 | 1 | Lock-free ring buffer, shared memory, the control channel | Done on both |
 | 2 | Real-time audio output and the clock-drift loop | Done on both |
 | 3 | Hidden browser, Widevine, sign-in storage | Browser, Widevine and storage done; Apple Music sign-in not started |
-| 4 | Network and catalog engine, media controls | Media controls done; `src/net/` (libcurl + simdjson) not started |
+| 4 | Network and catalog engine, media controls | Media controls, the HTTP client (libcurl) and the catalog parser (simdjson) done |
 | 5 | The detachable window | Window and the 50-relaunch gate done; library views and the visualizer not started |
 
 The biggest open item is the Apple Music connection itself (issue

@@ -1,0 +1,73 @@
+{
+  "data": [
+    {
+      "id": "pl.5ee8333dbe944d9f9151e97d81d8f6d2",
+      "type": "playlists",
+      "href": "/v1/catalog/us/playlists/pl.5ee8333dbe944d9f9151e97d81d8f6d2",
+      "attributes": {
+        "artwork": {
+          "height": 1080,
+          "url": "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/00/00/00/sample/source/{w}x{h}cc.jpg",
+          "width": 1080
+        },
+        "curatorName": "Apple Music",
+        "description": {
+          "short": "Quiet songs for late nights.",
+          "standard": "Quiet songs for late nights, updated every Friday."
+        },
+        "isChart": false,
+        "lastModifiedDate": "2026-11-20T08:00:00Z",
+        "name": "Late Night Sample",
+        "playParams": { "id": "pl.5ee8333dbe944d9f9151e97d81d8f6d2", "kind": "playlist" },
+        "playlistType": "editorial",
+        "url": "https://music.apple.com/us/playlist/late-night-sample/pl.5ee8333dbe944d9f9151e97d81d8f6d2"
+      },
+      "relationships": {
+        "curator": {
+          "href": "/v1/catalog/us/playlists/pl.5ee8333dbe944d9f9151e97d81d8f6d2/curator",
+          "data": [{ "id": "976439548", "type": "apple-curators" }]
+        },
+        "tracks": {
+          "href": "/v1/catalog/us/playlists/pl.5ee8333dbe944d9f9151e97d81d8f6d2/tracks",
+          "next": "/v1/catalog/us/playlists/pl.5ee8333dbe944d9f9151e97d81d8f6d2/tracks?offset=100",
+          "data": [
+            {
+              "id": "1500000001",
+              "type": "songs",
+              "attributes": {
+                "albumName": "First Album",
+                "artistName": "Artist One",
+                "artwork": { "height": 1400, "url": "https://example.invalid/one/{w}x{h}bb.jpg", "width": 1400 },
+                "discNumber": 1,
+                "durationInMillis": 241000,
+                "name": "Song One",
+                "trackNumber": 4
+              }
+            },
+            {
+              "id": "1500000002",
+              "type": "music-videos",
+              "attributes": {
+                "artistName": "Artist Two",
+                "durationInMillis": 250000,
+                "name": "A Music Video"
+              }
+            },
+            {
+              "id": "1500000003",
+              "type": "songs",
+              "attributes": {
+                "albumName": "Third Album",
+                "artistName": "Artist Three",
+                "discNumber": 1,
+                "durationInMillis": 199500,
+                "name": "Song Three",
+                "trackNumber": 11
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
