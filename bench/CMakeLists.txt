@@ -20,9 +20,14 @@ am_enable_warnings(spectrum_fft)
 
 # The catalog parser on a 500-track playlist (spec section 6, phase 4 gate):
 # how long one parse takes, and that it allocates nothing outside the arena.
-add_executable(catalog_parse catalog_parse.cpp)
-target_link_libraries(catalog_parse PRIVATE am_net)
-target_include_directories(catalog_parse PRIVATE "${PROJECT_SOURCE_DIR}/tests")
-target_compile_definitions(catalog_parse PRIVATE
-    AM_CATALOG_SAMPLES="${PROJECT_SOURCE_DIR}/tests/data/catalog")
-am_enable_warnings(catalog_parse)
+# It counts allocations by replacing the global operator new, which the
+# sanitizers replace too (TSan's can't be overridden, so it won't link), and a
+# sanitizer build's timings mean nothing anyway, so it's left out of those.
+if(NOT (AM_ENABLE_ASAN OR AM_ENABLE_TSAN))
+    add_executable(catalog_parse catalog_parse.cpp)
+    target_link_libraries(catalog_parse PRIVATE am_net)
+    target_include_directories(catalog_parse PRIVATE "${PROJECT_SOURCE_DIR}/tests")
+    target_compile_definitions(catalog_parse PRIVATE
+        AM_CATALOG_SAMPLES="${PROJECT_SOURCE_DIR}/tests/data/catalog")
+    am_enable_warnings(catalog_parse)
+endif()
