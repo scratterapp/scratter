@@ -150,6 +150,9 @@ TEST_CASE("the window's link connects, sends commands and follows the state", "[
     s = l.state();
     CHECK(s.track_source == am::common::TrackSource::Tone);
     CHECK(s.track_title == "440 Hz test tone");
+    CHECK(s.track_artist == am::common::kAppName);
+    CHECK(s.track_album.empty());
+    CHECK(s.track_artwork_url.empty());
 
     TelemetryReader reader(name);
     CHECK_FALSE(reader.open_took().has_value());

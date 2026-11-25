@@ -228,6 +228,24 @@ TEST_CASE("the desktop sees the track and its buttons reach the reactor thread",
         CHECK(end.Duration ==
               std::chrono::duration_cast<std::chrono::nanoseconds>(3min).count() / 100);
     }
+    {
+        // The artist and album lines (#106). The title already matched above.
+        ComPtr<foundation::IAsyncOperation<
+            control::GlobalSystemMediaTransportControlsSessionMediaProperties*>>
+            fetching;
+        ComPtr<control::IGlobalSystemMediaTransportControlsSessionMediaProperties> properties;
+        REQUIRE(SUCCEEDED(session->TryGetMediaPropertiesAsync(&fetching)));
+        REQUIRE(wait_for(fetching.Get(), properties.GetAddressOf()));
+        REQUIRE(properties);
+        HSTRING artist = nullptr;
+        HSTRING album = nullptr;
+        REQUIRE(SUCCEEDED(properties->get_Artist(&artist)));
+        REQUIRE(SUCCEEDED(properties->get_AlbumTitle(&album)));
+        CHECK(text_of(artist) == L"Test Artist");
+        CHECK(text_of(album) == L"Test Album");
+        ::WindowsDeleteString(artist);
+        ::WindowsDeleteString(album);
+    }
 
     // Each Try*Async call is a click on the flyout's button.
     boolean accepted = false;
