@@ -7,7 +7,8 @@
 #include "net/http_client.hpp" // kBodyPadding
 
 #include <cstddef>
-#include <cstdio>
+#include <fstream>
+#include <iterator>
 #include <span>
 #include <string>
 #include <string_view>
@@ -35,18 +36,8 @@ class PaddedBody {
 // AM_CATALOG_SAMPLES is set by tests/CMakeLists.txt.
 inline std::string read_sample(std::string_view name) {
     const std::string path = std::string(AM_CATALOG_SAMPLES) + "/" + std::string(name);
-    std::string text;
-    std::FILE* file = std::fopen(path.c_str(), "rb");
-    if (file == nullptr) {
-        return text;
-    }
-    char chunk[4096];
-    std::size_t got = 0;
-    while ((got = std::fread(chunk, 1, sizeof(chunk), file)) > 0) {
-        text.append(chunk, got);
-    }
-    std::fclose(file);
-    return text;
+    std::ifstream file(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 }
 
 // A catalog playlist with `tracks` songs, each with the attributes a real
