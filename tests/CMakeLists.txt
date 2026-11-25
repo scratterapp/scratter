@@ -46,6 +46,7 @@ set(AM_TESTS
     test_realtime
     test_frame_pacer
     test_now_playing_text
+    test_library
     test_http_client
 )
 
@@ -248,6 +249,16 @@ if(AM_BUILD_FUZZERS)
         add_test(NAME ${fuzzer} COMMAND ${fuzzer} -runs=100000)
     endforeach()
 endif()
+
+# The library view drawn by Dear ImGui with no window (see the file), so it
+# needs ImGui but not SDL's video. Built from the view's own sources: am-ui is
+# a program, not a library.
+add_executable(test_library_view test_library_view.cpp
+    ${PROJECT_SOURCE_DIR}/src/client/views/library_view.cpp
+    ${PROJECT_SOURCE_DIR}/src/client/views/drawing.cpp)
+target_link_libraries(test_library_view PRIVATE am_client_core am_imgui Catch2::Catch2WithMain)
+am_enable_warnings(test_library_view)
+catch_discover_tests(test_library_view)
 
 # Opens the app window with SDL's offscreen video driver and software renderer
 # (no screen or GPU needed, so it runs in CI), draws a few frames and quits. Under

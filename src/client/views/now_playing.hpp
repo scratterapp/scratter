@@ -12,6 +12,7 @@
 #include "client/daemon_link.hpp"
 #include "client/theme.hpp"
 #include "client/ui_state.hpp"
+#include "client/views/screen.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -33,9 +34,10 @@ class NowPlayingView {
     explicit NowPlayingView(std::string renderer) : renderer_(std::move(renderer)) {}
 
     // Fills the whole SDL window. Call between ImGui::NewFrame() and
-    // ImGui::Render(), only while `state.status` is Connected.
+    // ImGui::Render(), only while `state.status` is Connected. The Library
+    // chip sets `screen` to Screen::Library.
     void draw(const Fonts& fonts, const DaemonState& state, const TelemetryReader& telemetry,
-              DaemonLink& link, PlayerKeys keys);
+              DaemonLink& link, PlayerKeys keys, Screen& screen);
 
     // True while the spectrum is turned on, so main_client.cpp draws every
     // frame instead of only after events.

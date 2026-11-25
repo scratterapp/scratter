@@ -1,6 +1,7 @@
 // am-ui: the app window. It connects to the daemon in the background
 // (daemon_link.hpp) and shows what's playing, with play/pause, stop and volume
-// (views/now_playing.cpp), or a waiting screen while the daemon isn't there.
+// (views/now_playing.cpp), the playlists (views/library_view.cpp, sample data
+// for now), or a waiting screen while the daemon isn't there.
 // Closing it only disconnects: the music keeps playing in the daemon. SDL3
 // makes the window and reads input, Dear ImGui decides what goes in it, and
 // SDL_Renderer draws it with whatever the machine has (OpenGL or Vulkan on
@@ -19,9 +20,12 @@
 
 #include "client/daemon_link.hpp"
 #include "client/frame_pacer.hpp"
+#include "client/sample_library.hpp"
 #include "client/theme.hpp"
 #include "client/ui_state.hpp"
+#include "client/views/library_view.hpp"
 #include "client/views/now_playing.hpp"
+#include "client/views/screen.hpp"
 #include "client/views/spectrum.hpp"
 #include "client/views/waiting_view.hpp"
 #include "common/app_name.hpp"
@@ -343,6 +347,8 @@ int main(int argc, char** argv) {
     }
     am::client::TelemetryReader telemetry{options->daemon_name};
     am::client::NowPlayingView now_playing{renderer_name};
+    am::client::LibraryView library{am::client::sample::kPlaylists};
+    am::client::Screen screen = am::client::Screen::NowPlaying;
 
     // The daemon's raise_count when the window last came to the front.
     std::uint64_t raises_seen = 0;
@@ -411,7 +417,9 @@ int main(int argc, char** argv) {
             const bool bars_can_move =
                 state.playback == am::common::PlaybackState::Playing ||
                 !am::client::spectrum_at_rest(telemetry.snapshot().fft_magnitude_db);
-            pacer.set_animating(connected && now_playing.spectrum_shown() && bars_can_move,
+            const bool spectrum_on_screen =
+                screen == am::client::Screen::NowPlaying && now_playing.spectrum_shown();
+            pacer.set_animating(connected && spectrum_on_screen && bars_can_move,
                                 am::client::FramePacer::kSpectrumFrameMs);
         }
 
@@ -425,8 +433,10 @@ int main(int argc, char** argv) {
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
-        if (connected) {
-            now_playing.draw(fonts, state, telemetry, **link, keys);
+        if (connected && screen == am::client::Screen::Library) {
+            library.draw(fonts, state, telemetry, **link, keys, screen);
+        } else if (connected) {
+            now_playing.draw(fonts, state, telemetry, **link, keys, screen);
         } else {
             am::client::draw_waiting_view(fonts, state);
         }
