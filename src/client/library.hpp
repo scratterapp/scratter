@@ -5,10 +5,10 @@
 // check them without a window (tests/test_library.cpp).
 //
 // Until the MusicKit key exists the songs come from sample_library.hpp. The
-// field names and units follow the catalog parser's structs (#105, am::net),
-// strings borrowed from its arena included, so feeding this view real
-// playlists later is a copy of a few fields, or a swap of these two structs
-// for those.
+// field names and units here are the ones the catalog parser (#105, am::net)
+// is planned to use, strings borrowed from its arena included, so once it
+// lands, feeding this view real playlists is a copy of a few fields, or a
+// swap of these two structs for its own.
 
 #include <concepts>
 #include <cstddef>
@@ -36,7 +36,7 @@ struct Playlist {
 // "10 songs, 44 minutes", "1 song, 3 minutes", "2 hours 5 minutes" for a long
 // one. The length is rounded to the nearest minute, and a playlist shorter
 // than half a minute says "under a minute".
-inline std::string playlist_summary(std::span<const Song> tracks) {
+[[nodiscard]] inline std::string playlist_summary(std::span<const Song> tracks) {
     if (tracks.empty()) {
         return "No songs yet";
     }
