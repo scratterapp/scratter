@@ -495,6 +495,7 @@ scratter/
 │   ├── Hardening.cmake                # Stack protector, FORTIFY_SOURCE, bounds-checked std containers, PIE, full RELRO (MSVC: /guard:cf, /CETCOMPAT)
 │   └── Sanitizers.cmake               # ASan+UBSan / TSan flags applied to every target
 ├── docs/                              # OVERVIEW, ARCHITECTURE, SPECIFICATION, RATIONALE, COLLABORATION, SETUP, BENCHMARKS, release-checklist, CEF; assets/ (logo, banner), windows/START_HERE.md
+├── .agents/                           # environment.json: cloud-VM dependency install script for Ubuntu containers
 ├── .github/                           # CODEOWNERS, PR template, CI (path-filtered per platform, actions pinned by commit), Dependabot
 ├── src/
 │   ├── common/                        # Target: am_common (header-only INTERFACE library - zero OS/CEF deps)
